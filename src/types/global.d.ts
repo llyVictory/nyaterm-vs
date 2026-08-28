@@ -1361,6 +1361,15 @@ export type AIMode = "ask" | "agent";
 export type AIAgentCommandExecutionMode = "confirm_each" | "smart" | "auto";
 export type AIAgentKind = "nyaterm" | "codex" | "claude_code";
 export type AIPermissionMode = "observer" | "confirm" | "auto";
+export type ExternalMcpSessionScope = "current_window" | "all_sessions";
+export type ExternalMcpServerMode = "temporary" | "persistent";
+export interface ExternalMcpSettings {
+  enabled: boolean;
+  permission_mode: AIPermissionMode;
+  session_scope: ExternalMcpSessionScope;
+  server_mode: ExternalMcpServerMode;
+  idle_timeout_minutes: number;
+}
 export type AIReasoningEffort =
   | "auto"
   | "none"
@@ -1475,6 +1484,28 @@ export interface AISettings {
   agent_smart_auto_execute_max_risk: RiskLevel;
   codex: CodexIntegrationSettings;
   claude_code: ClaudeCodeIntegrationSettings;
+  external_mcp: ExternalMcpSettings;
+}
+
+export interface McpRuntimeStatus {
+  enabled: boolean;
+  running: boolean;
+  error?: string | null;
+  ownerWindowLabel?: string | null;
+  scopedSessionCount: number;
+  connectionCount: number;
+  port?: number | null;
+  generation?: string | null;
+}
+
+export interface McpApprovalRequest {
+  requestId: string;
+  client: string;
+  capability: string;
+  sessionId?: string | null;
+  sessionName?: string | null;
+  parameterSummary: string;
+  risk: RiskLevel;
 }
 
 export interface AIContext {

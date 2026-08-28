@@ -2422,11 +2422,13 @@ mod tests {
     };
     use crate::config::{AiExecutionProfile, ProxySettings, SftpSettings};
     use crate::core::ssh::{SshAuth, SshConfig};
-    use crate::core::{SessionCommand, SessionHandle, SessionInfo, SessionManager, SessionType};
+    use crate::core::{
+        SessionHandle, SessionInfo, SessionManager, SessionType, session_command_channel,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use tokio::sync::{Mutex, mpsc};
+    use tokio::sync::Mutex;
 
     fn temp_test_dir(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("nyaterm-{name}-{}", uuid::Uuid::new_v4()));
@@ -2595,7 +2597,7 @@ mod tests {
     #[tokio::test]
     async fn disabled_remote_file_browser_rejects_sftp_commands() {
         let manager = Arc::new(SessionManager::new());
-        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let (cmd_tx, _cmd_rx) = session_command_channel("ssh-disabled-files");
         manager
             .add_session(SessionHandle {
                 info: SessionInfo {

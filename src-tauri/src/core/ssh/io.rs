@@ -11,14 +11,13 @@ use crate::core::zmodem::{
     ZmodemEvent, ZmodemTransfer, ZmodemUploadDrain, start_zmodem_transfer,
 };
 use crate::core::{
-    RecordingManager, SessionCommand, SessionManager, SessionOutputCoalescer, SharedCwd,
-    update_cwd_if_changed,
+    RecordingManager, SessionCommand, SessionCommandReceiver, SessionCommandSender, SessionManager,
+    SessionOutputCoalescer, SharedCwd, update_cwd_if_changed,
 };
 use crate::error::{AppError, AppResult};
 use russh::{ChannelMsg, client};
 use std::{pin::Pin, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
 use tokio::time::{Duration, Sleep, timeout};
 
 const INJECT_TIMEOUT_SECS: u64 = 30;
@@ -783,8 +782,8 @@ pub(super) async fn ssh_io_loop(
     manager: Arc<SessionManager>,
     mut channel: russh::Channel<client::Msg>,
     _handle: SshHandle,
-    mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
-    output_control_tx: mpsc::UnboundedSender<SessionCommand>,
+    mut cmd_rx: SessionCommandReceiver,
+    output_control_tx: SessionCommandSender,
     cwd: SharedCwd,
     connection_id: Option<String>,
     injection_script: Option<String>,

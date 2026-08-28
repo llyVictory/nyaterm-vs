@@ -1644,6 +1644,7 @@ export default function XTerminal({
     };
 
     const {
+      outputAckLease,
       outputScheduler,
       outputDrain,
       frameGate,
@@ -1656,6 +1657,7 @@ export default function XTerminal({
       flushQueuedOutputBeforeStatusNotice,
     } = createXTerminalOutputController({
       sessionId,
+      terminalGeneration,
       terminal,
       outputDrainRef,
       frameGateRef,
@@ -2219,6 +2221,7 @@ export default function XTerminal({
         frameGateRef.current = null;
       }
       outputDrain.dispose();
+      outputAckLease.dispose();
       if (outputDrainRef.current === outputDrain) {
         outputDrainRef.current = null;
       }

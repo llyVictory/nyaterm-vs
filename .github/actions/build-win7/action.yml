@@ -60,15 +60,20 @@ runs:
       shell: pwsh
       run: pnpm install --frozen-lockfile
 
-    - name: Build frontend
-      shell: pwsh
-      run: pnpm build
-
     - name: Install Win7 Rust toolchain
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: nightly-2026-07-22
         components: rust-src
+
+    - name: Build frontend and Win7 MCP sidecar
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $env:NYATERM_MCP_TARGET = $env:WIN7_TARGET
+        $env:NYATERM_MCP_BUILD_STD = "std,panic_abort"
+        pnpm build
 
     - name: Rust cache
       uses: swatinem/rust-cache@v2

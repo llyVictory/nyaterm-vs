@@ -44,7 +44,7 @@ pub async fn create_serial_session(
             )));
         }
     };
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+    let (cmd_tx, cmd_rx) = session_command_channel(session_id.clone());
     let reader_shutdown_tx = cmd_tx.clone();
     let output_control_tx = cmd_tx.clone();
 

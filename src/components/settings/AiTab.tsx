@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -33,6 +34,7 @@ import {
 } from "@/lib/aiSettings";
 import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
+import { writeClipboardText } from "@/lib/clipboard";
 import type {
   AICustomActionConfig,
   AIApiFormat,
@@ -43,6 +45,8 @@ import type {
   AISettings,
   ClaudeCodeIntegrationSettings,
   CodexIntegrationSettings,
+  ExternalMcpSettings,
+  McpRuntimeStatus,
 } from "@/types/global";
 import {
   SettingFieldGrid,
@@ -131,6 +135,13 @@ interface ClaudeCodeCliStatus {
   error?: string | null;
   source?: string | null;
   checkedPaths?: string[];
+}
+
+interface McpClientConfigs {
+  sidecarPath: string;
+  codex: unknown;
+  claudeCode: unknown;
+  cursor: unknown;
 }
 
 interface ClaudeCodeAccountStatus {
@@ -292,6 +303,14 @@ export function AiAgentsTab() {
   const ai = appSettings.ai;
   const codex = normalizeCodexSettings(ai.codex);
   const claudeCode = normalizeClaudeCodeSettings(ai.claude_code);
+  const externalMcp: ExternalMcpSettings = ai.external_mcp ?? {
+    enabled: false,
+    permission_mode: "confirm",
+    session_scope: "current_window",
+    server_mode: "temporary",
+    idle_timeout_minutes: 10,
+  };
+  const [mcpStatus, setMcpStatus] = useState<McpRuntimeStatus | null>(null);
   const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
   const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
   const [claudeCliStatus, setClaudeCliStatus] = useState<ClaudeCodeCliStatus | null>(null);
@@ -318,6 +337,41 @@ export function AiAgentsTab() {
         ai: { ...ai, claude_code: { ...claudeCode, ...patch } },
       }),
     [ai, claudeCode, updateAppSettings],
+  );
+
+  const updateExternalMcp = useCallback(
+    (patch: Partial<ExternalMcpSettings>) =>
+      updateAppSettings({ ai: { ...ai, external_mcp: { ...externalMcp, ...patch } } }),
+    [ai, externalMcp, updateAppSettings],
+  );
+
+  useEffect(() => {
+    void invoke<McpRuntimeStatus>("get_external_mcp_status").then(setMcpStatus).catch(() => {});
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<McpRuntimeStatus>("mcp-status-changed", (event) => {
+      if (!disposed) setMcpStatus(event.payload);
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const copyMcpConfig = useCallback(
+    async (client: "codex" | "claudeCode" | "cursor") => {
+      try {
+        const configs = await invoke<McpClientConfigs>("get_external_mcp_client_configs");
+        await writeClipboardText(JSON.stringify(configs[client], null, 2));
+        toast.success(t("ai.externalMcpConfigCopied"));
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+    },
+    [t],
   );
 
   const detect = useCallback(
@@ -713,6 +767,97 @@ export function AiAgentsTab() {
               </Button>
             </div>
           </div>
+        </div>
+      </SettingSection>
+
+      <SettingSection title={t("ai.externalMcp")} contentClassName="space-y-4">
+        <SettingRow label={t("ai.externalMcpEnabled")} desc={t("ai.externalMcpDesc")}>
+          <div className="flex items-center gap-2">
+            <Badge variant={mcpStatus?.running ? "default" : "outline"}>
+              {mcpStatus?.error
+                ? t("ai.externalMcpError")
+                : mcpStatus?.running
+                  ? t("ai.externalMcpRunning")
+                  : t("ai.externalMcpDisabled")}
+            </Badge>
+            <SettingSwitch
+              checked={externalMcp.enabled}
+              onChange={(enabled) => updateExternalMcp({ enabled })}
+            />
+          </div>
+        </SettingRow>
+        {mcpStatus?.error ? (
+          <div className="text-xs text-destructive">{mcpStatus.error}</div>
+        ) : null}
+        <SettingFieldGrid>
+          <SettingSelect
+            label={t("ai.permissionMode")}
+            value={externalMcp.permission_mode}
+            onValueChange={(permission_mode) =>
+              updateExternalMcp({ permission_mode: permission_mode as AIPermissionMode })
+            }
+          >
+            <SelectItem value="observer">{t("ai.permissionObserver")}</SelectItem>
+            <SelectItem value="confirm">{t("ai.permissionConfirm")}</SelectItem>
+            <SelectItem value="auto">{t("ai.permissionAuto")}</SelectItem>
+          </SettingSelect>
+          <SettingSelect
+            label={t("ai.externalMcpScope")}
+            value={externalMcp.session_scope}
+            onValueChange={(session_scope) =>
+              updateExternalMcp({
+                session_scope: session_scope as ExternalMcpSettings["session_scope"],
+              })
+            }
+          >
+            <SelectItem value="current_window">{t("ai.externalMcpCurrentWindow")}</SelectItem>
+            <SelectItem value="all_sessions">{t("ai.externalMcpAllSessions")}</SelectItem>
+          </SettingSelect>
+          <SettingSelect
+            label={t("ai.externalMcpServerMode")}
+            value={externalMcp.server_mode}
+            onValueChange={(server_mode) =>
+              updateExternalMcp({
+                server_mode: server_mode as ExternalMcpSettings["server_mode"],
+              })
+            }
+          >
+            <SelectItem value="temporary">{t("ai.externalMcpTemporary")}</SelectItem>
+            <SelectItem value="persistent">{t("ai.externalMcpPersistent")}</SelectItem>
+          </SettingSelect>
+          <SettingNumberInput
+            label={t("ai.externalMcpIdleTimeout")}
+            min={1}
+            max={120}
+            step={1}
+            disabled={externalMcp.server_mode === "persistent"}
+            value={externalMcp.idle_timeout_minutes}
+            onChange={(idle_timeout_minutes) => updateExternalMcp({ idle_timeout_minutes })}
+          />
+        </SettingFieldGrid>
+        <div className="text-xs text-muted-foreground">
+          {t("ai.externalMcpRuntimeSummary", {
+            window: mcpStatus?.ownerWindowLabel ?? "-",
+            sessions: mcpStatus?.scopedSessionCount ?? 0,
+            connections: mcpStatus?.connectionCount ?? 0,
+          })}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(["codex", "claudeCode", "cursor"] as const).map((client) => (
+            <div key={client} className="rounded-md border border-border/70 p-3">
+              <div className="text-sm font-medium">
+                {client === "codex" ? "Codex" : client === "claudeCode" ? "Claude Code" : "Cursor"}
+              </div>
+              <Button
+                className="mt-3 w-full"
+                size="sm"
+                variant="outline"
+                onClick={() => void copyMcpConfig(client)}
+              >
+                {t("ai.externalMcpCopyConfig")}
+              </Button>
+            </div>
+          ))}
         </div>
       </SettingSection>
     </div>

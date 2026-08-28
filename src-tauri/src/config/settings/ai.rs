@@ -81,6 +81,62 @@ impl Default for AiPermissionMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMcpSessionScope {
+    CurrentWindow,
+    AllSessions,
+}
+
+impl Default for ExternalMcpSessionScope {
+    fn default() -> Self {
+        Self::CurrentWindow
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMcpServerMode {
+    Temporary,
+    Persistent,
+}
+
+impl Default for ExternalMcpServerMode {
+    fn default() -> Self {
+        Self::Temporary
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalMcpSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub permission_mode: AiPermissionMode,
+    #[serde(default)]
+    pub session_scope: ExternalMcpSessionScope,
+    #[serde(default)]
+    pub server_mode: ExternalMcpServerMode,
+    #[serde(default = "default_external_mcp_idle_timeout_minutes")]
+    pub idle_timeout_minutes: u16,
+}
+
+impl Default for ExternalMcpSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            permission_mode: AiPermissionMode::Confirm,
+            session_scope: ExternalMcpSessionScope::CurrentWindow,
+            server_mode: ExternalMcpServerMode::Temporary,
+            idle_timeout_minutes: default_external_mcp_idle_timeout_minutes(),
+        }
+    }
+}
+
+fn default_external_mcp_idle_timeout_minutes() -> u16 {
+    10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AiMode {
     Ask,
@@ -337,6 +393,8 @@ pub struct AiSettings {
     pub codex: CodexIntegrationSettings,
     #[serde(default)]
     pub claude_code: ClaudeCodeIntegrationSettings,
+    #[serde(default)]
+    pub external_mcp: ExternalMcpSettings,
 }
 
 fn default_schema_version() -> u32 {
@@ -620,6 +678,7 @@ impl Default for AiSettings {
             agent_smart_auto_execute_max_risk: default_agent_smart_auto_execute_max_risk(),
             codex: CodexIntegrationSettings::default(),
             claude_code: ClaudeCodeIntegrationSettings::default(),
+            external_mcp: ExternalMcpSettings::default(),
         }
     }
 }
@@ -679,6 +738,8 @@ pub fn normalize_ai_settings(settings: &mut AiSettings) -> bool {
     let original = serde_json::to_string(settings).unwrap_or_default();
 
     settings.schema_version = 6;
+    settings.external_mcp.idle_timeout_minutes =
+        settings.external_mcp.idle_timeout_minutes.clamp(1, 120);
     if settings.request_user_agent.trim().is_empty() {
         settings.request_user_agent = default_request_user_agent();
     }

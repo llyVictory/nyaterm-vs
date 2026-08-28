@@ -10,7 +10,7 @@ pub async fn create_local_session(
     validate_working_dir_before_spawn(config.as_ref())?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+    let (cmd_tx, cmd_rx) = session_command_channel(session_id.clone());
     let output_control_tx = cmd_tx.clone();
 
     let session_name = config
@@ -93,8 +93,8 @@ fn pty_session_thread(
     app: AppHandle,
     session_id: String,
     manager: Arc<SessionManager>,
-    mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
-    output_control_tx: mpsc::UnboundedSender<SessionCommand>,
+    mut cmd_rx: SessionCommandReceiver,
+    output_control_tx: SessionCommandSender,
     rt_handle: tokio::runtime::Handle,
     cwd: SharedCwd,
     config: Option<LocalSessionConfig>,

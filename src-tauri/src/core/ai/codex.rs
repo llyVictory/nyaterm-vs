@@ -831,8 +831,42 @@ async fn run_codex_stream_inner(
         save_user_message(&app, &session_id, request)?;
     }
 
+    let mut mcp_credential =
+        if settings.codex.tool_integration_mode.as_deref() == Some("nyaterm_mcp") {
+            if let Some(mcp) = app.try_state::<Arc<crate::core::mcp::McpManager>>() {
+                let (scope, default_id) = codex_request_terminal_scope(request);
+                let owner =
+                    if let Some(id) = default_id.as_deref().or(scope.first().map(String::as_str)) {
+                        session_manager
+                            .session_info(id)
+                            .await
+                            .ok()
+                            .and_then(|info| info.owner_window_label)
+                    } else {
+                        None
+                    };
+                mcp.create_ephemeral_credential(
+                    "codex_mcp",
+                    scope,
+                    default_id,
+                    request.permission_mode.clone(),
+                    owner,
+                )
+                .await
+                .ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
     let metadata = get_session_backend_metadata(&app, &session_id)?;
-    let thread_id = reusable_codex_thread_id(metadata.as_ref());
+    let thread_id = if mcp_credential.is_some() {
+        None
+    } else {
+        reusable_codex_thread_id(metadata.as_ref())
+    };
 
     let thread_id = if let Some(thread_id) = thread_id {
         manager
@@ -840,11 +874,32 @@ async fn run_codex_stream_inner(
             .await?;
         thread_id
     } else {
-        let params = codex_thread_start_params(
+        let params = codex_thread_start_params_with_mcp(
             selected_model_name.as_deref(),
             settings.codex.thread_mode == CodexThreadMode::Ephemeral,
+            mcp_credential.as_ref(),
         );
-        let response = manager.request("thread/start", params).await?;
+        let response = match manager.request("thread/start", params).await {
+            Ok(response) => response,
+            Err(error) if mcp_credential.is_some() => {
+                tracing::warn!(
+                    error = %error,
+                    "Codex MCP thread startup failed; retrying with the NyaTerm dynamic terminal tool"
+                );
+                mcp_credential.take();
+                manager
+                    .request(
+                        "thread/start",
+                        codex_thread_start_params_with_mcp(
+                            selected_model_name.as_deref(),
+                            settings.codex.thread_mode == CodexThreadMode::Ephemeral,
+                            None,
+                        ),
+                    )
+                    .await?
+            }
+            Err(error) => return Err(error),
+        };
         let new_thread_id = response
             .get("thread")
             .and_then(|thread| thread.get("id"))
@@ -1174,7 +1229,16 @@ fn resolve_codex_model_name(settings: &AiSettings, request: &AiChatRequest) -> O
         .map(ToOwned::to_owned)
 }
 
+#[cfg(test)]
 fn codex_thread_start_params(model: Option<&str>, ephemeral: bool) -> Value {
+    codex_thread_start_params_with_mcp(model, ephemeral, None)
+}
+
+fn codex_thread_start_params_with_mcp(
+    model: Option<&str>,
+    ephemeral: bool,
+    credential: Option<&crate::core::mcp::EphemeralMcpCredential>,
+) -> Value {
     let mut params = json!({
         "cwd": null,
         "ephemeral": ephemeral,
@@ -1188,13 +1252,48 @@ fn codex_thread_start_params(model: Option<&str>, ephemeral: bool) -> Value {
         },
         "approvalsReviewer": "user",
         "sandbox": "read-only",
-        "developerInstructions": codex_developer_instructions(),
-        "dynamicTools": [terminal_tool_namespace()]
+        "developerInstructions": codex_developer_instructions()
     });
+    if let Some(credential) = credential {
+        params["config"] = json!({
+            "mcp_servers": {
+                "nyaterm": {
+                    "command": credential.sidecar_path,
+                    "args": [],
+                    "env": credential.env(),
+                    "required": true,
+                }
+            }
+        });
+    } else {
+        params["dynamicTools"] = json!([terminal_tool_namespace()]);
+    }
     if let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) {
         params["model"] = json!(model);
     }
     params
+}
+
+fn codex_request_terminal_scope(request: &AiChatRequest) -> (Vec<String>, Option<String>) {
+    let mut scope = request
+        .targets
+        .iter()
+        .map(|target| target.terminal_session_id.clone())
+        .collect::<HashSet<_>>();
+    if let Some(id) = request.terminal_session_id.as_ref() {
+        scope.insert(id.clone());
+    }
+    if let Some(id) = request.default_target_session_id.as_ref() {
+        scope.insert(id.clone());
+    }
+    let mut scope = scope.into_iter().collect::<Vec<_>>();
+    scope.sort();
+    let default_id = request
+        .default_target_session_id
+        .clone()
+        .or_else(|| request.terminal_session_id.clone())
+        .filter(|id| scope.contains(id));
+    (scope, default_id)
 }
 
 fn codex_turn_start_params(thread_id: &str, prompt: &str, model: Option<&str>) -> Value {

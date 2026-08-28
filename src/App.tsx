@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import AppLayout from "./components/app/AppLayout";
 import AppPanelContent from "./components/app/AppPanelContent";
 import ActivityBarResetDialog from "./components/dialog/app/ActivityBarResetDialog";
+import { McpApprovalHost } from "./components/dialog/app/McpApprovalHost";
 import AppOverlayDialogs from "./components/dialog/app/AppOverlayDialogs";
 import type { HostKeyVerifyRequest } from "./components/dialog/connections/HostKeyVerifyDialog";
 import type { OtpRequest } from "./components/dialog/connections/OtpDialog";
@@ -820,11 +821,18 @@ function App() {
   }, [savedConnections, tabs]);
 
   const handleAssetMonitoringPatch = useCallback(
-    (sessionId: string, patch: AssetMetadata) => {
-      const connectionId = savedSshConnectionIdBySessionId.get(sessionId);
+    (sourceSessionId: string, targetSessionId: string, patch: AssetMetadata) => {
+      if (sourceSessionId !== targetSessionId) return;
+
+      const connectionId = savedSshConnectionIdBySessionId.get(targetSessionId);
       if (!connectionId) return;
 
-      recordAssetMonitoringPatch(assetMonitoringCacheRef.current, sessionId, connectionId, patch);
+      recordAssetMonitoringPatch(assetMonitoringCacheRef.current, {
+        sourceSessionId,
+        targetSessionId,
+        connectionId,
+        patch,
+      });
     },
     [savedSshConnectionIdBySessionId],
   );
@@ -832,6 +840,17 @@ function App() {
   const flushAssetMonitoringCache = useCallback(async (sessionId: string) => {
     const entry = assetMonitoringCacheRef.current.get(sessionId);
     if (!entry || assetMonitoringFlushesRef.current.has(sessionId)) return;
+    if (entry.sessionId !== sessionId) {
+      assetMonitoringCacheRef.current.delete(sessionId);
+      logger.warn({
+        domain: "session.lifecycle",
+        event: "asset.owner_mismatch",
+        message: "Discarded monitored asset snapshot with a mismatched session owner",
+        ids: { connection_id: entry.connectionId, session_id: sessionId },
+        data: { source_session_id: entry.sessionId },
+      });
+      return;
+    }
 
     assetMonitoringFlushesRef.current.add(sessionId);
     try {
@@ -3067,12 +3086,14 @@ function App() {
     ? liveSessionsById?.get(activeLiveSshSessionId)
     : null;
   const activeStatsSessionId =
-    activeLiveSshSessionId && (activeLiveSshSessionInfo?.remote_stats_enabled ?? true)
+    activeLiveSshSessionId &&
+    (activeLiveSshSessionInfo?.remote_stats_enabled ?? true) &&
+    activeConnection?.ssh_profile !== "network_device"
       ? activeLiveSshSessionId
       : null;
   const activeRemoteStatsEnabled = remoteStatsEnabled && Boolean(activeStatsSessionId);
   const remoteStats = useRemoteStats(
-    activeLiveSshSessionId,
+    activeStatsSessionId,
     activeRemoteStatsEnabled,
     uiConfig.remote_stats_interval ?? 3,
   );
@@ -3084,40 +3105,68 @@ function App() {
     (uiConfig.show_ascend_npu_monitor ?? false) ||
     (headerStatusVisible && headerStatusMode === "npu");
   const gpuOverviewState = useRemoteGpuOverview(
-    activeLiveSshSessionId,
+    activeStatsSessionId,
     gpuOverviewEnabled && Boolean(activeStatsSessionId),
     uiConfig.gpu_monitor_interval ?? 3,
   );
   const npuOverviewState = useRemoteNpuOverview(
-    activeLiveSshSessionId,
+    activeStatsSessionId,
     npuOverviewEnabled && Boolean(activeStatsSessionId),
     uiConfig.ascend_npu_monitor_interval ?? 3,
   );
 
   useEffect(() => {
-    if (!activeStatsSessionId || !remoteStats.stats) return;
+    if (
+      !activeStatsSessionId ||
+      !remoteStats.stats ||
+      remoteStats.sessionId !== activeStatsSessionId
+    ) {
+      return;
+    }
 
     const patch = buildAssetPatchFromRemoteStats(remoteStats.stats);
     if (patch) {
-      handleAssetMonitoringPatch(activeStatsSessionId, patch);
+      handleAssetMonitoringPatch(remoteStats.sessionId, activeStatsSessionId, patch);
     }
-  }, [activeStatsSessionId, handleAssetMonitoringPatch, remoteStats.stats]);
+  }, [activeStatsSessionId, handleAssetMonitoringPatch, remoteStats.sessionId, remoteStats.stats]);
   useEffect(() => {
-    if (!activeStatsSessionId || !gpuOverviewState.overview) return;
+    if (
+      !activeStatsSessionId ||
+      !gpuOverviewState.overview ||
+      gpuOverviewState.sessionId !== activeStatsSessionId
+    ) {
+      return;
+    }
 
     const patch = buildAssetPatchFromGpuOverview(gpuOverviewState.overview);
     if (patch) {
-      handleAssetMonitoringPatch(activeStatsSessionId, patch);
+      handleAssetMonitoringPatch(gpuOverviewState.sessionId, activeStatsSessionId, patch);
     }
-  }, [activeStatsSessionId, gpuOverviewState.overview, handleAssetMonitoringPatch]);
+  }, [
+    activeStatsSessionId,
+    gpuOverviewState.overview,
+    gpuOverviewState.sessionId,
+    handleAssetMonitoringPatch,
+  ]);
   useEffect(() => {
-    if (!activeStatsSessionId || !npuOverviewState.overview) return;
+    if (
+      !activeStatsSessionId ||
+      !npuOverviewState.overview ||
+      npuOverviewState.sessionId !== activeStatsSessionId
+    ) {
+      return;
+    }
 
     const patch = buildAssetPatchFromNpuOverview(npuOverviewState.overview);
     if (patch) {
-      handleAssetMonitoringPatch(activeStatsSessionId, patch);
+      handleAssetMonitoringPatch(npuOverviewState.sessionId, activeStatsSessionId, patch);
     }
-  }, [activeStatsSessionId, handleAssetMonitoringPatch, npuOverviewState.overview]);
+  }, [
+    activeStatsSessionId,
+    handleAssetMonitoringPatch,
+    npuOverviewState.overview,
+    npuOverviewState.sessionId,
+  ]);
 
   const activeSerialSessionId =
     activePane &&
@@ -3748,6 +3797,7 @@ function App() {
           onRequestClose: handleRequestWindowClose,
         }}
       />
+      <McpApprovalHost />
       <AppOverlayDialogs
         t={t}
         showSessionQuickSwitcher={showSessionQuickSwitcher}

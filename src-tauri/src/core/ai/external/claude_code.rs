@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{Mutex, oneshot};
@@ -213,7 +213,52 @@ async fn run_claude_code_stream_inner(
         save_user_message(&app, &session_id, request)?;
     }
 
-    let invocation = build_claude_invocation(request, &settings, build_prompt(request, &settings));
+    let mcp_credential =
+        if settings.claude_code.tool_integration_mode.as_deref() == Some("nyaterm_mcp") {
+            if let Some(manager) = app.try_state::<Arc<crate::core::mcp::McpManager>>() {
+                let (scope, default_id) = request_terminal_scope(request);
+                let owner =
+                    if let Some(id) = default_id.as_deref().or(scope.first().map(String::as_str)) {
+                        app.state::<Arc<crate::core::SessionManager>>()
+                            .session_info(id)
+                            .await
+                            .ok()
+                            .and_then(|info| info.owner_window_label)
+                    } else {
+                        None
+                    };
+                manager
+                    .create_ephemeral_credential(
+                        "claude_code_mcp",
+                        scope,
+                        default_id,
+                        request.permission_mode.clone(),
+                        owner,
+                    )
+                    .await
+                    .ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+    let mut invocation =
+        build_claude_invocation(request, &settings, build_prompt(request, &settings));
+    if let Some(credential) = mcp_credential.as_ref() {
+        let config = serde_json::json!({
+            "mcpServers": {
+                "nyaterm": {
+                    "command": credential.sidecar_path,
+                    "args": [],
+                    "env": credential.env(),
+                }
+            }
+        });
+        invocation.args.push("--mcp-config".into());
+        invocation.args.push(config.to_string());
+        invocation.args.push("--strict-mcp-config".into());
+    }
     let mut child = Command::new(&executable);
     hide_window(&mut child);
     for arg in &invocation.args {
@@ -386,6 +431,28 @@ fn claude_system_context(request: &AiChatRequest) -> String {
     format!(
         "You are running inside NyaTerm. Use NyaTerm MCP tools for terminal sessions when available. Do not read SSH passwords, private keys, OAuth tokens, or internal app credentials. Do not create separate SSH connections to bypass NyaTerm SessionManager. Default terminal session: {default_target}."
     )
+}
+
+fn request_terminal_scope(request: &AiChatRequest) -> (Vec<String>, Option<String>) {
+    let mut scope = request
+        .targets
+        .iter()
+        .map(|target| target.terminal_session_id.clone())
+        .collect::<HashSet<_>>();
+    if let Some(id) = request.terminal_session_id.as_ref() {
+        scope.insert(id.clone());
+    }
+    if let Some(id) = request.default_target_session_id.as_ref() {
+        scope.insert(id.clone());
+    }
+    let mut scope = scope.into_iter().collect::<Vec<_>>();
+    scope.sort();
+    let default_id = request
+        .default_target_session_id
+        .clone()
+        .or_else(|| request.terminal_session_id.clone())
+        .filter(|id| scope.contains(id));
+    (scope, default_id)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

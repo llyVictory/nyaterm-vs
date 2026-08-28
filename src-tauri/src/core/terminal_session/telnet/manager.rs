@@ -26,7 +26,7 @@ pub async fn create_telnet_session(
         client_timestamp: None,
     });
     let session_id = uuid::Uuid::new_v4().to_string();
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+    let (cmd_tx, cmd_rx) = session_command_channel(session_id.clone());
     let output_control_tx = cmd_tx.clone();
 
     let session_info = SessionInfo {

@@ -7,8 +7,8 @@ use crate::core::SessionOutputCoalescer;
 use crate::core::capture::OutputCaptureProcessor;
 use crate::core::recording::RecordingManager;
 use crate::core::session::{
-    SessionCommand, SessionHandle, SessionInfo, SessionManager, SessionReadyHook, SessionType,
-    SharedCwd,
+    SessionCommand, SessionCommandReceiver, SessionCommandSender, SessionHandle, SessionInfo,
+    SessionManager, SessionReadyHook, SessionType, SharedCwd, session_command_channel,
 };
 use crate::core::ssh::osc::{OscStripper, build_ready_marker};
 use crate::core::terminal_session::{TerminalOutputDecoder, encode_terminal_input};

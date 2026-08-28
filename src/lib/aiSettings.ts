@@ -643,6 +643,13 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     permission_mode: "confirm",
     tool_integration_mode: "nyaterm_mcp",
   },
+  external_mcp: {
+    enabled: false,
+    permission_mode: "confirm",
+    session_scope: "current_window",
+    server_mode: "temporary",
+    idle_timeout_minutes: 10,
+  },
 };
 
 function normalizeLocaleTag(value?: string | null): string | null {

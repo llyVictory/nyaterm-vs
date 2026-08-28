@@ -560,8 +560,8 @@ async fn set_local_mode_if_supported(_path: &str, _mode: Option<String>) -> AppR
 mod tests {
     use super::*;
     use crate::config::AiExecutionProfile;
-    use crate::core::{SessionCommand, SessionHandle, SessionInfo};
-    use tokio::sync::{Mutex, mpsc};
+    use crate::core::{SessionHandle, SessionInfo, session_command_channel};
+    use tokio::sync::Mutex;
 
     fn temp_test_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("nyaterm-local-fs-{name}-{}", uuid::Uuid::new_v4()))
@@ -783,7 +783,7 @@ mod tests {
     #[tokio::test]
     async fn ensure_local_session_rejects_non_local_sessions() {
         let manager = SessionManager::new();
-        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let (cmd_tx, _cmd_rx) = session_command_channel("ssh-1");
         manager
             .add_session(SessionHandle {
                 info: SessionInfo {

@@ -6,6 +6,7 @@
 use super::history::{CommandHistoryStore, sanitize_history_command};
 use super::{InputOrigin, InputSensitivity, RecordingManager};
 use crate::config::{AiExecutionProfile, SshProfile};
+use crate::core::capabilities::RecentOutputStore;
 use crate::core::capture::CapturedOutput;
 use crate::core::zmodem::{ZmodemPreparedUpload, ZmodemUploadConflictMode};
 use crate::error::{AppError, AppResult};
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::any::Any;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tauri::Emitter;
@@ -25,6 +26,10 @@ use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 const HISTORY_SAVE_DEBOUNCE: Duration = Duration::from_millis(100);
 const HISTORY_EVENT_DEBOUNCE: Duration = Duration::from_millis(500);
 const MAX_PENDING_CONFIRMATIONS: usize = 256;
+const COMMAND_QUEUE_HIGH_THRESHOLD: usize = 100;
+const COMMAND_QUEUE_CRITICAL_THRESHOLD: usize = 1000;
+const COMMAND_QUEUE_HIGH_RESET_THRESHOLD: usize = 50;
+const COMMAND_QUEUE_CRITICAL_RESET_THRESHOLD: usize = 500;
 
 pub type SharedCwd = Arc<Mutex<Option<String>>>;
 pub type SessionReadyHook = Arc<dyn Fn(&SessionInfo) + Send + Sync>;
@@ -165,10 +170,262 @@ pub enum SessionCommand {
     ZmodemCancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionCommandQueueSnapshot {
+    pub queued_commands: u64,
+    pub processed_commands: u64,
+    pub current_pending: usize,
+    pub max_pending_observed: usize,
+}
+
+struct SessionCommandQueueMetrics {
+    session_id: String,
+    queued_commands: AtomicU64,
+    processed_commands: AtomicU64,
+    current_pending: AtomicUsize,
+    max_pending_observed: AtomicUsize,
+    pressure_tier: AtomicU8,
+}
+
+impl SessionCommandQueueMetrics {
+    fn new(session_id: String) -> Self {
+        Self {
+            session_id,
+            queued_commands: AtomicU64::new(0),
+            processed_commands: AtomicU64::new(0),
+            current_pending: AtomicUsize::new(0),
+            max_pending_observed: AtomicUsize::new(0),
+            pressure_tier: AtomicU8::new(0),
+        }
+    }
+
+    fn reserve_enqueue(&self) -> usize {
+        self.queued_commands
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_add(1))
+            })
+            .unwrap_or(u64::MAX);
+        let previous = self
+            .current_pending
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_add(1))
+            })
+            .unwrap_or(usize::MAX);
+        previous.saturating_add(1)
+    }
+
+    fn commit_enqueue(&self, pending: usize) {
+        let mut observed = self.max_pending_observed.load(Ordering::Relaxed);
+        while pending > observed {
+            match self.max_pending_observed.compare_exchange_weak(
+                observed,
+                pending,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => observed = actual,
+            }
+        }
+        self.maybe_log_pressure(pending);
+    }
+
+    fn rollback_enqueue(&self) {
+        saturating_atomic_sub_u64(&self.queued_commands, 1);
+        let pending = saturating_atomic_sub_usize(&self.current_pending, 1);
+        self.relax_pressure_tier(pending);
+    }
+
+    fn mark_processed(&self) {
+        self.processed_commands
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_add(1))
+            })
+            .ok();
+        let pending = saturating_atomic_sub_usize(&self.current_pending, 1);
+        self.relax_pressure_tier(pending);
+    }
+
+    fn clear_pending(&self) {
+        self.current_pending.store(0, Ordering::Relaxed);
+        self.pressure_tier.store(0, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> SessionCommandQueueSnapshot {
+        SessionCommandQueueSnapshot {
+            queued_commands: self.queued_commands.load(Ordering::Relaxed),
+            processed_commands: self.processed_commands.load(Ordering::Relaxed),
+            current_pending: self.current_pending.load(Ordering::Relaxed),
+            max_pending_observed: self.max_pending_observed.load(Ordering::Relaxed),
+        }
+    }
+
+    fn maybe_log_pressure(&self, pending: usize) {
+        let next_tier = if pending >= COMMAND_QUEUE_CRITICAL_THRESHOLD {
+            2
+        } else if pending >= COMMAND_QUEUE_HIGH_THRESHOLD {
+            1
+        } else {
+            return;
+        };
+        let previous_tier = self.pressure_tier.fetch_max(next_tier, Ordering::Relaxed);
+        if previous_tier >= next_tier {
+            return;
+        }
+
+        let (event, threshold) = if next_tier == 2 {
+            (
+                "command_queue_pressure.critical",
+                COMMAND_QUEUE_CRITICAL_THRESHOLD,
+            )
+        } else {
+            ("command_queue_pressure.high", COMMAND_QUEUE_HIGH_THRESHOLD)
+        };
+        let snapshot = self.snapshot();
+        crate::observability::log_rate_limited(StructuredLog {
+            level: StructuredLogLevel::Warn,
+            domain: "session.command".to_string(),
+            event: event.to_string(),
+            message: "Session command queue pressure exceeded a diagnostic threshold".to_string(),
+            ids: Some(json!({ "session_id": self.session_id })),
+            data: Some(json!({
+                "threshold": threshold,
+                "queued_commands": snapshot.queued_commands,
+                "processed_commands": snapshot.processed_commands,
+                "current_pending": snapshot.current_pending,
+                "max_pending_observed": snapshot.max_pending_observed,
+            })),
+            error: None,
+            client_timestamp: None,
+        });
+    }
+
+    fn relax_pressure_tier(&self, pending: usize) {
+        let tier = self.pressure_tier.load(Ordering::Relaxed);
+        if pending < COMMAND_QUEUE_HIGH_RESET_THRESHOLD {
+            self.pressure_tier.store(0, Ordering::Relaxed);
+        } else if tier >= 2 && pending < COMMAND_QUEUE_CRITICAL_RESET_THRESHOLD {
+            self.pressure_tier.store(1, Ordering::Relaxed);
+        }
+    }
+}
+
+fn saturating_atomic_sub_usize(value: &AtomicUsize, amount: usize) -> usize {
+    value
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_sub(amount))
+        })
+        .map(|previous| previous.saturating_sub(amount))
+        .unwrap_or(0)
+}
+
+fn saturating_atomic_sub_u64(value: &AtomicU64, amount: u64) -> u64 {
+    value
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_sub(amount))
+        })
+        .map(|previous| previous.saturating_sub(amount))
+        .unwrap_or(0)
+}
+
+pub struct SessionCommandSender {
+    sender: mpsc::UnboundedSender<SessionCommand>,
+    metrics: Arc<SessionCommandQueueMetrics>,
+}
+
+impl Clone for SessionCommandSender {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            metrics: self.metrics.clone(),
+        }
+    }
+}
+
+impl SessionCommandSender {
+    pub fn send(
+        &self,
+        command: SessionCommand,
+    ) -> Result<(), mpsc::error::SendError<SessionCommand>> {
+        let pending = self.metrics.reserve_enqueue();
+        match self.sender.send(command) {
+            Ok(()) => {
+                self.metrics.commit_enqueue(pending);
+                Ok(())
+            }
+            Err(error) => {
+                self.metrics.rollback_enqueue();
+                Err(error)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn snapshot(&self) -> SessionCommandQueueSnapshot {
+        self.metrics.snapshot()
+    }
+}
+
+pub struct SessionCommandReceiver {
+    receiver: mpsc::UnboundedReceiver<SessionCommand>,
+    metrics: Arc<SessionCommandQueueMetrics>,
+}
+
+impl SessionCommandReceiver {
+    pub async fn recv(&mut self) -> Option<SessionCommand> {
+        let command = self.receiver.recv().await;
+        if command.is_some() {
+            self.metrics.mark_processed();
+        }
+        command
+    }
+
+    pub fn try_recv(&mut self) -> Result<SessionCommand, mpsc::error::TryRecvError> {
+        let command = self.receiver.try_recv();
+        if command.is_ok() {
+            self.metrics.mark_processed();
+        }
+        command
+    }
+
+    pub fn blocking_recv(&mut self) -> Option<SessionCommand> {
+        let command = self.receiver.blocking_recv();
+        if command.is_some() {
+            self.metrics.mark_processed();
+        }
+        command
+    }
+
+    #[cfg(test)]
+    pub fn snapshot(&self) -> SessionCommandQueueSnapshot {
+        self.metrics.snapshot()
+    }
+}
+
+impl Drop for SessionCommandReceiver {
+    fn drop(&mut self) {
+        self.metrics.clear_pending();
+    }
+}
+
+pub fn session_command_channel(
+    session_id: impl Into<String>,
+) -> (SessionCommandSender, SessionCommandReceiver) {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let metrics = Arc::new(SessionCommandQueueMetrics::new(session_id.into()));
+    (
+        SessionCommandSender {
+            sender,
+            metrics: metrics.clone(),
+        },
+        SessionCommandReceiver { receiver, metrics },
+    )
+}
+
 /// Handle to an active session; used to send commands and access SSH config for SFTP.
 pub struct SessionHandle {
     pub info: SessionInfo,
-    pub cmd_tx: mpsc::UnboundedSender<SessionCommand>,
+    pub cmd_tx: SessionCommandSender,
     /// SSH-specific: stores config for potential reconnection.
     #[allow(dead_code)]
     pub ssh_config: Option<Arc<dyn Any + Send + Sync>>,
@@ -216,6 +473,7 @@ pub struct SessionManager {
     pending_creations: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
     app_handle: OnceLock<tauri::AppHandle>,
     recording_manager: OnceLock<Arc<RecordingManager>>,
+    recent_output: Arc<RecentOutputStore>,
 }
 
 impl SessionManager {
@@ -233,6 +491,7 @@ impl SessionManager {
             pending_creations: Arc::new(Mutex::new(HashMap::new())),
             app_handle: OnceLock::new(),
             recording_manager: OnceLock::new(),
+            recent_output: Arc::new(RecentOutputStore::default()),
         }
     }
 
@@ -322,6 +581,7 @@ impl SessionManager {
     pub async fn remove_session(&self, id: &str) -> bool {
         let removed = self.sessions.lock().await.remove(id).is_some();
         if removed {
+            self.recent_output.remove(id);
             self.flush_pending_submission(id).await;
             self.command_submissions.lock().await.remove(id);
             self.pending_zmodem_uploads.lock().await.remove(id);
@@ -385,6 +645,26 @@ impl SessionManager {
             .get(id)
             .map(|handle| handle.info.clone())
             .ok_or_else(|| AppError::SessionNotFound(format!("Session '{}' not found", id)))
+    }
+
+    /// Returns the best-effort working directory currently tracked for a session.
+    pub async fn session_cwd(&self, id: &str) -> AppResult<Option<String>> {
+        let cwd = {
+            let sessions = self.sessions.lock().await;
+            sessions
+                .get(id)
+                .map(|handle| handle.cwd.clone())
+                .ok_or_else(|| AppError::SessionNotFound(format!("Session '{}' not found", id)))?
+        };
+        Ok(cwd.lock().await.clone())
+    }
+
+    pub fn append_recent_output(&self, session_id: &str, text: &str) {
+        self.recent_output.append(session_id, text);
+    }
+
+    pub fn recent_output(&self, session_id: &str, lines: usize) -> String {
+        self.recent_output.read(session_id, lines)
     }
 
     /// Appends a command to persistent history and schedules a coalesced save.
@@ -771,16 +1051,18 @@ mod tests {
     use crate::config::AiExecutionProfile;
 
     use super::{
-        SessionCommand, SessionHandle, SessionInfo, SessionManager, SessionType,
-        normalize_cwd_path, now_session_started_at,
+        COMMAND_QUEUE_CRITICAL_RESET_THRESHOLD, COMMAND_QUEUE_CRITICAL_THRESHOLD,
+        COMMAND_QUEUE_HIGH_RESET_THRESHOLD, SessionCommand, SessionCommandSender, SessionHandle,
+        SessionInfo, SessionManager, SessionType, normalize_cwd_path, now_session_started_at,
+        session_command_channel,
     };
     use std::fs;
-    use std::sync::Arc;
+    use std::sync::{Arc, atomic::Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::sync::{Mutex, mpsc};
+    use tokio::sync::Mutex;
 
     fn test_handle(id: &str, session_type: SessionType, injection_active: bool) -> SessionHandle {
-        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let (cmd_tx, _cmd_rx) = session_command_channel(id);
         test_handle_with_sender(id, session_type, injection_active, cmd_tx)
     }
 
@@ -788,7 +1070,7 @@ mod tests {
         id: &str,
         session_type: SessionType,
         injection_active: bool,
-        cmd_tx: mpsc::UnboundedSender<SessionCommand>,
+        cmd_tx: SessionCommandSender,
     ) -> SessionHandle {
         SessionHandle {
             info: SessionInfo {
@@ -891,7 +1173,7 @@ mod tests {
     #[tokio::test]
     async fn sends_output_pause_and_resume_commands() {
         let manager = SessionManager::new();
-        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let (cmd_tx, mut cmd_rx) = session_command_channel("local-flow");
         manager
             .add_session(test_handle_with_sender(
                 "local-flow",
@@ -927,6 +1209,80 @@ mod tests {
             cmd_rx.recv().await,
             Some(SessionCommand::AckOutput { bytes: 4096 })
         ));
+    }
+
+    #[test]
+    fn command_queue_metrics_track_enqueue_process_and_max_pending() {
+        let (cmd_tx, mut cmd_rx) = session_command_channel("queue-pressure");
+        for _ in 0..1001 {
+            cmd_tx
+                .send(SessionCommand::AckOutput { bytes: 1 })
+                .expect("enqueue command");
+        }
+
+        assert_eq!(
+            cmd_tx.snapshot(),
+            super::SessionCommandQueueSnapshot {
+                queued_commands: 1001,
+                processed_commands: 0,
+                current_pending: 1001,
+                max_pending_observed: 1001,
+            }
+        );
+
+        for _ in 0..1001 {
+            assert!(cmd_rx.try_recv().is_ok());
+        }
+        assert_eq!(
+            cmd_rx.snapshot(),
+            super::SessionCommandQueueSnapshot {
+                queued_commands: 1001,
+                processed_commands: 1001,
+                current_pending: 0,
+                max_pending_observed: 1001,
+            }
+        );
+    }
+
+    #[test]
+    fn command_queue_metrics_roll_back_failed_send_and_clear_on_receiver_drop() {
+        let (closed_tx, closed_rx) = session_command_channel("closed-queue");
+        drop(closed_rx);
+        assert!(closed_tx.send(SessionCommand::Close).is_err());
+        assert_eq!(closed_tx.snapshot().queued_commands, 0);
+        assert_eq!(closed_tx.snapshot().current_pending, 0);
+
+        let (cmd_tx, cmd_rx) = session_command_channel("abandoned-queue");
+        cmd_tx
+            .send(SessionCommand::AckOutput { bytes: 1 })
+            .expect("enqueue command");
+        cmd_tx
+            .send(SessionCommand::AckOutput { bytes: 2 })
+            .expect("enqueue command");
+        drop(cmd_rx);
+        assert_eq!(cmd_tx.snapshot().current_pending, 0);
+        assert_eq!(cmd_tx.snapshot().max_pending_observed, 2);
+    }
+
+    #[test]
+    fn command_queue_pressure_tiers_rearm_with_hysteresis() {
+        let (cmd_tx, mut cmd_rx) = session_command_channel("queue-hysteresis");
+        for _ in 0..COMMAND_QUEUE_CRITICAL_THRESHOLD {
+            cmd_tx
+                .send(SessionCommand::AckOutput { bytes: 1 })
+                .expect("enqueue command");
+        }
+        assert_eq!(cmd_tx.metrics.pressure_tier.load(Ordering::Relaxed), 2);
+
+        for _ in 0..=(COMMAND_QUEUE_CRITICAL_THRESHOLD - COMMAND_QUEUE_CRITICAL_RESET_THRESHOLD) {
+            cmd_rx.try_recv().expect("dequeue command");
+        }
+        assert_eq!(cmd_tx.metrics.pressure_tier.load(Ordering::Relaxed), 1);
+
+        while cmd_tx.snapshot().current_pending >= COMMAND_QUEUE_HIGH_RESET_THRESHOLD {
+            cmd_rx.try_recv().expect("dequeue command");
+        }
+        assert_eq!(cmd_tx.metrics.pressure_tier.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
