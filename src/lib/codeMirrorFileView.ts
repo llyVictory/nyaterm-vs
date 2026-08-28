@@ -294,7 +294,8 @@ export function codeMirrorFileViewExtensions(
         borderLeftColor: "var(--foreground)",
       },
       ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-        backgroundColor: "color-mix(in srgb, var(--primary) 28%, transparent)",
+        backgroundColor:
+          "var(--df-terminal-selection, var(--df-primary)) !important",
       },
       ".cm-scroller": {
         fontFamily: "var(--font-mono), 'JetBrains Mono', monospace",
