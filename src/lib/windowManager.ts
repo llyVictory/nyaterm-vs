@@ -19,7 +19,7 @@ import {
 } from "./childWindowProtocol";
 import { invoke } from "./invoke";
 import { logger } from "./logger";
-import { isMacOS } from "./platform";
+import { isLinux, isMacOS } from "./platform";
 
 type ChildWindowStateKey =
   | "settings"
@@ -404,13 +404,23 @@ export async function raiseModalChildWindowGroup(options: ModalGroupRaiseOptions
     );
     if (!topModalWindow) return;
 
-    modalTopmostPulseId += 1;
-    const pulseId = modalTopmostPulseId;
+    // On Linux, setAlwaysOnTop maps to GTK keep-above/window-manager hints. Some X11
+    // environments can fail fatally while GTK processes those hints, and transient modal
+    // children are already raised via show/focus. Keep the pulse on Windows/macOS, while
+    // preserving the real always-on-top requirement for auto-upload windows on Linux.
+    const shouldPulseTopmost = !isLinux;
+    let pulseId: number | undefined;
+    if (shouldPulseTopmost) {
+      modalTopmostPulseId += 1;
+      pulseId = modalTopmostPulseId;
+    }
 
     await Promise.all(
       orderedWindows.map(async (modalWindow) => {
         await modalWindow.show().catch(() => {});
-        await modalWindow.setAlwaysOnTop(true).catch(() => {});
+        if (shouldPulseTopmost || needsAlwaysOnTop(modalWindow.label)) {
+          await modalWindow.setAlwaysOnTop(true).catch(() => {});
+        }
       }),
     );
 
@@ -422,7 +432,9 @@ export async function raiseModalChildWindowGroup(options: ModalGroupRaiseOptions
       await topModalWindow.requestUserAttention(UserAttentionType.Critical).catch(() => {});
     }
 
-    restoreModalTopmostStates(orderedWindows, pulseId);
+    if (pulseId !== undefined) {
+      restoreModalTopmostStates(orderedWindows, pulseId);
+    }
   } finally {
     window.setTimeout(() => {
       modalGroupRaiseInFlight = false;

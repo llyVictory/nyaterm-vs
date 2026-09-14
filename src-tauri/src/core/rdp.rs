@@ -650,7 +650,8 @@ fn resolve_rdp_password(
         return Ok(None);
     }
     if let Some(password_id) = auth.password_id.as_deref().filter(|id| !id.is_empty()) {
-        return Ok(config::load_password_by_id(app, password_id)?.password);
+        let account = config::load_saved_account(app, None, Some(password_id))?;
+        return config::decrypt_account_password(account.as_ref());
     }
     crate::utils::crypto::decrypt_optional(&auth.password)
 }

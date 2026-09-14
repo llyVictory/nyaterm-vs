@@ -97,7 +97,7 @@ function contrastRatio(left: string, right: string) {
 }
 
 function terminalAnsiFields() {
-  return ALL_THEME_COLOR_FIELDS.filter((field) => field.path.startsWith("terminal.")).slice(7);
+  return ALL_THEME_COLOR_FIELDS.filter((field) => field.path.startsWith("terminal.")).slice(8);
 }
 
 export function ThemeDesignerDialog({

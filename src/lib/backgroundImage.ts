@@ -169,6 +169,7 @@ export function buildSurfaceCssVariables(
       "--df-bg-panel": bgPanel,
       "--df-bg-panel-solid": colors.bgPanel,
       "--df-bg-terminal": bgTerminal,
+      "--df-bg-terminal-solid": colors.bgTerminal,
       "--df-terminal-surface-bg": "transparent",
       "--df-bg-hover": bgHover,
       "--df-bg-input": bgInput,
@@ -200,6 +201,7 @@ export function buildSurfaceCssVariables(
     "--df-bg-panel": bgPanel,
     "--df-bg-panel-solid": colors.bgPanel,
     "--df-bg-terminal": bgTerminal,
+    "--df-bg-terminal-solid": colors.bgTerminal,
     "--df-terminal-surface-bg": terminalSurfaceBg,
     "--df-bg-hover": bgHover,
     "--df-bg-input": bgInput,
@@ -218,12 +220,20 @@ export function buildTerminalThemeColors(
   terminalColors: TerminalColors,
   appearance: AppearanceSettings,
 ): TerminalColors {
+  const { foregroundIntense, ...baseColors } = terminalColors;
+  const resolvedColors: TerminalColors = appearance.bold_default_foreground_highlight
+    ? {
+        ...baseColors,
+        foregroundIntense: foregroundIntense ?? terminalColors.foreground,
+      }
+    : baseColors;
+
   if (!isTerminalTransparencyEnabled(appearance)) {
-    return terminalColors;
+    return resolvedColors;
   }
 
   return {
-    ...terminalColors,
+    ...resolvedColors,
     background: "rgba(0, 0, 0, 0)",
   };
 }

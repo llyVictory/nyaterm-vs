@@ -220,6 +220,30 @@ pub fn save_connection(
     validate_vnc_config(&connection)?;
 
     if let Some(ref mut auth) = connection.auth {
+        // account_id: Some("") means explicitly cleared, None means preserve existing
+        match auth.account_id.as_deref() {
+            Some("") => auth.account_id = None,
+            None => {
+                auth.account_id = existing
+                    .as_ref()
+                    .and_then(|entry| entry.auth.as_ref())
+                    .and_then(|entry| entry.account_id.clone());
+            }
+            _ => {}
+        }
+
+        // password_source: Some("") means legacy/default behavior, None means preserve existing
+        match auth.password_source.as_deref() {
+            Some("") => auth.password_source = None,
+            None => {
+                auth.password_source = existing
+                    .as_ref()
+                    .and_then(|entry| entry.auth.as_ref())
+                    .and_then(|entry| entry.password_source.clone());
+            }
+            _ => {}
+        }
+
         // password_id: Some("") means explicitly cleared, None means preserve existing
         match auth.password_id.as_deref() {
             Some("") => auth.password_id = None,
@@ -230,6 +254,14 @@ pub fn save_connection(
                     .and_then(|a| a.password_id.clone());
             }
             _ => {}
+        }
+
+        if matches!(
+            connection.config,
+            config::ConnectionType::Ssh { .. } | config::ConnectionType::Telnet { .. }
+        ) && auth.account_id.as_deref().is_some_and(|id| !id.is_empty())
+        {
+            auth.password_id = None;
         }
 
         // password: non-empty = encrypt new value, "" = explicitly clear, None = preserve
@@ -753,8 +785,9 @@ fn find_connection_for_proxy_jump<'a>(
 #[cfg(test)]
 mod tests {
     use super::{
-        CONNECTION_ICON_MAX_BYTES, delete_group_from_config, import_connection_icon_data_url,
-        import_connection_icon_from_path, normalize_connection_for_save,
+        CONNECTION_ICON_MAX_BYTES, SavedAccountSummary, delete_group_from_config,
+        import_connection_icon_data_url, import_connection_icon_from_path,
+        normalize_connection_for_save, resolve_account_password_update,
         resolve_private_key_for_save, resolve_text_secret_input,
         update_connection_asset_from_monitoring_in_config, update_connection_icon_in_config,
         validate_certificate_content, validate_local_terminal_config, validate_private_key_content,
@@ -764,8 +797,8 @@ mod tests {
     use crate::config::{
         AiExecutionProfile, AssetAccelerator, AssetAcceleratorType, AssetDisk, AssetDiskPurpose,
         AssetMetadata, ConnectionAuth, ConnectionNetwork, ConnectionType, Group, SavedConnection,
-        SessionsConfig, SftpSettings, SshKey, VncClipboardSettings, VncDisplaySettings,
-        VncReconnectSettings, VncSecuritySettings,
+        SavedPassword, SessionsConfig, SftpSettings, SshKey, VncClipboardSettings,
+        VncDisplaySettings, VncReconnectSettings, VncSecuritySettings,
     };
     use base64::Engine;
     use std::fs;
@@ -784,6 +817,50 @@ FkHpYgNw65KCWCTXtP7ye2czMC3zjn2r98pJLobsLYQgRiHIv/CUdAdsqbvMPECB+wl/UQ
 e+JpiSq66Z6GIt0801skPh20jxOO3F52SoX1IeO5D5PXfZrfSZlw6S8c7bwyp2FHxDewRx
 7/wNsnDM0T7nLv/Q==
 -----END OPENSSH PRIVATE KEY-----";
+
+    #[test]
+    fn account_password_update_supports_preserve_replace_and_delete() {
+        crate::utils::crypto::set_master_password(None);
+        let existing = crate::utils::crypto::encrypt("old-secret").expect("encrypt existing");
+
+        assert_eq!(
+            resolve_account_password_update(None, Some(&existing)).expect("preserve"),
+            Some(existing.clone())
+        );
+
+        let replacement = resolve_account_password_update(Some("new-secret"), Some(&existing))
+            .expect("replace")
+            .expect("replacement ciphertext");
+        assert_eq!(
+            crate::utils::crypto::decrypt(&replacement).expect("decrypt replacement"),
+            "new-secret"
+        );
+
+        assert_eq!(
+            resolve_account_password_update(Some(""), Some(&existing)).expect("delete"),
+            None
+        );
+        assert_eq!(
+            resolve_account_password_update(Some(""), None).expect("empty new account"),
+            None
+        );
+    }
+
+    #[test]
+    fn saved_account_list_redacts_password_but_keeps_metadata() {
+        let summary = SavedAccountSummary::from(SavedPassword {
+            id: "account-1".to_string(),
+            name: "Production".to_string(),
+            username: "admin".to_string(),
+            password: Some("encrypted-secret".to_string()),
+            has_password: true,
+        });
+        let serialized = serde_json::to_value(&summary).expect("serialize account summary");
+
+        assert_eq!(serialized["username"], "admin");
+        assert_eq!(serialized["has_password"], true);
+        assert!(serialized.get("password").is_none());
+    }
 
     fn temp_connection_icon_path(extension: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -1384,6 +1461,8 @@ e+JpiSq66Z6GIt0801skPh20jxOO3F52SoX1IeO5D5PXfZrfSZlw6S8c7bwyp2FHxDewRx
         target.sort_order = 42;
         target.auth = Some(ConnectionAuth {
             mode: "key".to_string(),
+            account_id: None,
+            password_source: None,
             password_id: Some("password-id".to_string()),
             password: Some("encrypted".to_string()),
             has_password: true,
@@ -1904,18 +1983,49 @@ pub fn import_quick_commands(
 
 // --- Password management ---
 
-#[tauri::command]
-pub fn get_saved_passwords(app: tauri::AppHandle) -> AppResult<Vec<SavedPassword>> {
-    let mut cfg = config::load_passwords(&app)?;
-    for p in &mut cfg.passwords {
-        p.password = None;
+#[derive(Debug, serde::Serialize)]
+pub struct SavedAccountSummary {
+    id: String,
+    name: String,
+    username: String,
+    has_password: bool,
+}
+
+impl From<SavedPassword> for SavedAccountSummary {
+    fn from(entry: SavedPassword) -> Self {
+        Self {
+            id: entry.id,
+            name: entry.name,
+            username: entry.username,
+            has_password: entry.has_password,
+        }
     }
-    Ok(cfg.passwords)
+}
+
+#[tauri::command]
+pub fn get_saved_passwords(app: tauri::AppHandle) -> AppResult<Vec<SavedAccountSummary>> {
+    Ok(config::load_passwords(&app)?
+        .passwords
+        .into_iter()
+        .map(SavedAccountSummary::from)
+        .collect())
 }
 
 #[tauri::command]
 pub fn get_saved_password_value(app: tauri::AppHandle, id: String) -> AppResult<Option<String>> {
     Ok(config::load_password_by_id(&app, &id)?.password)
+}
+
+fn resolve_account_password_update(
+    incoming: Option<&str>,
+    existing_ciphertext: Option<&str>,
+) -> AppResult<Option<String>> {
+    match incoming {
+        Some(plain) if !plain.is_empty() => crypto::encrypt(plain).map(Some),
+        Some("") => Ok(None),
+        None => Ok(existing_ciphertext.map(str::to_string)),
+        _ => Ok(None),
+    }
 }
 
 #[tauri::command]
@@ -1928,10 +2038,10 @@ pub fn save_password(app: tauri::AppHandle, mut entry: SavedPassword) -> AppResu
     let target_id = entry.id.clone();
     let existing = cfg.passwords.iter().find(|p| p.id == target_id);
 
-    entry.password = match entry.password.as_deref() {
-        Some(plain) if !plain.is_empty() => Some(crypto::encrypt(plain)?),
-        _ => existing.and_then(|e| e.password.clone()),
-    };
+    entry.password = resolve_account_password_update(
+        entry.password.as_deref(),
+        existing.and_then(|entry| entry.password.as_deref()),
+    )?;
 
     if let Some(ex) = cfg.passwords.iter_mut().find(|p| p.id == target_id) {
         *ex = entry;

@@ -71,6 +71,17 @@ describe("start workspace asset view", () => {
     expect(screen.queryByText("Temporary SSH")).toBeNull();
   });
 
+  it("keeps the asset surface transparent while sticky table areas stay opaque", () => {
+    appState.appSettings.ui.start_workspace_mode = "assets";
+    renderStartWorkspace();
+
+    const assetSurface = document.querySelector("[data-asset-view]") as HTMLElement;
+    expect(assetSurface.style.backgroundColor).toBe("transparent");
+    expect(assetSurface.style.getPropertyValue("--nyaterm-asset-sticky-bg")).toBe(
+      "var(--df-bg-terminal-solid)",
+    );
+  });
+
   it("does not render status or favorite actions in the asset surface", () => {
     renderAssetView();
 

@@ -221,4 +221,25 @@ describe("useTerminalSettings renderer refresh", () => {
     flushAnimationFrames();
     expect(harness.terminal.clearTextureAtlas).toHaveBeenCalledTimes(1);
   });
+
+  it("updates bold default foreground highlighting through the existing theme path", () => {
+    const harness = createHookHarness();
+    flushAnimationFrames();
+
+    expect(
+      (harness.terminal.options.theme as TerminalColors).foregroundIntense,
+    ).toBeUndefined();
+
+    harness.rerender({
+      visible: true,
+      colors: { ...theme("#000000"), foregroundIntense: "#abcdef" },
+      ui: { ...appearance(14), bold_default_foreground_highlight: true },
+    });
+    flushAnimationFrames();
+
+    expect(
+      (harness.terminal.options.theme as TerminalColors).foregroundIntense,
+    ).toBe("#abcdef");
+    expect(harness.terminalRef.current).toBe(harness.terminal);
+  });
 });

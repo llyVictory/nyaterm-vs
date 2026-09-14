@@ -39,6 +39,10 @@ export const UI_THEME_COLOR_FIELDS: readonly ThemeColorField[] = [
 export const TERMINAL_THEME_COLOR_FIELDS: readonly ThemeColorField[] = [
   { path: "terminal.background", labelKey: "settings.themeColorTerminalBackground" },
   { path: "terminal.foreground", labelKey: "settings.themeColorTerminalForeground" },
+  {
+    path: "terminal.foregroundIntense",
+    labelKey: "settings.themeColorTerminalForegroundIntense",
+  },
   { path: "terminal.cursor", labelKey: "settings.themeColorTerminalCursor" },
   { path: "terminal.selectionBackground", labelKey: "settings.themeColorTerminalSelection" },
   { path: "terminal.lineHighlight", labelKey: "settings.themeColorTerminalLineHighlight" },
@@ -141,7 +145,10 @@ export function isCssColor(value: string) {
 export function getThemeColor(theme: Theme, path: ThemeColorPath): string {
   if (path.startsWith("terminal.")) {
     const key = path.slice("terminal.".length) as keyof TerminalColors;
-    return theme.colors.terminal[key];
+    if (key === "foregroundIntense") {
+      return theme.colors.terminal.foregroundIntense ?? theme.colors.terminal.foreground;
+    }
+    return theme.colors.terminal[key] as string;
   }
   return theme.colors[path as keyof Omit<ThemeColors, "terminal">] as string;
 }

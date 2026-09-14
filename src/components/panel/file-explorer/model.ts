@@ -1,4 +1,8 @@
-import type { FileEntry, SessionInfo } from "@/types/global";
+import type {
+  FileEntry,
+  FileExplorerViewMode,
+  SessionInfo,
+} from "@/types/global";
 
 export interface ResolvedLocalDropPathEntry {
   path: string;
@@ -38,11 +42,16 @@ export type FileExplorerSessionCache = {
 export type LoadDirectoryOptions = {
   history?: "push" | "preserve";
   selectEntryName?: string;
+  entries?: FileEntry[];
   rawPathToken?: string;
   silent?: boolean;
 };
 
 export type FileExplorerBackendKind = "remote" | "local";
+
+export function normalizeFileExplorerViewMode(value: unknown): FileExplorerViewMode {
+  return value === "tree" ? "tree" : "list";
+}
 
 export function canTrackTerminalCwd(
   session:
@@ -134,6 +143,7 @@ export type ChildrenMenuState =
 export type InlineRenameState = {
   entryName: string;
   oldPath: string;
+  parentPath: string;
   oldRawPathToken?: string;
   initialName: string;
   value: string;

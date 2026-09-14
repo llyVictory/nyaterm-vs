@@ -1,6 +1,15 @@
 #[cfg(windows)]
 mod windows_external_drop;
 
+#[cfg(target_os = "linux")]
+mod linux_appimage_wayland;
+
+#[cfg(target_os = "linux")]
+pub use linux_appimage_wayland::prepare_appimage_wayland_backend;
+
+#[cfg(not(target_os = "linux"))]
+pub fn prepare_appimage_wayland_backend() {}
+
 #[cfg(windows)]
 pub use windows_external_drop::install_external_file_drop_bridge;
 

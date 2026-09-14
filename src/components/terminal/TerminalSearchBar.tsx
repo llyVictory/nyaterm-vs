@@ -1,3 +1,4 @@
+import { Repeat2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdClose, MdKeyboardArrowDown, MdKeyboardArrowUp } from "react-icons/md";
@@ -18,11 +19,13 @@ interface TerminalSearchBarProps {
   searchQuery: string;
   searchState: TerminalSearchState;
   searchFlags: TerminalSearchFlags;
+  wrapAround: boolean;
   activeMode: TerminalSearchMode;
   historyState: TerminalHistorySearchState;
   setSearchQuery: (val: string) => void;
   onModeChange: (mode: TerminalSearchMode) => void;
   onSearchFlagChange: (flag: keyof TerminalSearchFlags, value: boolean) => void;
+  onWrapAroundChange: (value: boolean) => void;
   onNext: () => void;
   onPrev: () => void;
   onClose: () => void;
@@ -34,11 +37,13 @@ export default function TerminalSearchBar({
   searchQuery,
   searchState,
   searchFlags,
+  wrapAround,
   activeMode,
   historyState,
   setSearchQuery,
   onModeChange,
   onSearchFlagChange,
+  onWrapAroundChange,
   onNext,
   onPrev,
   onClose,
@@ -163,6 +168,21 @@ export default function TerminalSearchBar({
         />
         {activeMode === "buffer" && (
           <>
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded-sm hover:opacity-90"
+              style={{
+                backgroundColor: wrapAround ? "var(--df-accent)" : "transparent",
+                color: wrapAround ? "var(--df-bg)" : "var(--df-text-muted)",
+                border: "1px solid var(--df-border)",
+              }}
+              title={t("terminalCtx.searchWrapAround")}
+              aria-label={t("terminalCtx.searchWrapAround")}
+              aria-pressed={wrapAround}
+              onClick={() => onWrapAroundChange(!wrapAround)}
+            >
+              <Repeat2 className="h-3.5 w-3.5" />
+            </button>
             <MdKeyboardArrowUp
               className="text-sm cursor-pointer hover:opacity-80"
               style={{ color: "var(--df-text-muted)" }}

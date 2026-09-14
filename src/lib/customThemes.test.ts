@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { AppearanceSettings } from "@/types/global";
 import { DEFAULT_THEME_ID, themes, type Theme } from "./themes";
-import { appendCustomThemePatch, removeCustomThemePatch, upsertCustomThemePatch } from "./customThemes";
+import {
+  appendCustomThemePatch,
+  getThemeColor,
+  normalizeImportedTheme,
+  removeCustomThemePatch,
+  setThemeColor,
+  TERMINAL_THEME_COLOR_FIELDS,
+  upsertCustomThemePatch,
+  validateTheme,
+} from "./customThemes";
 
 function makeTheme(id: string, name = id): Theme {
   return { ...structuredClone(themes[DEFAULT_THEME_ID]), id, name, label: name };
@@ -88,5 +97,32 @@ describe("removeCustomThemePatch", () => {
       DEFAULT_THEME_ID,
     );
     expect(patch.terminal_theme).toBeNull();
+  });
+});
+
+describe("foregroundIntense custom theme compatibility", () => {
+  it("falls back to foreground and still validates legacy themes", () => {
+    const legacy = makeTheme("legacy-theme");
+    delete legacy.colors.terminal.foregroundIntense;
+
+    expect(getThemeColor(legacy, "terminal.foregroundIntense")).toBe(
+      legacy.colors.terminal.foreground,
+    );
+    expect(validateTheme(legacy)).toEqual([]);
+  });
+
+  it("edits and preserves foregroundIntense through import normalization", () => {
+    const updated = setThemeColor(
+      makeTheme("custom-intense"),
+      "terminal.foregroundIntense",
+      "#abcdef",
+    );
+    const normalized = normalizeImportedTheme(updated, new Set());
+
+    expect(
+      TERMINAL_THEME_COLOR_FIELDS.some((field) => field.path === "terminal.foregroundIntense"),
+    ).toBe(true);
+    expect(getThemeColor(normalized, "terminal.foregroundIntense")).toBe("#abcdef");
+    expect(validateTheme(normalized)).toEqual([]);
   });
 });

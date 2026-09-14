@@ -35,6 +35,7 @@ import { invoke } from "@/lib/invoke";
 import { isValidSerialBaudRate, MAX_SERIAL_BAUD_RATE, MIN_SERIAL_BAUD_RATE } from "@/lib/serial";
 import { validateSshAgentForwardingEndpoints } from "@/lib/sshAgent";
 import type {
+  AccountPasswordSource,
   ConnectionCustomIcon,
   Group,
   OtpEntry,
@@ -43,6 +44,7 @@ import type {
   RdpClipboardMode,
   RdpDisplayMode,
   RecordingMode,
+  SavedAccount,
   SavedConnection,
   SftpSettings,
   SshAgentEndpoint,
@@ -79,6 +81,19 @@ const DEFAULT_SSH_AGENT_FORWARDING_CONFIG: SshAgentForwardingConfig = {
   sources: { external_agent: false, external_agent_endpoints: [], stored_keys: true },
   policy: { mode: "allowlist", fingerprints: [] },
 };
+
+function resolveInitialPasswordSource(
+  connection: SavedConnection,
+  protocol: "ssh" | "telnet",
+): AccountPasswordSource {
+  const auth = connection.auth;
+  if (auth?.password_source === "connection") {
+    return auth.has_password ? "direct" : protocol === "ssh" ? "ask" : "direct";
+  }
+  if (auth?.has_password) return "direct";
+  if (auth?.account_id || auth?.password_id) return "account";
+  return protocol === "ssh" ? "ask" : "direct";
+}
 type SshTerminalTypeSelection = SshTerminalType | "default";
 
 function normalizeSshAlgorithms(
@@ -163,6 +178,8 @@ export default function NewSessionPage() {
   const [username, setUsername] = useState("root");
   const [rdpDomain, setRdpDomain] = useState("");
   const [authType, setAuthType] = useState<SshAuthMode>("password");
+  const [accountId, setAccountId] = useState("");
+  const [passwordSource, setPasswordSource] = useState<AccountPasswordSource>("ask");
   const [passwordId, setPasswordId] = useState("");
   const [password, setPassword] = useState("");
   const [hasPassword, setHasPassword] = useState(false);
@@ -175,6 +192,7 @@ export default function NewSessionPage() {
   const [error, setError] = useState("");
   const [groups, setGroups] = useState<Group[]>([]);
   const [savedConnections, setSavedConnections] = useState<SavedConnection[]>([]);
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [customIcons, setCustomIcons] = useState<ConnectionCustomIcon[]>([]);
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -232,6 +250,9 @@ export default function NewSessionPage() {
   const [dataBits, setDataBits] = useState("8");
   const [parity, setParity] = useState("none");
   const [stopBits, setStopBits] = useState("1");
+  const [serialModemUploadProtocol, setSerialModemUploadProtocol] = useState<
+    "xmodem" | "ymodem" | "zmodem"
+  >("zmodem");
 
   // Local Terminal States
   const [shellPath, setShellPath] = useState("powershell.exe");
@@ -263,6 +284,9 @@ export default function NewSessionPage() {
       .catch((e) => setError(getErrorMessage(e)));
     invoke<OtpEntry[]>("get_otp_entries")
       .then(setOtpEntries)
+      .catch((e) => setError(getErrorMessage(e)));
+    invoke<SavedAccount[]>("get_saved_passwords")
+      .then(setSavedAccounts)
       .catch((e) => setError(getErrorMessage(e)));
     invoke<SavedConnection[]>("get_saved_connections")
       .then((conns) => {
@@ -305,7 +329,9 @@ export default function NewSessionPage() {
           setSshPort(found.port || 22);
           setUsername(found.username || "root");
           setAuthType((found.auth?.mode as SshAuthMode) || "password");
-          setPasswordId(found.auth?.password_id || "");
+          setAccountId(found.auth?.account_id || found.auth?.password_id || "");
+          setPasswordSource(resolveInitialPasswordSource(found, "ssh"));
+          setPasswordId("");
           setHasPassword(found.auth?.has_password || false);
           setKeyId(found.auth?.key_id || "");
           setProxyId(found.network?.proxy_id || "");
@@ -331,7 +357,9 @@ export default function NewSessionPage() {
           setTelnetPort(found.port || 23);
           setUsername(found.username || "");
           setAuthType((found.auth?.mode === "none" ? "none" : "password") as SshAuthMode);
-          setPasswordId(found.auth?.password_id || "");
+          setAccountId(found.auth?.account_id || found.auth?.password_id || "");
+          setPasswordSource(resolveInitialPasswordSource(found, "telnet"));
+          setPasswordId("");
           setHasPassword(found.auth?.has_password || false);
           setTelnetBackspaceMode(found.backspace_mode || "del");
           setTelnetRawTcpCli(found.raw_tcp_cli ?? false);
@@ -353,6 +381,7 @@ export default function NewSessionPage() {
           setParity(found.parity || "none");
           setStopBits(found.stop_bits || "1");
           setSerialBackspaceMode(found.backspace_mode || "ctrl_h");
+          setSerialModemUploadProtocol(found.modem_upload_protocol || "zmodem");
         } else if (found.type === "rdp") {
           setHost(found.host || "");
           setRdpPort(found.port || 3389);
@@ -427,6 +456,8 @@ export default function NewSessionPage() {
     setUsername(currentTab === "rdp" ? DEFAULT_RDP_USERNAME : "root");
     setRdpDomain("");
     setAuthType("password");
+    setAccountId("");
+    setPasswordSource(currentTab === "telnet" ? "direct" : "ask");
     setPasswordId("");
     setPassword("");
     setHasPassword(false);
@@ -454,6 +485,7 @@ export default function NewSessionPage() {
     setDataBits("8");
     setParity("none");
     setStopBits("1");
+    setSerialModemUploadProtocol("zmodem");
     setShellPath("powershell.exe");
     setShellArgs("");
     setWorkingDir("");
@@ -494,6 +526,9 @@ export default function NewSessionPage() {
 
   const handleTabChange = useCallback((value: string) => {
     setCurrentTab(value);
+    if (value === "telnet") {
+      setPasswordSource((current) => (current === "ask" ? "direct" : current));
+    }
     if (value === "rdp") {
       setUsername((current) =>
         !current.trim() || current === "root" ? DEFAULT_RDP_USERNAME : current,
@@ -715,7 +750,8 @@ export default function NewSessionPage() {
       if (!isValidPort(sshPort)) {
         return t("dialog.portInvalid", "Port must be between 1 and 65535");
       }
-      if (!username.trim()) {
+      const accountUsername = savedAccounts.find((account) => account.id === accountId)?.username;
+      if (!(accountUsername?.trim() || username.trim())) {
         return t("dialog.usernameRequired", "Username is required");
       }
       if (authAgentEndpointError) {
@@ -812,6 +848,7 @@ export default function NewSessionPage() {
     baudRate,
     agentForwardingEndpointError,
     authAgentEndpointError,
+    accountId,
     currentTab,
     host,
     postLoginCommand,
@@ -828,6 +865,7 @@ export default function NewSessionPage() {
     telnetPort,
     t,
     username,
+    savedAccounts,
     vncPort,
     vncSecurityMode,
     password,
@@ -925,13 +963,36 @@ export default function NewSessionPage() {
                         : "none";
               const nextAuth: NonNullable<SavedConnection["auth"]> = {
                 mode: resolvedAuthMode,
-                password_id: resolvedAuthMode === "password" ? passwordId || "" : "",
+                account_id:
+                  currentTab === "ssh" || currentTab === "telnet" ? accountId || "" : undefined,
+                password_source:
+                  currentTab === "ssh" || currentTab === "telnet"
+                    ? passwordSource === "account"
+                      ? "account"
+                      : "connection"
+                    : undefined,
+                password_id:
+                  currentTab === "rdp" || currentTab === "vnc"
+                    ? resolvedAuthMode === "password"
+                      ? passwordId || ""
+                      : ""
+                    : "",
                 key_id: currentTab === "ssh" && resolvedAuthMode === "key" ? keyId : undefined,
                 otp_id: currentTab === "ssh" ? otpId || undefined : undefined,
                 auto_fill_otp: currentTab === "ssh" && otpId ? autoFillOtp : undefined,
               };
 
-              if (resolvedAuthMode !== "password" || passwordId) {
+              if (resolvedAuthMode !== "password") {
+                nextAuth.password = "";
+              } else if (currentTab === "ssh" || currentTab === "telnet") {
+                if (passwordSource === "account") {
+                  nextAuth.password = "";
+                } else if (password) {
+                  nextAuth.password = password;
+                } else if (!hasPassword) {
+                  nextAuth.password = "";
+                }
+              } else if (passwordId) {
                 nextAuth.password = "";
               } else if (password) {
                 nextAuth.password = password;
@@ -1047,6 +1108,7 @@ export default function NewSessionPage() {
               parity,
               stop_bits: stopBits,
               backspace_mode: serialBackspaceMode,
+              modem_upload_protocol: serialModemUploadProtocol,
             }
           : {}),
         ...(currentTab === "rdp"
@@ -1117,7 +1179,27 @@ export default function NewSessionPage() {
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className="h-full min-h-0 flex flex-col overflow-hidden bg-background text-foreground"
+      onKeyDown={(event) => {
+        if (
+          !editId ||
+          saveDisabled ||
+          event.defaultPrevented ||
+          event.nativeEvent.isComposing ||
+          event.key === "Process" ||
+          event.key !== "Enter"
+        ) {
+          return;
+        }
+
+        if (!(event.target instanceof HTMLInputElement)) return;
+        if (!event.currentTarget.contains(event.target)) return;
+
+        event.preventDefault();
+        void handleSave();
+      }}
+    >
       <ChildWindowHeader
         title={t(editId ? "dialog.editConnection" : "dialog.newConnection")}
         onClose={handleClose}
@@ -1469,10 +1551,14 @@ export default function NewSessionPage() {
               setPort={setSshPort}
               username={username}
               setUsername={setUsername}
+              accountId={accountId}
+              setAccountId={setAccountId}
+              accounts={savedAccounts}
+              onAccountsChanged={setSavedAccounts}
+              passwordSource={passwordSource}
+              setPasswordSource={setPasswordSource}
               authType={authType}
               setAuthType={(value) => setAuthType(value)}
-              passwordId={passwordId}
-              setPasswordId={setPasswordId}
               password={password}
               setPassword={setPassword}
               hasPassword={hasPassword}
@@ -1562,10 +1648,14 @@ export default function NewSessionPage() {
               setPort={setTelnetPort}
               username={username}
               setUsername={setUsername}
+              accountId={accountId}
+              setAccountId={setAccountId}
+              accounts={savedAccounts}
+              onAccountsChanged={setSavedAccounts}
+              passwordSource={passwordSource}
+              setPasswordSource={setPasswordSource}
               authType={authType === "none" ? "none" : "password"}
               setAuthType={(value) => setAuthType(value)}
-              passwordId={passwordId}
-              setPasswordId={setPasswordId}
               password={password}
               setPassword={setPassword}
               hasPassword={hasPassword}
@@ -1621,6 +1711,8 @@ export default function NewSessionPage() {
               setStopBits={setStopBits}
               backspaceMode={serialBackspaceMode}
               setBackspaceMode={setSerialBackspaceMode}
+              modemUploadProtocol={serialModemUploadProtocol}
+              setModemUploadProtocol={setSerialModemUploadProtocol}
               recordingUseGlobal={recordingUseGlobal}
               setRecordingUseGlobal={setRecordingUseGlobal}
               recordingAutoStart={recordingAutoStart}

@@ -62,6 +62,8 @@ const mocks = vi.hoisted(() => {
     ]),
     createMockWindow,
     currentWindow,
+    isLinux: false,
+    isMacOS: false,
     emit: vi.fn(async () => {}),
     getAll: vi.fn(async () => Array.from(windows.values())),
     getByLabel: vi.fn(async (label: string) => windows.get(label) ?? null),
@@ -118,10 +120,20 @@ vi.mock("./logger", () => ({
     warn: vi.fn(),
   },
 }));
+vi.mock("./platform", () => ({
+  get isLinux() {
+    return mocks.isLinux;
+  },
+  get isMacOS() {
+    return mocks.isMacOS;
+  },
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
+  mocks.isLinux = false;
+  mocks.isMacOS = false;
   mocks.listeners.clear();
   mocks.windows.clear();
 });
@@ -184,6 +196,46 @@ describe("child window work-area helpers", () => {
       x: 560,
       y: 240,
     });
+  });
+});
+
+describe("modal window raising", () => {
+  it("does not pulse always-on-top for ordinary modal windows on Linux", async () => {
+    mocks.isLinux = true;
+    const settingsWindow = mocks.createMockWindow("settings", mocks.windows);
+    mocks.windows.set("settings", settingsWindow);
+    const { raiseModalChildWindowGroup } = await importWindowManager();
+
+    await raiseModalChildWindowGroup({ reason: "open" });
+
+    expect(settingsWindow.show).toHaveBeenCalledOnce();
+    expect(settingsWindow.setFocus).toHaveBeenCalledOnce();
+    expect(settingsWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+  });
+
+  it("preserves required always-on-top state for auto-upload windows on Linux", async () => {
+    mocks.isLinux = true;
+    const autoUploadWindow = mocks.createMockWindow(
+      "auto-upload-bWFpbg--tmp-upload",
+      mocks.windows,
+    );
+    mocks.windows.set(autoUploadWindow.label, autoUploadWindow);
+    const { raiseModalChildWindowGroup } = await importWindowManager();
+
+    await raiseModalChildWindowGroup({ reason: "open" });
+
+    expect(autoUploadWindow.setAlwaysOnTop).toHaveBeenCalledOnce();
+    expect(autoUploadWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
+  });
+
+  it("retains the topmost pulse for modal windows on non-Linux platforms", async () => {
+    const settingsWindow = mocks.createMockWindow("settings", mocks.windows);
+    mocks.windows.set("settings", settingsWindow);
+    const { raiseModalChildWindowGroup } = await importWindowManager();
+
+    await raiseModalChildWindowGroup({ reason: "open" });
+
+    expect(settingsWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
   });
 });
 

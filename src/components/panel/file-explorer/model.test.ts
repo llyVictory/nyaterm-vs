@@ -5,10 +5,22 @@ import {
   buildMoveTargetPath,
   canTrackTerminalCwd,
   isMoveToSameDirectory,
+  normalizeFileExplorerViewMode,
   subscribeFileExplorerSessionSnapshots,
   syncExplorerDirectoryToTerminalCwd,
   syncExplorerDirectoryToTerminalCwdChange,
 } from "./model";
+
+describe("file explorer view mode", () => {
+  it("falls back to list for missing or unknown values", () => {
+    expect(normalizeFileExplorerViewMode(undefined)).toBe("list");
+    expect(normalizeFileExplorerViewMode("grid")).toBe("list");
+  });
+
+  it("accepts the tree view mode", () => {
+    expect(normalizeFileExplorerViewMode("tree")).toBe("tree");
+  });
+});
 
 describe("file explorer move path helpers", () => {
   it("moves a single file to a target directory", () => {

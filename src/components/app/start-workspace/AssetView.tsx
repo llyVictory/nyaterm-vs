@@ -120,9 +120,7 @@ export default function AssetView({
     () =>
       ({
         backgroundColor: transparentBackground ? "transparent" : "var(--df-bg-terminal)",
-        "--nyaterm-asset-sticky-bg": transparentBackground
-          ? "transparent"
-          : "var(--df-bg-terminal)",
+        "--nyaterm-asset-sticky-bg": "var(--df-bg-terminal-solid)",
       }) as CSSProperties,
     [transparentBackground],
   );

@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { invoke } from "@/lib/invoke";
 import { logger } from "@/lib/logger";
-import type { SavedPassword, SshKey } from "@/types/global";
+import type { SavedAccount, SshKey } from "@/types/global";
 
 export type SshAuthPromptReason =
   | "missing_password"
@@ -49,11 +49,11 @@ export interface SshAuthRequest {
   currentAuthMode?: string;
   attempt: number;
   canSave: boolean;
-  passwordId?: string | null;
+  accountId?: string | null;
   targetWindowLabel?: string | null;
 }
 
-type SaveMode = "none" | "connection" | "saved_password" | "key_passphrase";
+type SaveMode = "none" | "connection" | "saved_account" | "key_passphrase";
 type AuthMethod = "password" | "key";
 type PasswordSource = "manual" | "saved";
 
@@ -76,7 +76,7 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
   const [authMethod, setAuthMethod] = useState<AuthMethod>("password");
   const [passwordSource, setPasswordSource] = useState<PasswordSource>("manual");
   const [sshKeys, setSshKeys] = useState<SshKey[]>([]);
-  const [savedPasswords, setSavedPasswords] = useState<SavedPassword[]>([]);
+  const [savedPasswords, setSavedPasswords] = useState<SavedAccount[]>([]);
   const [selectedKeyId, setSelectedKeyId] = useState("");
   const [selectedPasswordId, setSelectedPasswordId] = useState("");
   const [keyManagementOpen, setKeyManagementOpen] = useState(false);
@@ -129,16 +129,16 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
   const loadSavedPasswords = useCallback(async () => {
     setLoadingPasswords(true);
     try {
-      const passwords = await invoke<SavedPassword[]>("get_saved_passwords");
-      const usablePasswords = passwords.filter((password) => password.has_password !== false);
+      const passwords = await invoke<SavedAccount[]>("get_saved_passwords");
+      const usablePasswords = passwords.filter((password) => password.has_password === true);
       setSavedPasswords(passwords);
       setSelectedPasswordId((current) => {
         if (current && usablePasswords.some((password) => password.id === current)) return current;
         if (
-          request?.passwordId &&
-          usablePasswords.some((password) => password.id === request.passwordId)
+          request?.accountId &&
+          usablePasswords.some((password) => password.id === request.accountId)
         ) {
-          return request.passwordId;
+          return request.accountId;
         }
         return usablePasswords[0]?.id || "";
       });
@@ -223,17 +223,17 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
               : saveMode === "key_passphrase"
                 ? { kind: "key_passphrase" }
                 : {
-                    kind: "saved_password",
+                    kind: "saved_account",
                     name: saveName.trim() || `${request.connectionName} ${t("dialog.password")}`,
-                    passwordId: request.passwordId || undefined,
+                    accountId: request.accountId || undefined,
                   };
       const response =
         activeMethod === "key"
           ? { method: "key", keyId: selectedKeyId }
           : usingSavedPassword
             ? {
-                method: "saved_password",
-                passwordId: selectedPasswordId,
+                method: "saved_account",
+                accountId: selectedPasswordId,
                 save,
               }
             : {
@@ -254,7 +254,7 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
         ids: { request_id: request.requestId },
         data: {
           prompt_kind: request.promptKind,
-          method: usingSavedPassword ? "saved_password" : activeMethod,
+          method: usingSavedPassword ? "saved_account" : activeMethod,
           save_mode: activeMethod === "key" ? "none" : saveMode,
         },
       });
@@ -424,8 +424,8 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
                             ? "key_passphrase"
                             : usingSavedPassword
                               ? "connection"
-                              : request.passwordId
-                                ? "saved_password"
+                              : request.accountId
+                                ? "saved_account"
                                 : "connection"
                           : "none",
                       );
@@ -444,14 +444,14 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="connection">{t("sshAuth.saveToConnection")}</SelectItem>
-                        <SelectItem value="saved_password">
-                          {request.passwordId
+                        <SelectItem value="saved_account">
+                          {request.accountId
                             ? t("sshAuth.updateSavedPassword")
                             : t("sshAuth.createSavedPassword")}
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    {saveMode === "saved_password" && !request.passwordId && (
+                    {saveMode === "saved_account" && !request.accountId && (
                       <Input
                         className="h-8 text-xs"
                         value={saveName}
@@ -529,7 +529,7 @@ interface PasswordAuthInputProps {
   showSecret: boolean;
   onSecretChange: (value: string) => void;
   onToggleShow: () => void;
-  passwords: SavedPassword[];
+  passwords: SavedAccount[];
   selectedPasswordId: string;
   loadingPasswords: boolean;
   onPasswordChange: (value: string) => void;
@@ -626,7 +626,7 @@ function SecretInput({
 }
 
 interface PasswordSelectorProps {
-  passwords: SavedPassword[];
+  passwords: SavedAccount[];
   value: string;
   loading: boolean;
   onChange: (value: string) => void;

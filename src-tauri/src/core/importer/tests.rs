@@ -585,8 +585,10 @@ mod tests {
             .as_ref()
             .expect("saved password auth");
         assert_eq!(saved_password_auth.mode, "password");
-        assert!(saved_password_auth.password_id.is_some());
+        assert!(saved_password_auth.account_id.is_some());
+        assert!(saved_password_auth.password_id.is_none());
         assert!(saved_password_auth.password.is_none());
+        assert!(prepared.passwords[0].username.is_empty());
 
         let key_auth = prepared.connections[2].auth.as_ref().expect("key auth");
         assert_eq!(key_auth.mode, "key");
@@ -986,6 +988,69 @@ mod tests {
 
         let password_auth = prepared.connections[1].auth.as_ref().expect("password auth");
         assert_eq!(password_auth.mode, "password");
-        assert!(password_auth.password_id.is_some());
+        assert!(password_auth.account_id.is_some());
+        assert!(password_auth.password_id.is_none());
+        assert!(prepared.passwords.iter().any(|entry| entry.username == "root"));
+        assert!(prepared
+            .passwords
+            .iter()
+            .any(|entry| entry.username == "deploy"));
+    }
+
+    #[test]
+    fn termius_identity_password_keeps_host_username() {
+        crate::utils::crypto::set_master_password(None);
+
+        let store = TermiusRawStore {
+            ssh_configs: Vec::new(),
+            groups: Vec::new(),
+            ssh_keys: Vec::new(),
+            identities: vec![TermiusRawIdentity {
+                id: "identity-1".to_string(),
+                local_id: Some("identity-1".to_string()),
+                label: Some("Deploy".to_string()),
+                username: Some("deploy".to_string()),
+                password: Some("identity-secret".to_string()),
+                ssh_key_id: None,
+                updated_at: Some("2024-01-01T00:00:00".to_string()),
+            }],
+            hosts: vec![TermiusRawHost {
+                id: "host-1".to_string(),
+                local_id: Some("host-1".to_string()),
+                label: Some("Production".to_string()),
+                address: Some("prod.example.com".to_string()),
+                username: Some("root".to_string()),
+                password: None,
+                ssh_config_id: None,
+                identity_id: Some("identity-1".to_string()),
+                group_id: None,
+                port: None,
+                updated_at: Some("2024-01-01T00:00:00".to_string()),
+            }],
+        };
+
+        let prepared = prepare_termius_import(store).expect("prepare termius import");
+        let connection = &prepared.connections[0];
+        let ConnectionType::Ssh { username, .. } = &connection.config else {
+            panic!("expected SSH connection");
+        };
+        let account_id = connection
+            .auth
+            .as_ref()
+            .and_then(|auth| auth.account_id.as_deref())
+            .expect("account reference");
+        let account = prepared
+            .passwords
+            .iter()
+            .find(|entry| entry.id == account_id)
+            .expect("referenced account");
+
+        assert_eq!(username, "root");
+        assert_eq!(account.username, "root");
+        assert_eq!(
+            crate::utils::crypto::decrypt(account.password.as_deref().expect("password"))
+                .expect("decrypt password"),
+            "identity-secret"
+        );
     }
 }

@@ -109,8 +109,9 @@ export function VncForm({
   useEffect(() => {
     invoke<SavedPassword[]>("get_saved_passwords")
       .then((items) => {
-        setPasswords(items);
-        if (passwordId && !items.some((item) => item.id === passwordId)) {
+        const usableItems = items.filter((item) => item.has_password === true);
+        setPasswords(usableItems);
+        if (passwordId && !usableItems.some((item) => item.id === passwordId)) {
           setPasswordId("");
         }
       })

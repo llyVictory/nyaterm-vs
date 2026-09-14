@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useApp } from "@/context/AppContext";
 import { useVirtualList } from "@/hooks/useVirtualList";
+import { canStartDockerContainer, canStopDockerContainer } from "@/lib/dockerContainerActions";
 import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
 import { buildTerminalCommandInput, sendSessionInput } from "@/lib/sessionInput";
@@ -1420,6 +1421,8 @@ function ContainerRow({
 }) {
   const stateKind = getDockerStateKind(container.state);
   const running = stateKind === "running";
+  const startable = canStartDockerContainer(container.state);
+  const stoppable = canStopDockerContainer(container.state);
   const pending = Boolean(pendingAction);
   return (
     <div
@@ -1455,6 +1458,8 @@ function ContainerRow({
         <DockerActionMenu
           pending={pending}
           running={running}
+          startable={startable}
+          stoppable={stoppable}
           onEnter={onEnter}
           onLogs={onLogs}
           onAction={onAction}
@@ -1467,12 +1472,16 @@ function ContainerRow({
 function DockerActionMenu({
   pending,
   running,
+  startable,
+  stoppable,
   onEnter,
   onLogs,
   onAction,
 }: {
   pending: boolean;
   running: boolean;
+  startable: boolean;
+  stoppable: boolean;
   onEnter: () => void;
   onLogs: () => void;
   onAction: (action: string) => void;
@@ -1501,10 +1510,10 @@ function DockerActionMenu({
           {t("dockerManager.enter")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={pending || running} onSelect={() => onAction("start")}>
+        <DropdownMenuItem disabled={pending || !startable} onSelect={() => onAction("start")}>
           {t("dockerManager.start")}
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={pending || !running} onSelect={() => onAction("stop")}>
+        <DropdownMenuItem disabled={pending || !stoppable} onSelect={() => onAction("stop")}>
           {t("dockerManager.stop")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={pending} onSelect={() => onAction("restart")}>

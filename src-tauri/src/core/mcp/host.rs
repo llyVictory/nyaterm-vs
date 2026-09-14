@@ -33,8 +33,8 @@ use crate::core::ai::{AppendAiAuditRequest, append_ai_audit, redact_sensitive_te
 use crate::core::capabilities::sftp as sftp_capability;
 use crate::core::capabilities::{
     CapabilityAccess, McpScope, McpScopeSnapshot, OutputStore, PolicyDecision, RiskAssessment,
-    TerminalExecuteRequest, assess_command_risk, capability_for_tool, decide_policy,
-    execute_terminal_command,
+    TerminalExecuteRequest, TerminalExecutionPresentation, assess_command_risk,
+    capability_for_tool, decide_policy, execute_terminal_command,
 };
 use crate::core::session::{SessionInfo, SessionType};
 use crate::error::{AppError, AppResult};
@@ -136,6 +136,48 @@ struct Credential {
     owner_window_label: Option<String>,
     cancellation: CancellationToken,
     opened_session_ids: RwLock<HashSet<String>>,
+    terminal_presentation: Option<McpTerminalPresentation>,
+}
+
+struct McpTerminalPresentation {
+    max_lines: u16,
+    next_step_index: AtomicU16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct McpTerminalPresentationSpec {
+    step_index: u16,
+    max_lines: u16,
+}
+
+impl McpTerminalPresentation {
+    fn new(max_lines: u16) -> Self {
+        Self {
+            max_lines,
+            next_step_index: AtomicU16::new(0),
+        }
+    }
+
+    fn next_spec(&self) -> McpTerminalPresentationSpec {
+        let step_index = self
+            .next_step_index
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+                Some(current.saturating_add(1))
+            })
+            .unwrap_or_else(|current| current);
+        McpTerminalPresentationSpec {
+            step_index,
+            max_lines: self.max_lines,
+        }
+    }
+}
+
+impl Credential {
+    fn next_terminal_presentation_spec(&self) -> Option<McpTerminalPresentationSpec> {
+        self.terminal_presentation
+            .as_ref()
+            .map(McpTerminalPresentation::next_spec)
+    }
 }
 
 struct ExternalRuntime {
@@ -286,6 +328,7 @@ impl McpManager {
             owner_window_label: Some(owner_window_label.to_string()),
             cancellation: cancellation.clone(),
             opened_session_ids: RwLock::new(HashSet::new()),
+            terminal_presentation: None,
         });
         self.credentials
             .write()
@@ -578,6 +621,7 @@ impl McpManager {
         default_session_id: Option<String>,
         permission_mode: AiPermissionMode,
         owner_window_label: Option<String>,
+        terminal_presentation_max_lines: Option<u16>,
     ) -> AppResult<EphemeralMcpCredential> {
         let port = self.port.load(Ordering::SeqCst);
         if port == 0 {
@@ -599,6 +643,8 @@ impl McpManager {
                 owner_window_label,
                 cancellation: cancellation.clone(),
                 opened_session_ids: RwLock::new(HashSet::new()),
+                terminal_presentation: terminal_presentation_max_lines
+                    .map(McpTerminalPresentation::new),
             }),
         );
         Ok(EphemeralMcpCredential {
@@ -1351,6 +1397,18 @@ impl McpManager {
                         "timeoutMs must be between 1 and 300000.",
                     ));
                 }
+                let presentation = self.app.get().and_then(|app| {
+                    context
+                        .credential
+                        .next_terminal_presentation_spec()
+                        .map(|spec| TerminalExecutionPresentation {
+                            app: app.clone(),
+                            step_index: spec.step_index,
+                            max_lines: spec.max_lines,
+                            send_only_output: None,
+                            disabled_error: None,
+                        })
+                });
                 let result = execute_terminal_command(
                     self.sessions.clone(),
                     TerminalExecuteRequest {
@@ -1358,7 +1416,7 @@ impl McpManager {
                         command: args.command,
                         timeout_ms,
                     },
-                    None,
+                    presentation,
                     cancellation,
                 )
                 .await
@@ -1993,7 +2051,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ephemeral_credentials_force_environment_auth_and_cleanup_on_drop() {
+    async fn codex_ephemeral_credentials_enable_presentation_and_cleanup_on_drop() {
         let root = std::env::temp_dir().join(format!("nyaterm-mcp-host-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let sidecar = root.join(if cfg!(windows) {
@@ -2007,16 +2065,38 @@ mod tests {
 
         let credential = manager
             .create_ephemeral_credential(
-                "test",
+                "codex_mcp",
                 vec!["session-a".into()],
                 Some("session-a".into()),
                 AiPermissionMode::Confirm,
                 None,
+                Some(7),
             )
             .await
             .unwrap();
         assert_eq!(credential.env().get("NYATERM_MCP_EPHEMERAL").unwrap(), "1");
         assert_eq!(manager.credentials.read().await.len(), 1);
+        let stored = manager
+            .credentials
+            .read()
+            .await
+            .get(&credential.generation)
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            stored.next_terminal_presentation_spec(),
+            Some(McpTerminalPresentationSpec {
+                step_index: 0,
+                max_lines: 7,
+            })
+        );
+        assert_eq!(
+            stored.next_terminal_presentation_spec(),
+            Some(McpTerminalPresentationSpec {
+                step_index: 1,
+                max_lines: 7,
+            })
+        );
         drop(credential);
         tokio::task::yield_now().await;
         assert!(manager.credentials.read().await.is_empty());
@@ -2026,5 +2106,32 @@ mod tests {
         assert!(!serialized.contains("NYATERM_MCP_TOKEN"));
         assert!(!serialized.contains("generation"));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn external_credentials_do_not_enable_terminal_presentation() {
+        let credential = Credential {
+            token: "token".into(),
+            scope: Arc::new(McpScope::AllSessions),
+            permission_mode: AiPermissionMode::Confirm,
+            source: EXTERNAL_SOURCE.into(),
+            owner_window_label: Some("main".into()),
+            cancellation: CancellationToken::new(),
+            opened_session_ids: RwLock::new(HashSet::new()),
+            terminal_presentation: None,
+        };
+
+        assert_eq!(credential.next_terminal_presentation_spec(), None);
+    }
+
+    #[test]
+    fn terminal_presentation_step_counters_are_isolated_per_credential() {
+        let first = McpTerminalPresentation::new(10);
+        let second = McpTerminalPresentation::new(20);
+
+        assert_eq!(first.next_spec().step_index, 0);
+        assert_eq!(first.next_spec().step_index, 1);
+        assert_eq!(second.next_spec().step_index, 0);
+        assert_eq!(second.next_spec().max_lines, 20);
     }
 }

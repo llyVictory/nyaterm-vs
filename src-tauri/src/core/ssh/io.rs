@@ -1426,6 +1426,11 @@ pub(super) async fn ssh_io_loop(
                         }
                         zmodem_transfer = None;
                     }
+                    Some(SessionCommand::SerialModemUpload { result_tx, .. }) => {
+                        let _ = result_tx.send(Err(
+                            "Direct modem upload is only available for Serial sessions".to_string(),
+                        ));
+                    }
                     None => {
                         let _ = channel.close().await;
                         break "session-command-channel-closed";
@@ -1748,6 +1753,11 @@ async fn run_sftp_only_session_commands(
                 }
                 Some(SessionCommand::CaptureExec { result_tx, .. }) => {
                     drop(result_tx);
+                }
+                Some(SessionCommand::SerialModemUpload { result_tx, .. }) => {
+                    let _ = result_tx.send(Err(
+                        "Direct modem upload is only available for Serial sessions".to_string(),
+                    ));
                 }
                 Some(SessionCommand::Close) => break "local-close-request",
                 Some(

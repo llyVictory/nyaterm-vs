@@ -4,6 +4,7 @@
 export interface TerminalColors {
   background: string;
   foreground: string;
+  foregroundIntense?: string;
   cursor: string;
   selectionBackground: string;
   lineHighlight: string;
@@ -97,6 +98,7 @@ const githubDark = {
     terminal: {
       background: "#0d1117",
       foreground: "#c9d1d9",
+      foregroundIntense: "#f0f6fc",
       cursor: "#c9d1d9",
       selectionBackground: "#264f78",
       lineHighlight: "#161b22",
@@ -154,6 +156,7 @@ const nyaHighContrast = {
     terminal: {
       background: "#000307",
       foreground: "#d7dee8",
+      foregroundIntense: "#ffffff",
       cursor: "#f8fafc",
       selectionBackground: "#123a55",
       lineHighlight: "#07111c",
@@ -211,6 +214,7 @@ const nyaHighContrastWhite = {
     terminal: {
       background: "#ffffff",
       foreground: "#0b1220",
+      foregroundIntense: "#004e89",
       cursor: "#004e89",
       selectionBackground: "#c8dcf6",
       lineHighlight: "#eef3f9",
@@ -268,6 +272,7 @@ const dracula = {
     terminal: {
       background: "#24172f",
       foreground: "#f8f8f2",
+      foregroundIntense: "#ffffff",
       cursor: "#f8f8f2",
       selectionBackground: "#4a3561",
       lineHighlight: "#2b203a",
@@ -325,6 +330,7 @@ const nord = {
     terminal: {
       background: "#202a38",
       foreground: "#d8dee9",
+      foregroundIntense: "#eceff4",
       cursor: "#d8dee9",
       selectionBackground: "#425777",
       lineHighlight: "#2a3546",
@@ -382,6 +388,7 @@ const monokaiPro = {
     terminal: {
       background: "#2b241d",
       foreground: "#fcfcfa",
+      foregroundIntense: "#ffffff",
       cursor: "#fcfcfa",
       selectionBackground: "#564735",
       lineHighlight: "#352c23",
@@ -439,6 +446,7 @@ const solarizedLight = {
     terminal: {
       background: "#fff7df",
       foreground: "#586e75",
+      foregroundIntense: "#002b36",
       cursor: "#586e75",
       selectionBackground: "#ead6a7",
       lineHighlight: "#f6e7c4",
@@ -496,6 +504,7 @@ const catppuccinMocha = {
     terminal: {
       background: "#1e1324",
       foreground: "#cdd6f4",
+      foregroundIntense: "#f5e0dc",
       cursor: "#f5e0dc",
       selectionBackground: "#4a3758",
       lineHighlight: "#271b30",
@@ -553,6 +562,7 @@ const tokyoNight = {
     terminal: {
       background: "#0b1020",
       foreground: "#a9b1d6",
+      foregroundIntense: "#d5dcff",
       cursor: "#c0caf5",
       selectionBackground: "#294f8d",
       lineHighlight: "#121b31",
@@ -610,6 +620,7 @@ const oneDarkPro = {
     terminal: {
       background: "#222831",
       foreground: "#abb2bf",
+      foregroundIntense: "#e6e6e6",
       cursor: "#528bff",
       selectionBackground: "#465163",
       lineHighlight: "#2b323d",
@@ -667,6 +678,7 @@ const rosePine = {
     terminal: {
       background: "#1d101b",
       foreground: "#e0def4",
+      foregroundIntense: "#f2e9f6",
       cursor: "#524f67",
       selectionBackground: "#4c3449",
       lineHighlight: "#291827",
@@ -724,6 +736,7 @@ const gruvboxDark = {
     terminal: {
       background: "#271d14",
       foreground: "#ebdbb2",
+      foregroundIntense: "#fbf1c7",
       cursor: "#ebdbb2",
       selectionBackground: "#5a4129",
       lineHighlight: "#322417",
@@ -781,6 +794,7 @@ const githubLight = {
     terminal: {
       background: "#ffffff",
       foreground: "#1f2328",
+      foregroundIntense: "#0969da",
       cursor: "#0969da",
       selectionBackground: "#c7e5ff",
       lineHighlight: "#f0f4f8",
@@ -838,6 +852,7 @@ const catppuccinLatte = {
     terminal: {
       background: "#f7f3fb",
       foreground: "#4c4f69",
+      foregroundIntense: "#8839ef",
       cursor: "#dc8a78",
       selectionBackground: "#d9cdea",
       lineHighlight: "#eee7f5",
@@ -895,6 +910,7 @@ const rosePineDawn = {
     terminal: {
       background: "#fff6ef",
       foreground: "#575279",
+      foregroundIntense: "#286983",
       cursor: "#575279",
       selectionBackground: "#ebcbbf",
       lineHighlight: "#f8e6dc",
@@ -952,6 +968,7 @@ const nordLight = {
     terminal: {
       background: "#f4f9fd",
       foreground: "#2e3440",
+      foregroundIntense: "#405f82",
       cursor: "#5e81ac",
       selectionBackground: "#c8d8e8",
       lineHighlight: "#e3edf6",
@@ -1009,6 +1026,7 @@ const oneLight = {
     terminal: {
       background: "#fafafa",
       foreground: "#383a42",
+      foregroundIntense: "#2f65de",
       cursor: "#526eff",
       selectionBackground: "#dfe3ea",
       lineHighlight: "#f1f1f2",

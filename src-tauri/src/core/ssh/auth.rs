@@ -174,6 +174,8 @@ pub struct SshAuthResponse {
     #[serde(default)]
     pub key_id: Option<String>,
     #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
     pub password_id: Option<String>,
     #[serde(default)]
     pub save: Option<SshAuthSaveRequest>,
@@ -185,6 +187,8 @@ pub struct SshAuthSaveRequest {
     pub kind: String,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub account_id: Option<String>,
     #[serde(default)]
     pub password_id: Option<String>,
 }
@@ -254,7 +258,7 @@ struct SshAuthRequestPayload {
     current_auth_mode: String,
     attempt: u32,
     can_save: bool,
-    password_id: Option<String>,
+    account_id: Option<String>,
     target_window_label: Option<String>,
 }
 
@@ -454,8 +458,20 @@ fn resolve_saved_ssh_config(
     visited_proxy_jumps: &mut HashSet<String>,
 ) -> AppResult<SshConfig> {
     let proxy = resolve_proxy(app, conn)?;
-    let (host, port, username) = resolve_ssh_target(conn)?;
-    let auth = resolve_auth(app, conn)?;
+    let account = conn
+        .auth
+        .as_ref()
+        .map(|auth| {
+            crate::config::load_saved_account(
+                app,
+                auth.account_id.as_deref(),
+                auth.password_id.as_deref(),
+            )
+        })
+        .transpose()?
+        .flatten();
+    let (host, port, username) = resolve_ssh_target(conn, account.as_ref())?;
+    let auth = resolve_auth(app, conn, account.as_ref())?;
     let proxy_jump = if include_proxy_jump {
         resolve_proxy_jump(app, conn, visited_proxy_jumps)?
     } else {
@@ -550,21 +566,32 @@ fn resolve_post_login(conn: &crate::config::SavedConnection) -> Option<SshPostLo
     })
 }
 
-fn resolve_ssh_target(conn: &crate::config::SavedConnection) -> AppResult<(String, u16, String)> {
+fn resolve_ssh_target(
+    conn: &crate::config::SavedConnection,
+    account: Option<&crate::config::SavedPassword>,
+) -> AppResult<(String, u16, String)> {
     match &conn.config {
         crate::config::ConnectionType::Ssh {
             host,
             port,
             username,
             ..
-        } => Ok((host.clone(), *port, username.clone())),
+        } => Ok((
+            host.clone(),
+            *port,
+            crate::config::resolve_account_username(account, username),
+        )),
         _ => Err(AppError::Auth(
             "Connection is not an SSH connection".to_string(),
         )),
     }
 }
 
-fn resolve_auth(app: &AppHandle, conn: &crate::config::SavedConnection) -> AppResult<SshAuth> {
+fn resolve_auth(
+    app: &AppHandle,
+    conn: &crate::config::SavedConnection,
+    account: Option<&crate::config::SavedPassword>,
+) -> AppResult<SshAuth> {
     let Some(conn_auth) = conn.auth.as_ref() else {
         return Ok(SshAuth::None);
     };
@@ -572,7 +599,7 @@ fn resolve_auth(app: &AppHandle, conn: &crate::config::SavedConnection) -> AppRe
     match conn_auth.mode.as_str() {
         "none" => Ok(SshAuth::None),
         "password" => {
-            let password = resolve_password_material(Some(app), conn_auth)?;
+            let password = resolve_password_material(conn_auth, account)?;
             Ok(SshAuth::Password { password })
         }
         "agent" => Ok(SshAuth::Agent),
@@ -596,8 +623,8 @@ fn resolve_auth(app: &AppHandle, conn: &crate::config::SavedConnection) -> AppRe
 }
 
 fn resolve_password_material(
-    app: Option<&AppHandle>,
     conn_auth: &crate::config::ConnectionAuth,
+    account: Option<&crate::config::SavedPassword>,
 ) -> AppResult<Option<String>> {
     if let Some(ref ciphertext) = conn_auth.password {
         return crate::utils::crypto::decrypt(ciphertext)
@@ -605,13 +632,11 @@ fn resolve_password_material(
             .map_err(|e| AppError::Auth(format!("Failed to decrypt inline password: {e}")));
     }
 
-    let Some(pw_id) = conn_auth.password_id.as_deref().filter(|id| !id.is_empty()) else {
+    if conn_auth.password_source.as_deref() == Some("connection") {
         return Ok(None);
-    };
+    }
 
-    let app = app.ok_or_else(|| AppError::Auth("No password for this connection".to_string()))?;
-    let pw_entry = crate::config::load_password_by_id(app, pw_id)?;
-    Ok(pw_entry.password)
+    crate::config::decrypt_account_password(account)
 }
 
 fn resolve_proxy_jump(
@@ -944,15 +969,16 @@ async fn request_runtime_auth_selection(
                 save: parse_runtime_secret_save(response.save, reason, can_save, None),
             }))
         }
-        "saved_password" => {
-            let password_id = response
-                .password_id
+        "saved_account" | "saved_password" => {
+            let account_id = response
+                .account_id
+                .or(response.password_id)
                 .as_deref()
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
                 .map(str::to_string)
                 .ok_or_else(|| AppError::Auth("No saved password was selected".to_string()))?;
-            let password = crate::config::load_password_by_id(app, &password_id)?
+            let password = crate::config::load_password_by_id(app, &account_id)?
                 .password
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
@@ -960,12 +986,7 @@ async fn request_runtime_auth_selection(
                 })?;
             Ok(RuntimeAuthSelection::Password(RuntimeSecret {
                 value: password,
-                save: parse_runtime_secret_save(
-                    response.save,
-                    reason,
-                    can_save,
-                    Some(&password_id),
-                ),
+                save: parse_runtime_secret_save(response.save, reason, can_save, Some(&account_id)),
             }))
         }
         "key" | "publickey" => response
@@ -1012,7 +1033,7 @@ async fn request_runtime_auth_response(
         current_auth_mode: current_auth_mode(&config.auth).to_string(),
         attempt,
         can_save,
-        password_id: current_password_id(app, config.connection_id.as_deref()),
+        account_id: current_account_id(app, config.connection_id.as_deref()),
         target_window_label: config.owner_window_label.clone(),
     };
 
@@ -1053,17 +1074,19 @@ async fn request_runtime_auth_response(
     response
 }
 
-fn current_password_id(app: &AppHandle, connection_id: Option<&str>) -> Option<String> {
+fn current_account_id(app: &AppHandle, connection_id: Option<&str>) -> Option<String> {
     let connection_id = connection_id?;
     let conn = crate::config::load_connection_by_id(app, connection_id).ok()?;
-    conn.auth?.password_id.filter(|id| !id.is_empty())
+    let auth = conn.auth?;
+    crate::config::effective_account_id(auth.account_id.as_deref(), auth.password_id.as_deref())
+        .map(str::to_string)
 }
 
 fn parse_runtime_secret_save(
     save: Option<SshAuthSaveRequest>,
     reason: SshAuthPromptReason,
     can_save: bool,
-    selected_password_id: Option<&str>,
+    selected_account_id: Option<&str>,
 ) -> Option<RuntimeSecretSave> {
     if !can_save {
         return None;
@@ -1072,13 +1095,13 @@ fn parse_runtime_secret_save(
     match (reason.prompt_kind(), save.kind.as_str()) {
         ("passphrase", "key_passphrase") => Some(RuntimeSecretSave::KeyPassphrase),
         ("password", "connection") => {
-            if let Some(id) = selected_password_id {
+            if let Some(id) = selected_account_id {
                 Some(RuntimeSecretSave::SavedPasswordReference { id: id.to_string() })
             } else {
                 Some(RuntimeSecretSave::ConnectionInline)
             }
         }
-        ("password", "saved_password") => {
+        ("password", "saved_account" | "saved_password") => {
             let name = save
                 .name
                 .as_deref()
@@ -1087,7 +1110,10 @@ fn parse_runtime_secret_save(
                 .unwrap_or("SSH Password")
                 .to_string();
             Some(RuntimeSecretSave::SavedPassword {
-                id: save.password_id.filter(|id| !id.is_empty()),
+                id: save
+                    .account_id
+                    .or(save.password_id)
+                    .filter(|id| !id.is_empty()),
                 name,
             })
         }
@@ -2076,6 +2102,7 @@ fn persist_runtime_password(
             {
                 let auth = conn.auth.get_or_insert_with(Default::default);
                 auth.mode = "password".to_string();
+                auth.password_source = Some("connection".to_string());
                 auth.password = Some(crate::utils::crypto::encrypt(&secret.value)?);
                 auth.password_id = None;
                 auth.has_password = false;
@@ -2084,8 +2111,13 @@ fn persist_runtime_password(
             }
         }
         RuntimeSecretSave::SavedPassword { id, name } => {
-            let password_id =
-                upsert_runtime_saved_password(app, id.as_deref(), name, &secret.value)?;
+            let account_id = upsert_runtime_saved_password(
+                app,
+                id.as_deref(),
+                name,
+                &config.username,
+                &secret.value,
+            )?;
             let mut sessions = crate::config::load_config(app)?;
             if let Some(conn) = sessions
                 .connections
@@ -2093,10 +2125,7 @@ fn persist_runtime_password(
                 .find(|candidate| candidate.id == connection_id)
             {
                 let auth = conn.auth.get_or_insert_with(Default::default);
-                auth.mode = "password".to_string();
-                auth.password_id = Some(password_id);
-                auth.password = None;
-                auth.has_password = false;
+                apply_runtime_account_reference(auth, account_id);
                 crate::config::save_config(app, &sessions)?;
                 emit_config_changed(app);
             }
@@ -2109,10 +2138,7 @@ fn persist_runtime_password(
                 .find(|candidate| candidate.id == connection_id)
             {
                 let auth = conn.auth.get_or_insert_with(Default::default);
-                auth.mode = "password".to_string();
-                auth.password_id = Some(id.clone());
-                auth.password = None;
-                auth.has_password = false;
+                apply_runtime_account_reference(auth, id.clone());
                 crate::config::save_config(app, &sessions)?;
                 emit_config_changed(app);
             }
@@ -2123,10 +2149,20 @@ fn persist_runtime_password(
     Ok(())
 }
 
+fn apply_runtime_account_reference(auth: &mut crate::config::ConnectionAuth, account_id: String) {
+    auth.mode = "password".to_string();
+    auth.account_id = Some(account_id);
+    auth.password_source = Some("account".to_string());
+    auth.password_id = None;
+    auth.password = None;
+    auth.has_password = false;
+}
+
 fn upsert_runtime_saved_password(
     app: &AppHandle,
     id: Option<&str>,
     name: &str,
+    username: &str,
     value: &str,
 ) -> AppResult<String> {
     let mut cfg = crate::config::load_passwords(app)?;
@@ -2140,9 +2176,16 @@ fn upsert_runtime_saved_password(
         .find(|password| password.id == target_id)
         .map(|password| password.name.clone())
         .unwrap_or_else(|| name.to_string());
+    let entry_username = cfg
+        .passwords
+        .iter()
+        .find(|password| password.id == target_id)
+        .map(|password| password.username.clone())
+        .unwrap_or_else(|| username.to_string());
     let entry = crate::config::SavedPassword {
         id: target_id.clone(),
         name: entry_name,
+        username: entry_username,
         password: Some(crate::utils::crypto::encrypt(value)?),
         has_password: false,
     };
@@ -2986,12 +3029,13 @@ mod tests {
     use super::{
         AgentSigningSelectionError, KeyboardInteractiveMode, PendingAuthManager,
         PendingSshAgentAuthManager, PendingSshAuthManager, SshAgentAuthAction, TotpUseCandidate,
-        await_agent_signing_or_action, is_otp_keyboard_interactive_prompt,
-        is_password_keyboard_interactive_prompt, is_totp_code_reused, record_totp_code_use,
-        resolve_password_material, seconds_until_next_totp_step, should_auto_fill_otp_prompts,
+        apply_runtime_account_reference, await_agent_signing_or_action,
+        is_otp_keyboard_interactive_prompt, is_password_keyboard_interactive_prompt,
+        is_totp_code_reused, record_totp_code_use, resolve_password_material, resolve_ssh_target,
+        seconds_until_next_totp_step, should_auto_fill_otp_prompts,
         should_auto_fill_password_prompts, used_totp_codes,
     };
-    use crate::config::ConnectionAuth;
+    use crate::config::{ConnectionAuth, SavedConnection, SavedPassword};
     use crate::error::AppError;
     use russh::client::Prompt;
     use tokio::sync::oneshot;
@@ -3126,9 +3170,136 @@ mod tests {
             ..Default::default()
         };
 
-        let password = resolve_password_material(None, &auth).unwrap();
+        let password = resolve_password_material(&auth, None).unwrap();
 
         assert_eq!(password, None);
+    }
+
+    fn test_account(username: &str, password: Option<&str>) -> SavedPassword {
+        SavedPassword {
+            id: "account-1".to_string(),
+            name: "Account".to_string(),
+            username: username.to_string(),
+            password: password.map(|value| crate::utils::crypto::encrypt(value).expect("encrypt")),
+            has_password: password.is_some(),
+        }
+    }
+
+    fn test_ssh_connection(username: &str, mode: &str) -> SavedConnection {
+        serde_json::from_value(serde_json::json!({
+            "id": "connection-1",
+            "name": "Connection",
+            "type": "ssh",
+            "host": "example.com",
+            "port": 22,
+            "username": username,
+            "auth": { "mode": mode }
+        }))
+        .expect("SSH connection")
+    }
+
+    #[test]
+    fn ssh_account_username_overrides_connection_username() {
+        let conn = test_ssh_connection("root", "key");
+        let account = test_account("ops", None);
+
+        let (_, _, username) = resolve_ssh_target(&conn, Some(&account)).expect("target");
+
+        assert_eq!(username, "ops");
+    }
+
+    #[test]
+    fn ssh_empty_or_missing_account_username_uses_connection_username() {
+        let conn = test_ssh_connection("root", "agent");
+        let account = test_account("", None);
+
+        assert_eq!(
+            resolve_ssh_target(&conn, Some(&account))
+                .expect("empty username")
+                .2,
+            "root"
+        );
+        assert_eq!(
+            resolve_ssh_target(&conn, None).expect("missing account").2,
+            "root"
+        );
+    }
+
+    #[test]
+    fn ssh_inline_password_overrides_account_password() {
+        crate::utils::crypto::set_master_password(None);
+        let auth = ConnectionAuth {
+            mode: "password".to_string(),
+            password: Some(crate::utils::crypto::encrypt("inline").expect("encrypt inline")),
+            ..Default::default()
+        };
+        let account = test_account("admin", Some("account"));
+
+        assert_eq!(
+            resolve_password_material(&auth, Some(&account)).expect("password"),
+            Some("inline".to_string())
+        );
+    }
+
+    #[test]
+    fn ssh_account_password_can_be_used_or_absent() {
+        crate::utils::crypto::set_master_password(None);
+        let auth = ConnectionAuth {
+            mode: "password".to_string(),
+            account_id: Some("account-1".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolve_password_material(&auth, Some(&test_account("admin", Some("secret"))))
+                .expect("account password"),
+            Some("secret".to_string())
+        );
+        assert_eq!(
+            resolve_password_material(&auth, Some(&test_account("ops", None)))
+                .expect("empty account password"),
+            None
+        );
+        assert_eq!(
+            resolve_password_material(&auth, None).expect("invalid account"),
+            None
+        );
+    }
+
+    #[test]
+    fn ssh_connection_password_source_disables_account_password_fallback() {
+        crate::utils::crypto::set_master_password(None);
+        let auth = ConnectionAuth {
+            mode: "password".to_string(),
+            account_id: Some("account-1".to_string()),
+            password_source: Some("connection".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolve_password_material(&auth, Some(&test_account("admin", Some("secret"))))
+                .expect("connection password source"),
+            None
+        );
+    }
+
+    #[test]
+    fn runtime_password_save_writes_account_id_and_clears_legacy_material() {
+        let mut auth = ConnectionAuth {
+            mode: "password".to_string(),
+            password_id: Some("legacy".to_string()),
+            password: Some("encrypted-inline".to_string()),
+            has_password: true,
+            ..Default::default()
+        };
+
+        apply_runtime_account_reference(&mut auth, "account-1".to_string());
+
+        assert_eq!(auth.account_id.as_deref(), Some("account-1"));
+        assert_eq!(auth.password_source.as_deref(), Some("account"));
+        assert!(auth.password_id.is_none());
+        assert!(auth.password.is_none());
+        assert!(!auth.has_password);
     }
 
     #[test]

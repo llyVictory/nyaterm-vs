@@ -37,6 +37,7 @@ use crate::core::{
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    platform::prepare_appimage_wayland_backend();
     portable_updater::schedule_cleanup_from_environment();
     let runtime = runtime::resolve().expect("failed to resolve runtime paths");
     runtime::prepare_webview_environment(&runtime);
@@ -187,6 +188,7 @@ pub fn run() {
             cmd::log::append_frontend_logs,
             cmd::log::export_diagnostics,
             cmd::note::list_note_tree,
+            cmd::note::export_notes,
             cmd::note::get_note,
             cmd::note::create_note_folder,
             cmd::note::create_note,
@@ -268,6 +270,7 @@ pub fn run() {
             cmd::session::zmodem_accept_download,
             cmd::session::zmodem_accept_upload,
             cmd::session::zmodem_cancel,
+            cmd::session::serial_modem_upload,
             cmd::sftp::get_home_dir,
             cmd::sftp::list_remote_dir,
             cmd::sftp::list_remote_child_directories,

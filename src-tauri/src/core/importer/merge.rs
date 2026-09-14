@@ -105,6 +105,8 @@ fn import_legacy_sessions(
             icon_auto_detect: None,
             auth: Some(ConnectionAuth {
                 mode: sess.auth_type,
+                account_id: None,
+                password_source: None,
                 password_id: None,
                 password: None,
                 key_id: None,

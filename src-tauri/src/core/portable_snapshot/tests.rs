@@ -617,6 +617,7 @@ mod tests {
                         stop_bits: "1".to_string(),
                         ai_execution_profile: config::AiExecutionProfile::Auto,
                         backspace_mode: "del".to_string(),
+                        modem_upload_protocol: config::SerialModemUploadProtocol::Zmodem,
                         encoding: String::new(),
                     },
                     group_id: None,
@@ -762,7 +763,15 @@ mod tests {
 
     #[test]
     fn portable_snapshot_zip_roundtrip() {
-        let snapshot = sample_snapshot();
+        let mut snapshot = sample_snapshot();
+        snapshot.passwords.passwords.push(config::SavedPassword {
+            id: "account-1".to_string(),
+            name: "Production".to_string(),
+            username: "admin".to_string(),
+            password: Some("encrypted-secret".to_string()),
+            has_password: false,
+        });
+        snapshot.payload_hash = calculate_payload_hash(&snapshot).expect("hash snapshot");
 
         let encoded = encode_portable_snapshot(&snapshot).expect("encode snapshot");
         let decoded = super::decode_portable_snapshot(&encoded).expect("decode snapshot");
@@ -772,6 +781,11 @@ mod tests {
         assert_eq!(decoded.master_key_token, snapshot.master_key_token);
         assert_eq!(decoded.known_hosts, snapshot.known_hosts);
         assert_eq!(decoded.notes, snapshot.notes);
+        assert_eq!(decoded.passwords.passwords[0].username, "admin");
+        assert_eq!(
+            decoded.passwords.passwords[0].password.as_deref(),
+            Some("encrypted-secret")
+        );
     }
 
     #[test]

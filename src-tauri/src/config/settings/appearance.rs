@@ -20,6 +20,8 @@ pub struct AppearanceSettings {
     pub font_weight: u16,
     #[serde(default = "default_font_weight_bold")]
     pub font_weight_bold: u16,
+    #[serde(default = "default_false")]
+    pub bold_default_foreground_highlight: bool,
     #[serde(default = "default_opacity")]
     pub background_opacity: f64,
     #[serde(default)]
@@ -96,6 +98,8 @@ pub struct ThemeColorsConfig {
 pub struct TerminalColorsConfig {
     pub background: String,
     pub foreground: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_intense: Option<String>,
     pub cursor: String,
     pub selection_background: String,
     pub line_highlight: String,
@@ -169,6 +173,7 @@ impl Default for AppearanceSettings {
             font_size: default_font_size(),
             font_weight: default_font_weight(),
             font_weight_bold: default_font_weight_bold(),
+            bold_default_foreground_highlight: false,
             background_opacity: default_opacity(),
             background_image_path: None,
             background_image_fit: default_background_image_fit(),
@@ -243,6 +248,75 @@ mod tests {
         let settings: AppearanceSettings = serde_json::from_value(serde_json::json!({})).unwrap();
 
         assert!(!settings.window_transparency_blur);
+    }
+
+    #[test]
+    fn deserialized_default_keeps_bold_default_foreground_highlight_disabled() {
+        let settings: AppearanceSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+
+        assert!(!settings.bold_default_foreground_highlight);
+    }
+
+    #[test]
+    fn legacy_theme_without_foreground_intense_still_deserializes() {
+        let theme: ThemeConfig = serde_json::from_value(serde_json::json!({
+            "id": "legacy",
+            "name": "Legacy",
+            "label": "Legacy",
+            "swatch": "#000000",
+            "colors": {
+                "bg": "#000000",
+                "bgPanel": "#000000",
+                "bgTerminal": "#000000",
+                "bgHover": "#000000",
+                "bgInput": "#000000",
+                "bgSectionHeader": "#000000",
+                "border": "#000000",
+                "text": "#000000",
+                "textMuted": "#000000",
+                "textDimmed": "#000000",
+                "primary": "#000000",
+                "primaryHover": "#000000",
+                "onPrimary": "#000000",
+                "focusRing": "#000000",
+                "danger": "#000000",
+                "dangerHover": "#000000",
+                "success": "#000000",
+                "warning": "#000000",
+                "link": "#000000",
+                "shadow": "#000000",
+                "scrollThumb": "#000000",
+                "accent": "#000000",
+                "terminal": {
+                    "background": "#000000",
+                    "foreground": "#ffffff",
+                    "cursor": "#ffffff",
+                    "selectionBackground": "#000000",
+                    "lineHighlight": "#000000",
+                    "findMatchBackground": "#000000",
+                    "findMatchBorder": "#000000",
+                    "black": "#000000",
+                    "red": "#000000",
+                    "green": "#000000",
+                    "yellow": "#000000",
+                    "blue": "#000000",
+                    "magenta": "#000000",
+                    "cyan": "#000000",
+                    "white": "#000000",
+                    "brightBlack": "#000000",
+                    "brightRed": "#000000",
+                    "brightGreen": "#000000",
+                    "brightYellow": "#000000",
+                    "brightBlue": "#000000",
+                    "brightMagenta": "#000000",
+                    "brightCyan": "#000000",
+                    "brightWhite": "#ffffff"
+                }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(theme.colors.terminal.foreground_intense, None);
     }
 
     #[test]

@@ -786,13 +786,13 @@ fn prepare_termius_import(store: TermiusRawStore) -> AppResult<PreparedJsonImpor
 
     let group_paths = build_termius_group_paths(&groups);
     let prepared_keys = prepare_termius_keys(&ssh_keys)?;
-    let prepared_passwords = prepare_termius_passwords(&hosts, &identities)?;
+    let mut prepared_passwords = prepare_termius_passwords(&hosts, &identities)?;
     let connections = prepare_termius_connections(
         hosts,
         &ssh_configs,
         &identities,
         &prepared_keys.ids,
-        &prepared_passwords.ids,
+        &mut prepared_passwords,
         &group_paths,
     )?;
 
@@ -984,6 +984,7 @@ fn prepare_termius_passwords(
                         .or_else(|| normalize_optional_string(host.address.clone()))
                         .unwrap_or_else(|| "Termius host".to_string())
                 ),
+                username: normalize_optional_string(host.username.clone()).unwrap_or_default(),
                 password: Some(encrypt_import_secret(&password)?),
                 has_password: false,
             });
@@ -1005,6 +1006,7 @@ fn prepare_termius_passwords(
                         .or_else(|| normalize_optional_string(identity.username.clone()))
                         .unwrap_or_else(|| "Termius identity".to_string())
                 ),
+                username: normalize_optional_string(identity.username.clone()).unwrap_or_default(),
                 password: Some(encrypt_import_secret(&password)?),
                 has_password: false,
             });
@@ -1019,7 +1021,7 @@ fn prepare_termius_connections(
     ssh_configs: &[TermiusRawSshConfig],
     identities: &[TermiusRawIdentity],
     key_ids: &HashMap<String, String>,
-    password_ids: &HashMap<String, String>,
+    prepared_passwords: &mut PreparedTermiusPasswords,
     group_paths: &HashMap<String, Vec<String>>,
 ) -> AppResult<Vec<PreparedJsonConnection>> {
     let mut ssh_configs_by_key: HashMap<String, &TermiusRawSshConfig> = HashMap::new();
@@ -1055,7 +1057,8 @@ fn prepare_termius_connections(
         let username = normalize_optional_string(host.username.clone())
             .or_else(|| identity.and_then(|item| normalize_optional_string(item.username.clone())))
             .unwrap_or_else(|| "root".to_string());
-        let auth = prepare_termius_auth(&host, identity, key_ids, password_ids);
+        let mut auth = prepare_termius_auth(&host, identity, key_ids, &prepared_passwords.ids);
+        align_termius_account_username(&mut auth, &username, prepared_passwords);
         let group_path = host
             .group_id
             .as_deref()
@@ -1090,6 +1093,35 @@ fn prepare_termius_connections(
     Ok(connections)
 }
 
+fn align_termius_account_username(
+    auth: &mut ConnectionAuth,
+    username: &str,
+    prepared_passwords: &mut PreparedTermiusPasswords,
+) {
+    let Some(account_id) = auth.account_id.as_deref() else {
+        return;
+    };
+    let Some(account) = prepared_passwords
+        .passwords
+        .iter()
+        .find(|entry| entry.id == account_id)
+        .cloned()
+    else {
+        return;
+    };
+    if account.username.trim().is_empty() || account.username == username {
+        return;
+    }
+
+    let replacement_id = uuid::Uuid::new_v4().to_string();
+    prepared_passwords.passwords.push(config::SavedPassword {
+        id: replacement_id.clone(),
+        username: username.to_string(),
+        ..account
+    });
+    auth.account_id = Some(replacement_id);
+}
+
 fn prepare_termius_auth(
     host: &TermiusRawHost,
     identity: Option<&TermiusRawIdentity>,
@@ -1102,6 +1134,8 @@ fn prepare_termius_auth(
     {
         return ConnectionAuth {
             mode: "key".to_string(),
+            account_id: None,
+            password_source: None,
             password_id: None,
             password: None,
             key_id: Some(key_id.clone()),
@@ -1120,7 +1154,9 @@ fn prepare_termius_auth(
 
     ConnectionAuth {
         mode: "password".to_string(),
-        password_id,
+        account_id: password_id,
+        password_source: Some("account".to_string()),
+        password_id: None,
         password: None,
         key_id: None,
         otp_id: None,

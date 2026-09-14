@@ -64,6 +64,27 @@ export interface TerminalSearchFlags {
   wholeWord: boolean;
 }
 
+export function shouldBlockTerminalSearchNavigation(
+  state: TerminalSearchState,
+  direction: TerminalSearchDirection,
+  wrapAround: boolean,
+): boolean {
+  if (
+    wrapAround ||
+    state.status !== "found" ||
+    state.activeIndex === null ||
+    state.resultCount === null ||
+    state.resultCount <= 0 ||
+    state.resultCount >= TERMINAL_SEARCH_VISIBLE_MATCH_LIMIT
+  ) {
+    return false;
+  }
+
+  return direction === "next"
+    ? state.activeIndex >= state.resultCount - 1
+    : state.activeIndex === 0;
+}
+
 export type TerminalHistorySearchStatus = "idle" | "pending" | "searching" | "done" | "error";
 
 export interface TerminalHistorySearchRequest {

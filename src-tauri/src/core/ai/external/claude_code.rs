@@ -238,6 +238,7 @@ async fn run_claude_code_stream_inner(
                     default_id,
                     request.permission_mode.clone(),
                     owner,
+                    None,
                 )
                 .await
                 .map_err(|error| claude_mcp_unavailable(&error.to_string()))?,
@@ -477,7 +478,7 @@ fn claude_system_context(request: &AiChatRequest) -> String {
         .or(request.terminal_session_id.as_deref())
         .unwrap_or("none");
     format!(
-        "You are running inside NyaTerm. Use NyaTerm MCP tools for terminal sessions when available. Do not read SSH passwords, private keys, OAuth tokens, or internal app credentials. Do not create separate SSH connections to bypass NyaTerm SessionManager. Default terminal session: {default_target}."
+        "You are running inside NyaTerm. Use NyaTerm MCP tools for terminal sessions when available. Any terminal command executed through NyaTerm MCP must be non-interactive and must not wait for user input, confirmation, or pager navigation. For tools that may start a pager, use tool-specific non-interactive or no-pager options such as git --no-pager ... or journalctl --no-pager. If a command requires an interactive UI, confirmation prompt, or input and has no non-interactive alternative, do not run it automatically; choose a non-interactive alternative or explain the limitation to the user. Do not read SSH passwords, private keys, OAuth tokens, or internal app credentials. Do not create separate SSH connections to bypass NyaTerm SessionManager. Default terminal session: {default_target}."
     )
 }
 
@@ -529,8 +530,14 @@ fn build_claude_invocation(
     if let Some(model) = request
         .model_name
         .as_deref()
-        .or(settings.claude_code.default_model.as_deref())
         .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            settings
+                .claude_code
+                .default_model
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+        })
     {
         args.push("--model".to_string());
         args.push(model.to_string());
@@ -913,6 +920,10 @@ mod tests {
                 .iter()
                 .any(|arg| arg.contains("Default terminal session: term-1"))
         );
+        let system_context = arg_value(&invocation.args, "--append-system-prompt")
+            .expect("append system prompt argument");
+        assert!(system_context.contains("must be non-interactive"));
+        assert!(system_context.contains("git --no-pager"));
         assert_eq!(
             arg_value(&invocation.args, "--permission-mode"),
             Some("manual")

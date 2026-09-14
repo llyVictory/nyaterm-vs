@@ -329,6 +329,8 @@ pub struct UiConfig {
     pub recent_connection_ids: Vec<String>,
     #[serde(default = "default_transfer_height")]
     pub transfer_height: f64,
+    #[serde(default = "default_file_explorer_view_mode")]
+    pub file_explorer_view_mode: String,
     #[serde(default = "default_true_fn")]
     pub file_explorer_show_hidden_files: bool,
     #[serde(default)]
@@ -441,6 +443,10 @@ fn default_transfer_height() -> f64 {
     180.0
 }
 
+fn default_file_explorer_view_mode() -> String {
+    "list".to_string()
+}
+
 fn default_serial_send_height() -> f64 {
     180.0
 }
@@ -503,6 +509,7 @@ impl Default for UiConfig {
             asset_sort_direction: None,
             recent_connection_ids: vec![],
             transfer_height: default_transfer_height(),
+            file_explorer_view_mode: default_file_explorer_view_mode(),
             file_explorer_show_hidden_files: true,
             file_explorer_auto_sync_cwd_connection_ids: vec![],
             file_explorer_favorite_dirs_by_connection_id: HashMap::new(),
@@ -563,6 +570,12 @@ mod tests {
         let ui: UiConfig = serde_json::from_value(raw).expect("legacy ui config");
 
         assert_eq!(ui.panel_open_mode, "docked");
+        assert_eq!(ui.file_explorer_view_mode, "list");
+    }
+
+    #[test]
+    fn ui_config_defaults_file_explorer_view_mode_to_list() {
+        assert_eq!(UiConfig::default().file_explorer_view_mode, "list");
     }
 
     #[test]

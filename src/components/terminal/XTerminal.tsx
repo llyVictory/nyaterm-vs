@@ -147,6 +147,10 @@ import {
 import type { PerformanceMode, XTerminalProps } from "./xterminalTypes";
 import { shouldSuspendKeywordHighlighter } from "./xterminalKeywordHighlighting";
 import {
+  createSerialModemEventHandler,
+  type SerialModemEventPayload,
+} from "./serialModemTerminalEvents";
+import {
   createZmodemEventHandler,
   type ZmodemEventPayload,
 } from "./zmodemTerminalEvents";
@@ -493,6 +497,11 @@ export default function XTerminal({
         }),
       );
       unlistenBag.add(
+        listen<SerialModemEventPayload>(`serial-modem-event-${sessionId}`, (event) => {
+          wake({ type: "serialModem", payload: event.payload });
+        }),
+      );
+      unlistenBag.add(
         listen<AiCaptureEvent>(`ai-capture-${sessionId}`, (event) => {
           wake({ type: "ai", payload: event.payload });
         }),
@@ -609,6 +618,8 @@ export default function XTerminal({
     searchState,
     searchFlags,
     setSearchFlag,
+    wrapAround,
+    setWrapAround,
     activeMode,
     setActiveMode,
     historyState,
@@ -861,6 +872,15 @@ export default function XTerminal({
       },
       (data) => {
         writeOrderedTerminalStatus(data);
+      },
+    );
+    const serialModemHandler = createSerialModemEventHandler(
+      sessionId,
+      () => tRef.current,
+      {
+        upsertProgress: upsertExternalTransferProgress,
+        complete: completeExternalTransfer,
+        fail: failExternalTransfer,
       },
     );
 
@@ -1981,6 +2001,14 @@ export default function XTerminal({
             }
             zmodemHandler.handle(event.payload);
             break;
+          case "serialModem":
+            if (event.payload.type === "progress") {
+              zmodemActiveRef.current = true;
+            } else if (event.payload.type === "complete" || event.payload.type === "failed") {
+              zmodemActiveRef.current = false;
+            }
+            serialModemHandler.handle(event.payload);
+            break;
           case "ai":
             if (event.payload.type === "commandStart") {
               aiCapturingRef.current = true;
@@ -2079,6 +2107,7 @@ export default function XTerminal({
       updateOutputDrainMode,
       logHibernation,
       zmodemHandler,
+      serialModemHandler,
       replayPendingWakeEvents,
       settleOutputAfterAttach: () =>
         flushFrameGateAndDrain("dynamic_title_attach"),
@@ -2470,6 +2499,7 @@ export default function XTerminal({
       }
       sessionEvents.dispose();
       zmodemHandler.dispose();
+      serialModemHandler.dispose();
       frameGate.dispose({ ackRemaining: true, reason: "terminal_cleanup" });
       if (frameGateRef.current === frameGate) {
         frameGateRef.current = null;
@@ -2748,11 +2778,13 @@ export default function XTerminal({
           searchQuery={searchQuery}
           searchState={searchState}
           searchFlags={searchFlags}
+          wrapAround={wrapAround}
           activeMode={activeMode}
           historyState={historyState}
           setSearchQuery={handleTerminalSearchQueryChange}
           onModeChange={handleTerminalSearchModeChange}
           onSearchFlagChange={handleTerminalSearchFlagChange}
+          onWrapAroundChange={setWrapAround}
           onNext={handleSearchNext}
           onPrev={handleSearchPrev}
           onClose={handleTerminalSearchClose}

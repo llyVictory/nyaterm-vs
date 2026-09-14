@@ -2,8 +2,9 @@ import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdChevronRight, MdClose } from "react-icons/md";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import type { ConnectionOption } from "@/components/network/shared";
 import { SessionNetworkSection } from "@/components/sessions/SessionNetworkSection";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/ui/number-input";
@@ -24,7 +25,6 @@ import type {
   RdpDisplayMode,
   SavedPassword,
 } from "@/types/global";
-import type { ConnectionOption } from "@/components/network/shared";
 
 interface RdpFormProps {
   host: string;
@@ -125,8 +125,9 @@ export function RdpForm({
   useEffect(() => {
     invoke<SavedPassword[]>("get_saved_passwords")
       .then((items) => {
-        setPasswords(items);
-        if (passwordId && !items.some((item) => item.id === passwordId)) {
+        const usableItems = items.filter((item) => item.has_password === true);
+        setPasswords(usableItems);
+        if (passwordId && !usableItems.some((item) => item.id === passwordId)) {
           setPasswordId("");
         }
       })

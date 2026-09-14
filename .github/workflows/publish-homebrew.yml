@@ -138,8 +138,16 @@ jobs:
             exit 1
           fi
 
-          gh workflow run "${TAP_WORKFLOW}" \
+          run_url="$(gh workflow run "${TAP_WORKFLOW}" \
             --repo "${TAP_REPO}" \
-            -f version="${VERSION}"
+            -f version="${VERSION}")"
 
-          echo "Triggered ${TAP_REPO}/${TAP_WORKFLOW} for version ${VERSION}."
+          echo "Triggered ${TAP_REPO}/${TAP_WORKFLOW} for version ${VERSION}: ${run_url}"
+
+          run_id="${run_url##*/}"
+          if ! [[ "${run_id}" =~ ^[0-9]+$ ]]; then
+            echo "Cannot resolve Homebrew tap run ID from: ${run_url}"
+            exit 1
+          fi
+
+          gh run watch "${run_id}" --repo "${TAP_REPO}" --exit-status

@@ -1126,6 +1126,16 @@ export function AppearanceTab() {
           </SettingSelect>
         </SettingFieldGrid>
 
+        <SettingRow
+          label={t("settings.boldDefaultForegroundHighlight")}
+          desc={t("settings.boldDefaultForegroundHighlightDesc")}
+        >
+          <SettingSwitch
+            checked={appearance.bold_default_foreground_highlight ?? false}
+            onChange={(v) => updateAppearance({ bold_default_foreground_highlight: v })}
+          />
+        </SettingRow>
+
         <SettingRow label={t("settings.cursorBlink")}>
           <SettingSwitch
             checked={appearance.cursor_blink}

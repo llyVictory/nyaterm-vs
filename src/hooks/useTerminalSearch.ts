@@ -6,6 +6,7 @@ import {
   createDefaultTerminalSearchState,
   DEFAULT_TERMINAL_SEARCH_DECORATIONS,
   type Disposable,
+  shouldBlockTerminalSearchNavigation,
   TERMINAL_HISTORY_DEFAULT_LINES,
   TERMINAL_HISTORY_RESULT_LIMIT,
   TERMINAL_SEARCH_DEBOUNCE_MS,
@@ -42,6 +43,8 @@ export interface UseTerminalSearchResult {
   searchState: TerminalSearchState;
   searchFlags: TerminalSearchFlags;
   setSearchFlag: (flag: keyof TerminalSearchFlags, value: boolean) => void;
+  wrapAround: boolean;
+  setWrapAround: (wrapAround: boolean) => void;
   activeMode: TerminalSearchMode;
   setActiveMode: (mode: TerminalSearchMode) => void;
   historyState: TerminalHistorySearchState;
@@ -66,6 +69,7 @@ export function useTerminalSearch(
     regex: false,
     wholeWord: false,
   });
+  const [wrapAround, setWrapAroundState] = useState(true);
   const [activeMode, setActiveModeState] = useState<TerminalSearchMode>("buffer");
 
   const addonRef = useRef<TerminalSearchAddon | null>(null);
@@ -78,6 +82,7 @@ export function useTerminalSearch(
   const searchStateRef = useRef(searchState);
   const historyStateRef = useRef(historyState);
   const searchFlagsRef = useRef(searchFlags);
+  const wrapAroundRef = useRef(wrapAround);
   const optionsRef = useRef(options);
   const showSearchBarRef = useRef(showSearchBar);
   const activeModeRef = useRef(activeMode);
@@ -101,6 +106,10 @@ export function useTerminalSearch(
   useEffect(() => {
     searchFlagsRef.current = searchFlags;
   }, [searchFlags]);
+
+  useEffect(() => {
+    wrapAroundRef.current = wrapAround;
+  }, [wrapAround]);
 
   useEffect(() => {
     activeModeRef.current = activeMode;
@@ -343,6 +352,18 @@ export function useTerminalSearch(
         return;
       }
 
+      const currentState = searchStateRef.current;
+      if (
+        !preview &&
+        currentState.query === query &&
+        shouldBlockTerminalSearchNavigation(currentState, direction, wrapAroundRef.current)
+      ) {
+        if (currentOptions.focusTerminalAfterNavigation ?? false) {
+          terminal.focus();
+        }
+        return;
+      }
+
       updateSearchState({
         query,
         status: "searching",
@@ -503,6 +524,11 @@ export function useTerminalSearch(
     [clearAddonSearch, scheduleHistorySearch, schedulePreviewSearch],
   );
 
+  const setWrapAround = useCallback((value: boolean) => {
+    wrapAroundRef.current = value;
+    setWrapAroundState(value);
+  }, []);
+
   const setActiveMode = useCallback(
     (mode: TerminalSearchMode) => {
       setActiveModeState(mode);
@@ -572,6 +598,8 @@ export function useTerminalSearch(
       searchState,
       searchFlags,
       setSearchFlag,
+      wrapAround,
+      setWrapAround,
       activeMode,
       setActiveMode,
       historyState,
@@ -586,6 +614,8 @@ export function useTerminalSearch(
       searchState,
       searchFlags,
       setSearchFlag,
+      wrapAround,
+      setWrapAround,
       activeMode,
       setActiveMode,
       historyState,
