@@ -755,6 +755,9 @@ function FileExplorerPane({
   const [propertiesDialogData, setPropertiesDialogData] =
     useState<PropertiesDialogData | null>(null);
   const [cwdTrackingActive, setCwdTrackingActive] = useState(false);
+  const [directorySessionReadyId, setDirectorySessionReadyId] = useState<
+    string | null
+  >(null);
   const [visitedHistory, setVisitedHistory] = useState<string[]>([]);
   const alwaysUploadFilesRef = useRef<Set<string>>(new Set());
   const filesRef = useRef<FileEntry[]>([]);
@@ -783,6 +786,7 @@ function FileExplorerPane({
   const sessionCacheRef = useRef(fileExplorerSessionCacheStore);
   const prevSessionIdRef = useRef<string | null>(null);
   const autoSyncCwdMountSyncKeyRef = useRef<string | null>(null);
+  const directoryLoadGenerationRef = useRef(0);
   const [isExternalDropActive, setIsExternalDropActive] = useState(false);
   const [listScrollTop, setListScrollTop] = useState(0);
   const [listViewportHeight, setListViewportHeight] = useState(0);
@@ -1130,14 +1134,24 @@ function FileExplorerPane({
 
   const loadDirectory = useCallback(
     async (path: string, options?: LoadDirectoryOptions) => {
-      if (!canBrowseFiles || !activeSessionId) return false;
-      const backend = explorerBackendRef.current;
-      const normalizedPath = normalizeExplorerPath(path, backend);
+      const requestSessionId = activeSessionId;
+      const requestBackend = explorerBackendRef.current;
+      const requestGeneration = ++directoryLoadGenerationRef.current;
+      const isCurrentRequest = () =>
+        activeSessionIdRef.current === requestSessionId &&
+        explorerBackendRef.current === requestBackend &&
+        directoryLoadGenerationRef.current === requestGeneration;
+
+      if (!canBrowseFiles || !requestSessionId || !isCurrentRequest()) {
+        return false;
+      }
+
+      const normalizedPath = normalizeExplorerPath(path, requestBackend);
       if (!normalizedPath) return false;
       const historyMode = options?.history ?? "push";
       const rawPathToken =
         options?.rawPathToken ??
-        (normalizeExplorerPath(currentPathRef.current, backend) ===
+        (normalizeExplorerPath(currentPathRef.current, requestBackend) ===
         normalizedPath
           ? currentPathRawTokenRef.current
           : undefined);
@@ -1146,19 +1160,21 @@ function FileExplorerPane({
 
       try {
         const entries =
-          backend === "local"
+          requestBackend === "local"
             ? await invoke<FileEntry[]>("list_local_dir", {
-                sessionId: activeSessionId,
+                sessionId: requestSessionId,
                 path: normalizedPath,
               })
             : await invoke<FileEntry[]>("list_remote_dir", {
-                sessionId: activeSessionId,
+                sessionId: requestSessionId,
                 path: normalizedPath,
                 rawPathToken,
               });
 
+        if (!isCurrentRequest()) return false;
+
         const pathChanged =
-          normalizeExplorerPath(currentPathRef.current, backend) !==
+          normalizeExplorerPath(currentPathRef.current, requestBackend) !==
           normalizedPath;
         const selectEntryName = options?.selectEntryName;
         if (historyMode === "push") {
@@ -1168,7 +1184,7 @@ function FileExplorerPane({
         const nextVisitedHistory = pushVisitedHistory(
           visitedHistoryRef.current,
           normalizedPath,
-          backend,
+          requestBackend,
         );
         visitedHistoryRef.current = nextVisitedHistory;
 
@@ -1213,7 +1229,9 @@ function FileExplorerPane({
           });
         });
 
-        const cached = sessionCacheRef.current.get(activeSessionId);
+        if (!isCurrentRequest()) return false;
+
+        const cached = sessionCacheRef.current.get(requestSessionId);
         const snapshot = buildSessionCacheSnapshot(
           entries,
           normalizedPath,
@@ -1221,14 +1239,14 @@ function FileExplorerPane({
           historyRef.current,
           historyIndexRef.current,
           nextVisitedHistory,
-          backend,
+          requestBackend,
         );
         if (snapshot) {
-          sessionCacheRef.current.set(activeSessionId, snapshot);
+          sessionCacheRef.current.set(requestSessionId, snapshot);
         }
         return true;
       } catch (e) {
-        if (options?.silent) {
+        if (!isCurrentRequest() || options?.silent) {
           return false;
         }
         const msg = String(e);
@@ -1239,7 +1257,9 @@ function FileExplorerPane({
         }
         return false;
       } finally {
-        setDirectoryLoading(false);
+        if (isCurrentRequest()) {
+          setDirectoryLoading(false);
+        }
       }
     },
     [activeSessionId, canBrowseFiles, pushDirectoryHistory],
@@ -1349,6 +1369,8 @@ function FileExplorerPane({
   );
 
   useEffect(() => {
+    directoryLoadGenerationRef.current += 1;
+    setDirectorySessionReadyId(null);
     resetExternalDropHover();
     const cache = sessionCacheRef.current;
     const prevId = prevSessionIdRef.current;
@@ -1370,6 +1392,7 @@ function FileExplorerPane({
     prevSessionIdRef.current = activeSessionId;
 
     if (!canBrowseFiles || !activeSessionId) {
+      setDirectorySessionReadyId(null);
       setFiles([]);
       setCurrentPath("");
       setHomeDir("");
@@ -1394,6 +1417,7 @@ function FileExplorerPane({
       historyIndexRef.current = cached.historyIndex;
       visitedHistoryRef.current = [...cached.visitedHistory];
       setVisitedHistory([...cached.visitedHistory]);
+      setDirectorySessionReadyId(activeSessionId);
       lastSelectedRef.current = null;
       return;
     }
@@ -1406,12 +1430,17 @@ function FileExplorerPane({
     setSelectedFiles(new Set());
 
     let cancelled = false;
+    const markDirectorySessionReady = () => {
+      if (!cancelled) {
+        setDirectorySessionReadyId(activeSessionId);
+      }
+    };
     (async () => {
       const loadRootDirectory = async () => {
-        if (cancelled) return;
+        if (cancelled) return false;
         homeDirRef.current = "";
         setHomeDir("");
-        await loadDirectory("/");
+        return loadDirectory("/");
       };
 
       const backend = explorerBackendRef.current;
@@ -1420,7 +1449,10 @@ function FileExplorerPane({
         homeDirRef.current = cachedHome;
         setHomeDir(cachedHome);
         const loaded = await loadDirectory(cachedHome);
-        if (cancelled || loaded) return;
+        if (cancelled || loaded) {
+          if (loaded) markDirectorySessionReady();
+          return;
+        }
       }
 
       try {
@@ -1439,6 +1471,7 @@ function FileExplorerPane({
           setHomeDir(home);
           const loaded = await loadDirectory(home);
           if (cancelled || loaded) {
+            if (loaded) markDirectorySessionReady();
             return;
           }
         }
@@ -1449,6 +1482,7 @@ function FileExplorerPane({
       }
 
       await loadRootDirectory();
+      markDirectorySessionReady();
     })();
     return () => {
       cancelled = true;
@@ -1471,7 +1505,12 @@ function FileExplorerPane({
       return;
     }
 
-    if (!canBrowseFiles || !currentPath) {
+    if (
+      directorySessionReadyId !== activeSessionId ||
+      !canBrowseFiles ||
+      !currentPath
+    ) {
+      autoSyncCwdMountSyncKeyRef.current = null;
       return;
     }
 
@@ -1504,6 +1543,7 @@ function FileExplorerPane({
     canBrowseFiles,
     currentPath,
     cwdTrackingActive,
+    directorySessionReadyId,
     explorerBackend,
     loadDirectory,
   ]);
@@ -2300,19 +2340,22 @@ function FileExplorerPane({
 
   useEffect(() => {
     if (!autoSyncCwd || !activeSessionId) return;
-    const unlisten = listen<string>(
-      `cwd-changed-${activeSessionId}`,
-      (event) => {
-        syncExplorerDirectoryToTerminalCwdChange({
-          backend: explorerBackendRef.current,
-          currentPath: currentPathRef.current,
-          cwd: event.payload,
-          loadDirectory,
-        });
-      },
-    );
+
+    const sessionId = activeSessionId;
+    let disposed = false;
+    const unlisten = listen<string>(`cwd-changed-${sessionId}`, (event) => {
+      if (disposed || activeSessionIdRef.current !== sessionId) return;
+
+      syncExplorerDirectoryToTerminalCwdChange({
+        backend: explorerBackendRef.current,
+        currentPath: currentPathRef.current,
+        cwd: event.payload,
+        loadDirectory,
+      });
+    });
     return () => {
-      unlisten.then((fn) => fn());
+      disposed = true;
+      void unlisten.then((fn) => fn());
     };
   }, [autoSyncCwd, activeSessionId, loadDirectory]);
 
