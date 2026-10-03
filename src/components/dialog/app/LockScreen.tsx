@@ -1,4 +1,4 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdLock, MdLockOpen } from "react-icons/md";
@@ -205,7 +205,11 @@ export default function LockScreen({ hasPassword, onUnlock, onRequestClose }: Lo
                 autoComplete="off"
                 disabled={verifying}
               />
-              {error && <p className="text-xs text-red-400">{t("lockScreen.wrongPassword")}</p>}
+              {error && (
+                <p className="text-xs text-red-400">
+                  {t("lockScreen.wrongPassword")}
+                </p>
+              )}
             </div>
           )}
 

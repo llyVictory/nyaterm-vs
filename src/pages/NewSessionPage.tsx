@@ -1,6 +1,7 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { supports } from "@/lib/backend/runtime";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdAdd, MdClose, MdExpandMore, MdImage } from "react-icons/md";
@@ -252,12 +253,14 @@ export default function NewSessionPage() {
   const [postLoginDelayMs, setPostLoginDelayMs] = useState(DEFAULT_POST_LOGIN_DELAY_MS);
   const [sshBackspaceMode, setSshBackspaceMode] = useState("del");
   const [x11Forwarding, setX11Forwarding] = useState(false);
-  const [authAgentEndpoint, setAuthAgentEndpoint] = useState<SshAgentEndpoint>({ type: "auto" });
-  const [agentForwardingConfig, setAgentForwardingConfig] = useState<SshAgentForwardingConfig>(
-    DEFAULT_SSH_AGENT_FORWARDING_CONFIG,
+  const [authAgentEndpoint, setAuthAgentEndpoint] = useState<SshAgentEndpoint>({
+    type: "auto",
+  });
+  const [agentForwardingConfig, setAgentForwardingConfig] =
+    useState<SshAgentForwardingConfig>(DEFAULT_SSH_AGENT_FORWARDING_CONFIG);
+  const [sshAlgorithms, setSshAlgorithms] = useState<SshAlgorithmPreferences>(
+    DEFAULT_SSH_ALGORITHMS,
   );
-  const [sshAlgorithms, setSshAlgorithms] =
-    useState<SshAlgorithmPreferences>(DEFAULT_SSH_ALGORITHMS);
   const [sshProfile, setSshProfile] = useState<SshProfile>("standard");
   const [sshTerminalType, setSshTerminalType] = useState<SshTerminalTypeSelection>("default");
   const [sftpSettings, setSftpSettings] = useState<SftpSettings>(DEFAULT_SFTP_SETTINGS);
@@ -306,7 +309,9 @@ export default function NewSessionPage() {
         if (!resolvedShell) return;
         setDefaultLocalShell(resolvedShell);
         if (!editId) {
-          setShellPath((current) => (current === FALLBACK_LOCAL_SHELL ? resolvedShell : current));
+          setShellPath((current) =>
+            current === FALLBACK_LOCAL_SHELL ? resolvedShell : current,
+          );
         }
       })
       .catch(() => undefined);
@@ -1276,19 +1281,39 @@ export default function NewSessionPage() {
             <TabsTrigger value="ssh" className="text-xs">
               SSH
             </TabsTrigger>
-            <TabsTrigger value="local" className="text-xs">
+            <TabsTrigger
+              disabled={!supports("localShell")}
+              value="local"
+              className="text-xs"
+            >
               {t("dialog.localTerminal")}
             </TabsTrigger>
-            <TabsTrigger value="telnet" className="text-xs">
+            <TabsTrigger
+              disabled={!supports("localShell")}
+              value="telnet"
+              className="text-xs"
+            >
               Telnet
             </TabsTrigger>
-            <TabsTrigger value="serial" className="text-xs">
+            <TabsTrigger
+              disabled={!supports("serial")}
+              value="serial"
+              className="text-xs"
+            >
               {t("dialog.serial")}
             </TabsTrigger>
-            <TabsTrigger value="rdp" className="text-xs">
+            <TabsTrigger
+              disabled={!supports("remoteDesktop")}
+              value="rdp"
+              className="text-xs"
+            >
               RDP
             </TabsTrigger>
-            <TabsTrigger value="vnc" className="text-xs">
+            <TabsTrigger
+              disabled={!supports("remoteDesktop")}
+              value="vnc"
+              className="text-xs"
+            >
               VNC
             </TabsTrigger>
           </TabsList>
@@ -1312,7 +1337,12 @@ export default function NewSessionPage() {
                     {(() => {
                       const def = resolveConnectionIcon(iconKey);
                       const IconComp = def.icon;
-                      return <IconComp style={{ color: def.color }} className="text-sm" />;
+                      return (
+                        <IconComp
+                          style={{ color: def.color }}
+                          className="text-sm"
+                        />
+                      );
                     })()}
                   </Button>
                 </PopoverTrigger>

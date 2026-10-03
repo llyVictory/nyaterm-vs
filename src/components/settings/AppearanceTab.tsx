@@ -1,4 +1,4 @@
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { GripVertical } from "lucide-react";
 import { motion, Reorder, useDragControls } from "motion/react";
 import {
@@ -204,7 +204,11 @@ function PercentSlider({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <Label className="text-sm font-medium leading-5">{label}</Label>
-          {desc && <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>}
+          {desc && (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {desc}
+            </p>
+          )}
         </div>
         <span className="shrink-0 rounded-md border border-border/70 bg-background/60 px-2 py-1 font-mono text-xs text-muted-foreground">
           {percent}%
@@ -377,7 +381,10 @@ const FONT_DRAG_TRANSITION = { duration: 0.12, ease: "easeOut" } as const;
 const FONT_WHILE_DRAG = { zIndex: 20 } as const;
 
 function haveSameFontOrder(items: SortableFontItem[], fonts: string[]) {
-  return items.length === fonts.length && items.every((item, index) => item.font === fonts[index]);
+  return (
+    items.length === fonts.length &&
+    items.every((item, index) => item.font === fonts[index])
+  );
 }
 
 function reconcileFontItems(
@@ -623,7 +630,9 @@ const FontStackSection = memo(function FontStackSection({
           value={option}
           style={{ fontFamily: previewFontFamily(option, previewFallback) }}
         >
-          {option} {builtInFonts.has(option.toLowerCase()) && `(${t("settings.fontBuiltIn")})`}
+          {option}{" "}
+          {builtInFonts.has(option.toLowerCase()) &&
+            `(${t("settings.fontBuiltIn")})`}
         </SelectItem>
       )),
     [builtInFonts, options, previewFallback, t],
@@ -756,7 +765,9 @@ const FontStackSection = memo(function FontStackSection({
   const updateFont = useCallback(
     (id: string, font: string) => {
       applyFontItems(
-        fontItemsRef.current.map((item) => (item.id === id ? { ...item, font } : item)),
+        fontItemsRef.current.map((item) =>
+          item.id === id ? { ...item, font } : item,
+        ),
       );
     },
     [applyFontItems],

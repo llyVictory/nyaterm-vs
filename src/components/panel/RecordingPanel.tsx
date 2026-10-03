@@ -1,4 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -235,7 +235,8 @@ function RecordingPanel({
                     {status ? (
                       <>
                         <div className="truncate">
-                          {modeLabel(status.mode)} · {formatElapsed(status.startedAt, tick)} ·{" "}
+                          {modeLabel(status.mode)} ·{" "}
+                          {formatElapsed(status.startedAt, tick)} ·{" "}
                           {formatBytes(status.writtenBytes)}
                         </div>
                         <div className="truncate">{status.filePath}</div>

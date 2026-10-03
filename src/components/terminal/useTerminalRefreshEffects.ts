@@ -1,6 +1,6 @@
 import type { Terminal } from "@xterm/xterm";
 import { type RefObject, useEffect, useRef } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { logger } from "@/lib/logger";
 import { sendTerminalClearInput } from "@/lib/terminalControlInput";
 import type { TerminalFitScheduler } from "./terminalFitScheduler";
@@ -151,7 +151,11 @@ export function useTerminalRefreshEffects({
     let lastDevicePixelRatio = window.devicePixelRatio || 1;
 
     const scheduleWindowFit = (
-      reason: "window-resized" | "window-moved" | "window-focus" | "scale-factor",
+      reason:
+        | "window-resized"
+        | "window-moved"
+        | "window-focus"
+        | "scale-factor",
       force = false,
       scaleFactor?: number,
     ) => {

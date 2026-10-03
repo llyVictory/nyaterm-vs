@@ -1,5 +1,5 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ChildWindowHeader from "@/components/layout/ChildWindowHeader";

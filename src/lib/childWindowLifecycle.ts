@@ -1,5 +1,5 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import {
   CHILD_WINDOW_LIFECYCLE_EVENT,
   CHILD_WINDOW_READY_TOKEN_PARAM,

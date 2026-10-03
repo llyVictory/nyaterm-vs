@@ -1,5 +1,5 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdDataObject, MdOpenInNew, MdTerminal } from "react-icons/md";
@@ -132,8 +132,8 @@ export default function QuickCommandsImportDialog({
                   <img
                     src={
                       source.icon === "windterm"
-                        ? "/icons/brands/WindTerm.svg"
-                        : "/icons/brands/Xshell.svg"
+                        ? `${import.meta.env.BASE_URL}icons/brands/WindTerm.svg`
+                        : `${import.meta.env.BASE_URL}icons/brands/Xshell.svg`
                     }
                     alt=""
                     className="h-10 w-10"

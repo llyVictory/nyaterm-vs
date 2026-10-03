@@ -4944,6 +4944,7 @@ dependencies = [
  "md-5 0.10.6",
  "notify",
  "nucleo-matcher",
+ "nyaterm-core",
  "nyaterm-gpu",
  "nyaterm-mcp-protocol",
  "nyaterm-otp",
@@ -5000,6 +5001,38 @@ dependencies = [
  "zeroize",
  "zip 8.6.0",
  "zmodem2",
+]
+
+[[package]]
+name = "nyaterm-core"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm 0.10.3",
+ "base64 0.22.1",
+ "dirs",
+ "font-kit",
+ "futures-util",
+ "genai",
+ "hex",
+ "hmac 0.12.1",
+ "nucleo-matcher",
+ "redb",
+ "regex",
+ "reqwest 0.13.4",
+ "russh",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "ssh-key 0.6.7",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

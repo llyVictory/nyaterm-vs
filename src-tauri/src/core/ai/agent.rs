@@ -1122,7 +1122,7 @@ async fn run_agent_legacy_json_step(
         };
         let stream_result =
             super::responses::run_responses_chat_messages_stream_without_text_deltas(
-                app,
+                &super::stream::DesktopAiSink(app),
                 stream_id,
                 &synthetic_request,
                 settings,

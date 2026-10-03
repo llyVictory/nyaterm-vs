@@ -3162,6 +3162,11 @@
     "updateFailed": "更新失敗",
     "updateNow": "立即更新"
   },
+  "web": {
+    "password": "伺服器密碼",
+    "signIn": "登入",
+    "signInFailed": "登入失敗，請檢查密碼與伺服器連線。"
+  },
   "zmodem": {
     "cancelled": "ZMODEM 傳輸已取消",
     "complete": "ZMODEM 傳輸完成",

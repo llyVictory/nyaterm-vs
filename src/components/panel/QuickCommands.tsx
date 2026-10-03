@@ -1,5 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
-import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@/lib/backend/api";
+import { save as saveFileDialog } from "@/lib/backend/platform/dialog";
 import { MoreHorizontalIcon } from "lucide-react";
 import {
   type DragEvent,
@@ -1258,50 +1258,50 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDragging = draggingCommandId === cmd.id;
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
       return (
-      <ContextMenu key={cmd.id}>
-        <ContextMenuTrigger asChild>
-          <div
-            draggable={draggable}
-            onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-            onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-            onDrop={(event) => handleCommandDrop(event, cmd.id)}
-            onDragEnd={resetCommandDrag}
-            className={cn(
-              "group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md border border-border/35 bg-muted/15 px-2 py-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
-              draggable && "cursor-grab active:cursor-grabbing",
-              isDragging && "opacity-50",
-              isDropTarget && "ring-1 ring-primary/70",
-            )}
-            style={{ color: "var(--df-text)" }}
-          >
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 text-left"
-              disabled={sendDisabled}
-              onClick={() => handleCommandClick(cmd)}
+        <ContextMenu key={cmd.id}>
+          <ContextMenuTrigger asChild>
+            <div
+              draggable={draggable}
+              onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+              onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+              onDrop={(event) => handleCommandDrop(event, cmd.id)}
+              onDragEnd={resetCommandDrag}
+              className={cn(
+                "group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md border border-border/35 bg-muted/15 px-2 py-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
+                draggable && "cursor-grab active:cursor-grabbing",
+                isDragging && "opacity-50",
+                isDropTarget && "ring-1 ring-primary/70",
+              )}
+              style={{ color: "var(--df-text)" }}
             >
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                {renderCommandIcon(cmd)}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {cmd.pinned && (
-                    <MdPushPin className="shrink-0 text-[0.7rem] opacity-60" />
-                  )}
-                  <span className="min-w-0 truncate font-medium">
-                    {cmd.label}
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 text-left"
+                disabled={sendDisabled}
+                onClick={() => handleCommandClick(cmd)}
+              >
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                  {renderCommandIcon(cmd)}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {cmd.pinned && (
+                      <MdPushPin className="shrink-0 text-[0.7rem] opacity-60" />
+                    )}
+                    <span className="min-w-0 truncate font-medium">
+                      {cmd.label}
+                    </span>
+                  </span>
+                  <span className="min-w-0 truncate font-mono text-[0.6875rem] leading-none text-muted-foreground">
+                    {cmd.command}
                   </span>
                 </span>
-                <span className="min-w-0 truncate font-mono text-[0.6875rem] leading-none text-muted-foreground">
-                  {cmd.command}
-                </span>
-              </span>
-            </button>
-            {renderCommandActions(cmd)}
-          </div>
-        </ContextMenuTrigger>
-        {renderContextMenuContent(cmd)}
-      </ContextMenu>
+              </button>
+              {renderCommandActions(cmd)}
+            </div>
+          </ContextMenuTrigger>
+          {renderContextMenuContent(cmd)}
+        </ContextMenu>
       );
     },
     [
@@ -1325,46 +1325,46 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDragging = draggingCommandId === cmd.id;
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
       return (
-      <ContextMenu key={cmd.id}>
-        <ContextMenuTrigger asChild>
-          <div
-            draggable={draggable}
-            onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-            onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-            onDrop={(event) => handleCommandDrop(event, cmd.id)}
-            onDragEnd={resetCommandDrag}
-            className={cn(
-              "group flex h-8 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
-              draggable && "cursor-grab active:cursor-grabbing",
-              isDragging && "opacity-50",
-              isDropTarget && "ring-1 ring-primary/70",
-            )}
-            style={{ color: "var(--df-text)" }}
-          >
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-0.5 text-left"
-              disabled={sendDisabled}
-              onClick={() => handleCommandClick(cmd)}
-            >
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                {renderCommandIcon(cmd, "text-[0.8rem]")}
-              </span>
-              {cmd.pinned && (
-                <MdPushPin className="shrink-0 text-[0.65rem] opacity-60" />
+        <ContextMenu key={cmd.id}>
+          <ContextMenuTrigger asChild>
+            <div
+              draggable={draggable}
+              onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+              onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+              onDrop={(event) => handleCommandDrop(event, cmd.id)}
+              onDragEnd={resetCommandDrag}
+              className={cn(
+                "group flex h-8 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
+                draggable && "cursor-grab active:cursor-grabbing",
+                isDragging && "opacity-50",
+                isDropTarget && "ring-1 ring-primary/70",
               )}
-              <span className="min-w-[4rem] max-w-[38%] truncate font-medium">
-                {cmd.label}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground/85">
-                {cmd.command}
-              </span>
-            </button>
-            {renderCommandActions(cmd, { showBadge: false })}
-          </div>
-        </ContextMenuTrigger>
-        {renderContextMenuContent(cmd)}
-      </ContextMenu>
+              style={{ color: "var(--df-text)" }}
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-0.5 text-left"
+                disabled={sendDisabled}
+                onClick={() => handleCommandClick(cmd)}
+              >
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                  {renderCommandIcon(cmd, "text-[0.8rem]")}
+                </span>
+                {cmd.pinned && (
+                  <MdPushPin className="shrink-0 text-[0.65rem] opacity-60" />
+                )}
+                <span className="min-w-[4rem] max-w-[38%] truncate font-medium">
+                  {cmd.label}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground/85">
+                  {cmd.command}
+                </span>
+              </button>
+              {renderCommandActions(cmd, { showBadge: false })}
+            </div>
+          </ContextMenuTrigger>
+          {renderContextMenuContent(cmd)}
+        </ContextMenu>
       );
     },
     [

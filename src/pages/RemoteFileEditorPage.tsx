@@ -1,9 +1,9 @@
 import { closeSearchPanel } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { join, tempDir } from "@tauri-apps/api/path";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { join, tempDir } from "@/lib/backend/platform/path";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
+import { openPath } from "@/lib/backend/platform/opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -710,7 +710,9 @@ export default function RemoteFileEditorPage() {
                     activateTab(tab.id);
                   }}
                 >
-                  {tab.dirty && <span className="sr-only">{t("fileEditor.unsaved")}</span>}
+                  {tab.dirty && (
+                    <span className="sr-only">{t("fileEditor.unsaved")}</span>
+                  )}
                   {tab.dirty && (
                     <span
                       aria-hidden="true"

@@ -1,5 +1,5 @@
-import { emit } from "@tauri-apps/api/event";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { emit } from "@/lib/backend/api";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {

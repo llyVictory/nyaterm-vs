@@ -1,3 +1,5 @@
+import { runtime } from "./lib/backend/runtime";
+import { BrowserGate } from "./lib/backend/BrowserGate";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@fontsource/jetbrains-mono/400.css";
@@ -47,6 +49,7 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 const params = new URLSearchParams(window.location.search);
 const windowType = params.get("window");
+const RuntimeGate = runtime === "web" ? BrowserGate : React.Fragment;
 
 if (windowType) {
   void signalChildWindowLoadStarted().catch(() => {});
@@ -84,14 +87,16 @@ if (windowType) {
 
     childRoot.render(
       <React.StrictMode>
-        <ErrorBoundary>
-          <ChildAppProvider>
-            <ThemeProvider>
-              <ChildWindowRouter windowType={windowType} />
-              <Toaster />
-            </ThemeProvider>
-          </ChildAppProvider>
-        </ErrorBoundary>
+        <RuntimeGate>
+          <ErrorBoundary>
+            <ChildAppProvider>
+              <ThemeProvider>
+                <ChildWindowRouter windowType={windowType} />
+                <Toaster />
+              </ThemeProvider>
+            </ChildAppProvider>
+          </ErrorBoundary>
+        </RuntimeGate>
       </React.StrictMode>,
     );
   } catch {
@@ -132,7 +137,7 @@ if (windowType) {
     { default: ErrorBoundary },
     { Toaster },
   ] = await Promise.all([
-    import("@tauri-apps/api/window"),
+    import("@/lib/backend/platform/window"),
     import("./lib/windowManager"),
     import("./context/AppProvider"),
     import("./App"),
@@ -143,18 +148,20 @@ if (windowType) {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <ErrorBoundary>
-        <AppProvider>
-          <ThemeProvider>
-            <PluginProvider>
-              <App />
-              <PluginApprovalHost />
-              <PluginCommandHost />
-            </PluginProvider>
-            <Toaster />
-          </ThemeProvider>
-        </AppProvider>
-      </ErrorBoundary>
+      <RuntimeGate>
+        <ErrorBoundary>
+          <AppProvider>
+            <ThemeProvider>
+              <PluginProvider>
+                <App />
+                <PluginApprovalHost />
+                <PluginCommandHost />
+              </PluginProvider>
+              <Toaster />
+            </ThemeProvider>
+          </AppProvider>
+        </ErrorBoundary>
+      </RuntimeGate>
     </React.StrictMode>,
   );
 }

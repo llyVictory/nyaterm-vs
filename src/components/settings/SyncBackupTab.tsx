@@ -1,5 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@/lib/backend/api";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { Copy } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -485,7 +485,11 @@ export function SyncBackupTab({ onNavigateSecurity }: SyncBackupTabProps) {
   };
 
   if (loading) {
-    return <div className="py-10 text-sm text-muted-foreground">{t("common.loading")}</div>;
+    return (
+      <div className="py-10 text-sm text-muted-foreground">
+        {t("common.loading")}
+      </div>
+    );
   }
 
   return (

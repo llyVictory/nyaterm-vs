@@ -1,5 +1,5 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -43,10 +43,16 @@ function ChildWindowLoadingShell() {
 }
 
 function ReadyContent({ children }: { children: ReactNode }) {
-  return <div className="relative h-screen w-full bg-background">{children}</div>;
+  return (
+    <div className="relative h-screen w-full bg-background">{children}</div>
+  );
 }
 
-export default function ChildWindowRouter({ windowType }: { windowType: string }) {
+export default function ChildWindowRouter({
+  windowType,
+}: {
+  windowType: string;
+}) {
   const { t } = useTranslation();
   const Page = PAGES[windowType];
 

@@ -1,5 +1,5 @@
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit, listen } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useCallback, useEffect, useRef } from "react";
 
 /**

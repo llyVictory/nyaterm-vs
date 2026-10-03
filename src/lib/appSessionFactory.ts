@@ -1,5 +1,5 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { invoke as tauriInvoke } from "@/lib/backend/api";
+import { emit } from "@/lib/backend/api";
 import { assertMatchingTemporaryConfig } from "@/lib/appWorkspace";
 import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";

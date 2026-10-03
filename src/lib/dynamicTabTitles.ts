@@ -1,4 +1,4 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@/lib/backend/api";
 import { useSyncExternalStore } from "react";
 import { invoke } from "@/lib/invoke";
 import type {

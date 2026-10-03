@@ -1,10 +1,12 @@
-import { emit, listen } from "@tauri-apps/api/event";
-import { downloadDir, join, tempDir } from "@tauri-apps/api/path";
+import { runtime, requireCapability } from "@/lib/backend/runtime";
+import { downloadBrowserFile, uploadBrowserFiles } from "@/lib/backend/files";
+import { emit, listen } from "@/lib/backend/api";
+import { downloadDir, join, tempDir } from "@/lib/backend/platform/path";
 import {
   open as openDialog,
   save as saveDialog,
-} from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+} from "@/lib/backend/platform/dialog";
+import { openPath } from "@/lib/backend/platform/opener";
 import {
   type CSSProperties,
   memo,
@@ -3144,6 +3146,13 @@ function FileExplorerPane({
       pathResolver?.(entry) ?? getEntryFullPath(entry);
 
     try {
+      if (runtime === "web") {
+        for (const entry of entries) {
+          if (entry.is_dir) requireCapability("nativeFiles");
+          downloadBrowserFile(activeSessionId, resolveEntryPath(entry));
+        }
+        return;
+      }
       const askEach = appSettings.transfer.ask_save_location;
       const downloads: Array<{
         sessionId: string;
@@ -3249,6 +3258,10 @@ function FileExplorerPane({
     if (!target) return;
 
     try {
+      if (await uploadBrowserFiles(target.sessionId, target.remoteDir)) {
+        await loadDirectory(directoryPath);
+        return;
+      }
       const localPaths = await openDialog({ multiple: true, directory: false });
       if (!localPaths) return;
       const pathList = (

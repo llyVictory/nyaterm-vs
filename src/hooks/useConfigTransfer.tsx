@@ -1,4 +1,7 @@
-import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import {
+  open as openFileDialog,
+  save as saveFileDialog,
+} from "@/lib/backend/platform/dialog";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";

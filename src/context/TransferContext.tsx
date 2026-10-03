@@ -1,4 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import {
   createContext,
   type ReactNode,
@@ -541,25 +541,31 @@ export function TransferProvider({ children }: { children: ReactNode }) {
           return next;
         });
 
-        void invoke("resume_transfer", { transferId: nextQueued.id }).catch((error) => {
-          toast.error(String(error));
-          setTransferMap((prev) => {
-            const existing = prev.get(nextQueued.id);
-            if (!existing || existing.status === "completed" || existing.status === "cancelled") {
-              return prev;
-            }
-            const next = new Map(prev);
-            next.set(nextQueued.id, {
-              ...existing,
-              status: "error",
-              queueState: undefined,
-              error: String(error),
-              timestamp: Date.now(),
+        void invoke("resume_transfer", { transferId: nextQueued.id }).catch(
+          (error) => {
+            toast.error(String(error));
+            setTransferMap((prev) => {
+              const existing = prev.get(nextQueued.id);
+              if (
+                !existing ||
+                existing.status === "completed" ||
+                existing.status === "cancelled"
+              ) {
+                return prev;
+              }
+              const next = new Map(prev);
+              next.set(nextQueued.id, {
+                ...existing,
+                status: "error",
+                queueState: undefined,
+                error: String(error),
+                timestamp: Date.now(),
+              });
+              return pruneRetainedTransfers(next);
             });
-            return pruneRetainedTransfers(next);
-          });
-          setQueueRevision((revision) => revision + 1);
-        });
+            setQueueRevision((revision) => revision + 1);
+          },
+        );
         continue;
       }
 

@@ -3161,6 +3161,11 @@
     "updateFailed": "업데이트 실패",
     "updateNow": "지금 업데이트"
   },
+  "web": {
+    "password": "서버 비밀번호",
+    "signIn": "로그인",
+    "signInFailed": "로그인하지 못했습니다. 비밀번호와 서버 연결을 확인하세요."
+  },
   "zmodem": {
     "cancelled": "ZMODEM 전송이 취소되었습니다",
     "complete": "ZMODEM 전송이 완료되었습니다",

@@ -1,3 +1,4 @@
+import { supports } from "@/lib/backend/runtime";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { SelectItem } from "@/components/ui/select";
@@ -98,6 +99,7 @@ export function GeneralTab() {
 
         <SettingRow label={t("settings.minimizeToTray")} desc={t("settings.minimizeToTrayDesc")}>
           <SettingSwitch
+            disabled={!supports("tray")}
             checked={appSettings.general.minimize_to_tray}
             onChange={(v) =>
               updateAppSettings({ general: { ...appSettings.general, minimize_to_tray: v } })

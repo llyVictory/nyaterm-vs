@@ -12,6 +12,12 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+  base: process.env.NYATERM_WEB_BASE_PATH || "/",
+  define: {
+    __APP_VERSION__: JSON.stringify(
+      process.env.npm_package_version || "1.2.12",
+    ),
+  },
 
   optimizeDeps: {
     entries: ["index.html"],

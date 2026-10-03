@@ -1,4 +1,4 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
 import { Copy, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -125,23 +125,29 @@ export function KeyManagementTab({
     setIsNew(true);
   };
 
-  const loadEditPassphrase = useCallback(async (id: string, requestId = editRequestRef.current) => {
-    setPassphraseLoading(true);
-    try {
-      const passphrase = await invoke<string | null>("get_ssh_key_passphrase", { id });
-      if (editRequestRef.current !== requestId) return;
-      setEditPassphrase(passphrase ?? "");
-      setEditPassphraseLoaded(true);
-    } catch {
-      if (editRequestRef.current !== requestId) return;
-      setEditPassphrase("");
-      setEditPassphraseLoaded(true);
-    } finally {
-      if (editRequestRef.current === requestId) {
-        setPassphraseLoading(false);
+  const loadEditPassphrase = useCallback(
+    async (id: string, requestId = editRequestRef.current) => {
+      setPassphraseLoading(true);
+      try {
+        const passphrase = await invoke<string | null>(
+          "get_ssh_key_passphrase",
+          { id },
+        );
+        if (editRequestRef.current !== requestId) return;
+        setEditPassphrase(passphrase ?? "");
+        setEditPassphraseLoaded(true);
+      } catch {
+        if (editRequestRef.current !== requestId) return;
+        setEditPassphrase("");
+        setEditPassphraseLoaded(true);
+      } finally {
+        if (editRequestRef.current === requestId) {
+          setPassphraseLoading(false);
+        }
       }
-    }
-  }, []);
+    },
+    [],
+  );
 
   const handleEdit = async (key: SshKey) => {
     const requestId = ++editRequestRef.current;
@@ -271,7 +277,9 @@ export function KeyManagementTab({
       } catch (error) {
         toast.error(getErrorMessage(error));
       } finally {
-        setPublicKeyLoadingId((current) => (current === key.id ? null : current));
+        setPublicKeyLoadingId((current) =>
+          current === key.id ? null : current,
+        );
       }
     },
     [t],

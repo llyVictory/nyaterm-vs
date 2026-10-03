@@ -3167,6 +3167,11 @@
     "updateFailed": "更新失败",
     "updateNow": "立即更新"
   },
+  "web": {
+    "password": "服务端密码",
+    "signIn": "登录",
+    "signInFailed": "登录失败，请检查密码与服务端连接。"
+  },
   "zmodem": {
     "cancelled": "ZMODEM 传输已取消",
     "complete": "ZMODEM 传输完成",

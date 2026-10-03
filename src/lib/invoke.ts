@@ -1,4 +1,4 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@/lib/backend/api";
 import { logger } from "./logger";
 
 export interface InvokeHealthSnapshot {

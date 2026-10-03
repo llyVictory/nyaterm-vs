@@ -1,10 +1,17 @@
+import { supports, requireCapability } from "./backend/runtime";
 import { Channel } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { invoke } from "@/lib/invoke";
 import { logger } from "@/lib/logger";
 
-export type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "error";
 
 export interface UpdateProgress {
   downloaded: number;
@@ -19,7 +26,10 @@ export interface UpdateInfo {
 
 let cachedUpdate: Update | null = null;
 
-export async function checkForUpdate(portable = false): Promise<UpdateInfo | null> {
+export async function checkForUpdate(
+  portable = false,
+): Promise<UpdateInfo | null> {
+  if (!supports("updater")) return null;
   logger.info({
     domain: "updater.flow",
     event: "update.check_started",
@@ -170,6 +180,7 @@ export async function downloadAndInstallUpdate(
 }
 
 export async function relaunchApp(portable = false): Promise<void> {
+  requireCapability("updater");
   logger.info({
     domain: "updater.flow",
     event: "update.relaunch_requested",

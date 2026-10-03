@@ -1,4 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -40,7 +40,9 @@ function isWithinCommandLengthLimits(command: string, minLength: number, maxLeng
 function quickCommandRank(command: QuickCommandsConfig["commands"][number]) {
   const useCount = command.use_count ?? 0;
   const updatedAt = command.updated_at ?? command.created_at ?? 0;
-  return (command.pinned ? 1_000_000_000 : 0) + useCount * 1_000_000 + updatedAt;
+  return (
+    (command.pinned ? 1_000_000_000 : 0) + useCount * 1_000_000 + updatedAt
+  );
 }
 
 export function useCommandHistory(

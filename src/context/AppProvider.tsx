@@ -1,5 +1,12 @@
-import { listen } from "@tauri-apps/api/event";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@/lib/backend/api";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useAppLockState } from "@/hooks/useAppLockState";
 import { DEFAULT_AI_SETTINGS } from "@/lib/aiSettings";
 import { DEFAULT_CLOUD_SYNC_SETTINGS } from "@/lib/cloudSync";
@@ -487,7 +494,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // 2. Save App Settings Debounced
   const updateAppSettings = useCallback(
-    (updates: Partial<AppSettings> | ((prev: AppSettings) => Partial<AppSettings>)) => {
+    (
+      updates:
+        | Partial<AppSettings>
+        | ((prev: AppSettings) => Partial<AppSettings>),
+    ) => {
       setAppSettings((prev) => {
         const nextUpdates = typeof updates === "function" ? updates(prev) : updates;
         const next = normalizeQuickCommandAppSettings({

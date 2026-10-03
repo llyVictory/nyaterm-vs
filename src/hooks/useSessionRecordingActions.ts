@@ -1,4 +1,4 @@
-import { downloadDir } from "@tauri-apps/api/path";
+import { downloadDir } from "@/lib/backend/platform/path";
 import type { TFunction } from "i18next";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -7,7 +7,9 @@ import { logger } from "@/lib/logger";
 import type { AppSettings, RecordingMode, SessionInfo } from "@/types/global";
 
 function safeRecordingName(name: string) {
-  return name.normalize("NFC").replace(/[^\p{L}\p{M}\p{N}._-]+/gu, "_") || "session";
+  return (
+    name.normalize("NFC").replace(/[^\p{L}\p{M}\p{N}._-]+/gu, "_") || "session"
+  );
 }
 
 function joinPath(dir: string, fileName: string) {

@@ -1,5 +1,5 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdDataObject, MdOpenInNew, MdTerminal } from "react-icons/md";

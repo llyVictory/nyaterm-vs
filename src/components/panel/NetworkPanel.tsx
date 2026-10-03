@@ -1,6 +1,16 @@
-import { listen } from "@tauri-apps/api/event";
-import { ChevronDownIcon, FolderPlusIcon, MoreHorizontalIcon } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { listen } from "@/lib/backend/api";
+import {
+  ChevronDownIcon,
+  FolderPlusIcon,
+  MoreHorizontalIcon,
+} from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { MdAdd, MdDelete, MdDriveFileMove, MdEdit, MdLan, MdRouter } from "react-icons/md";
 import { toast } from "sonner";
@@ -59,7 +69,11 @@ import type {
 
 type NetworkTab = "proxy" | "tunnel";
 type GroupDialogState = { tab: NetworkTab; group: NetworkGroup | null } | null;
-type DeleteGroupState = { tab: NetworkTab; group: NetworkGroup; itemCount: number } | null;
+type DeleteGroupState = {
+  tab: NetworkTab;
+  group: NetworkGroup;
+  itemCount: number;
+} | null;
 type GroupedSection<T> = {
   id: string;
   label: string;
@@ -259,8 +273,12 @@ function TunnelRow({
           </div>
           <TunnelRuntimeBadge state={runtimeState} enabled={tunnel.is_open} />
         </div>
-        <div className="mt-0.5 truncate text-xs" style={{ color: "var(--df-text-dimmed)" }}>
-          {connectionOption?.connection.name ?? t("network.connectionMissing")} · {typeLabel}
+        <div
+          className="mt-0.5 truncate text-xs"
+          style={{ color: "var(--df-text-dimmed)" }}
+        >
+          {connectionOption?.connection.name ?? t("network.connectionMissing")}{" "}
+          · {typeLabel}
         </div>
         <div className="mt-0.5 text-[0.6875rem]" style={{ color: "var(--df-text-muted)" }}>
           {endpoint}
@@ -307,7 +325,13 @@ function getTunnelRuntimeStatus(enabled: boolean, state?: TunnelRuntimeState): T
   return enabled ? "disconnected" : "stopped";
 }
 
-function TunnelRuntimeBadge({ state, enabled }: { state?: TunnelRuntimeState; enabled: boolean }) {
+function TunnelRuntimeBadge({
+  state,
+  enabled,
+}: {
+  state?: TunnelRuntimeState;
+  enabled: boolean;
+}) {
   const { t } = useTranslation();
   const status = getTunnelRuntimeStatus(enabled, state);
   const label =
@@ -485,7 +509,9 @@ function GroupNameDialog({
               }
             }}
           />
-          {error ? <div className="text-xs text-destructive">{error}</div> : null}
+          {error ? (
+            <div className="text-xs text-destructive">{error}</div>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>

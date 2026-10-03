@@ -1,4 +1,4 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@/lib/backend/api";
 import type { DiagnosticsLogLevel } from "@/types/global";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -20,7 +20,12 @@ type LogDomain =
   | "background-image"
   | "updater.flow";
 
-type StableLogIdKey = "session_id" | "connection_id" | "transfer_id" | "tunnel_id" | "request_id";
+type StableLogIdKey =
+  | "session_id"
+  | "connection_id"
+  | "transfer_id"
+  | "tunnel_id"
+  | "request_id";
 
 type LogIds = Partial<Record<StableLogIdKey, string>>;
 
@@ -144,12 +149,20 @@ function isHostKey(key: string): boolean {
 
 function isUsernameKey(key: string): boolean {
   const normalized = normalizeKey(key);
-  return normalized === "username" || normalized === "user" || normalized.endsWith("_username");
+  return (
+    normalized === "username" ||
+    normalized === "user" ||
+    normalized.endsWith("_username")
+  );
 }
 
 function isPathKey(key: string): boolean {
   const normalized = normalizeKey(key);
-  return normalized === "path" || normalized === "cwd" || normalized.endsWith("_path");
+  return (
+    normalized === "path" ||
+    normalized === "cwd" ||
+    normalized.endsWith("_path")
+  );
 }
 
 function sanitizeString(key: string | undefined, value: string): unknown {

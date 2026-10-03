@@ -1,4 +1,7 @@
-import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import {
+  open as openFileDialog,
+  save as saveFileDialog,
+} from "@/lib/backend/platform/dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -139,8 +142,13 @@ export function ThemeDesignerDialog({
     setDraft((current) => (current ? { ...current, ...patch } : current));
   }
 
-  function patchColor(path: Parameters<typeof setThemeColor>[1], value: string) {
-    setDraft((current) => (current ? setThemeColor(current, path, value) : current));
+  function patchColor(
+    path: Parameters<typeof setThemeColor>[1],
+    value: string,
+  ) {
+    setDraft((current) =>
+      current ? setThemeColor(current, path, value) : current,
+    );
   }
 
   function saveDraft() {

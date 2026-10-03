@@ -1,5 +1,5 @@
-import { getName, getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { getName, getVersion } from "@/lib/backend/platform/app";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -174,8 +174,14 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
               aria-label={t("about.copySupportInfo")}
               disabled={!supportInfoReady}
             >
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-              {copied ? t("about.supportInfoCopiedShort") : t("about.copySupportInfo")}
+              {copied ? (
+                <Check className="size-3.5" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+              {copied
+                ? t("about.supportInfoCopiedShort")
+                : t("about.copySupportInfo")}
             </Button>
           </div>
           <dl className="grid grid-cols-[minmax(0,auto)_1fr] gap-x-4 gap-y-1.5 text-xs">

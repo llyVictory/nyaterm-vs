@@ -1,4 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "@/lib/backend/platform/dialog";
 import {
   type DragEvent,
   type KeyboardEvent,

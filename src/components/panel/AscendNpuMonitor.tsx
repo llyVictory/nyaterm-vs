@@ -36,8 +36,8 @@ function AscendBrandIcon({ className }: { className?: string }) {
       aria-hidden="true"
       className={cn("inline-block bg-current", className)}
       style={{
-        WebkitMask: "url('/icons/brands/ascend.svg') center / contain no-repeat",
-        mask: "url('/icons/brands/ascend.svg') center / contain no-repeat",
+        WebkitMask: `url('${import.meta.env.BASE_URL}icons/brands/ascend.svg') center / contain no-repeat`,
+        mask: `url('${import.meta.env.BASE_URL}icons/brands/ascend.svg') center / contain no-repeat`,
       }}
     />
   );
@@ -370,7 +370,11 @@ function NpuMetric({
   );
 }
 
-function VirtualNpuProcessList({ processes }: { processes: RemoteNpuProcess[] }) {
+function VirtualNpuProcessList({
+  processes,
+}: {
+  processes: RemoteNpuProcess[];
+}) {
   const listHeight = Math.min(
     processes.length * NPU_PROCESS_ROW_HEIGHT,
     NPU_PROCESS_LIST_MAX_HEIGHT,

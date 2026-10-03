@@ -82,9 +82,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
+nyaterm-core = { path = "crates/nyaterm-core", features = ["test-support"] }
 tokio = { version = "1", features = ["test-util"] }
 
 [dependencies]
+nyaterm-core = { path = "crates/nyaterm-core" }
 tempfile = "3"
 nyaterm-gpu = { path = "crates/nyaterm-gpu" }
 nyaterm-otp = { path = "crates/otp" }

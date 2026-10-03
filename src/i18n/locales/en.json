@@ -3169,6 +3169,11 @@
     "updateFailed": "Update failed",
     "updateNow": "Update Now"
   },
+  "web": {
+    "password": "Server password",
+    "signIn": "Sign in",
+    "signInFailed": "Unable to sign in. Check your password and server connection."
+  },
   "zmodem": {
     "cancelled": "ZMODEM transfer cancelled",
     "complete": "ZMODEM transfer complete",

@@ -75,8 +75,8 @@ function AscendIcon() {
       aria-hidden="true"
       className="inline-block h-[1em] w-[1em] bg-current"
       style={{
-        WebkitMask: "url('/icons/brands/ascend.svg') center / contain no-repeat",
-        mask: "url('/icons/brands/ascend.svg') center / contain no-repeat",
+        WebkitMask: `url('${import.meta.env.BASE_URL}icons/brands/ascend.svg') center / contain no-repeat`,
+        mask: `url('${import.meta.env.BASE_URL}icons/brands/ascend.svg') center / contain no-repeat`,
       }}
     />
   );
@@ -285,7 +285,11 @@ export function useActivityBarController({
       quickCmdBar: { icon: <MdBolt />, tooltip: t("panel.quickCommands") },
       serialSend: { icon: <MdSend />, tooltip: t("panel.serialSend", "Command Send") },
       recording: {
-        icon: <PiRecordFill className={recordingSessions.size > 0 ? "animate-pulse" : undefined} />,
+        icon: (
+          <PiRecordFill
+            className={recordingSessions.size > 0 ? "animate-pulse" : undefined}
+          />
+        ),
         tooltip: t("recording.panelTitle"),
       },
       lock: { icon: <MdLock />, tooltip: t("statusBar.lock") },

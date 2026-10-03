@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@/lib/backend/platform/opener";
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";

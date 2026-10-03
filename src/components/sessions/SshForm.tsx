@@ -1,4 +1,5 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { supports } from "@/lib/backend/runtime";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { ChevronsUpDownIcon, Eye, EyeOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -102,7 +103,9 @@ type SshTerminalTypeSelection = SshTerminalType | "default";
 function isSupportedSshAgentEndpoint(type: SshAgentEndpoint["type"]): boolean {
   if (type === "auto") return true;
   if (isWindows) return type === "pageant" || type === "windows_open_ssh";
-  return (isMacOS || isLinux) && (type === "environment" || type === "unix_socket");
+  return (
+    (isMacOS || isLinux) && (type === "environment" || type === "unix_socket")
+  );
 }
 
 function defaultForwardingEndpoint(): SshAgentEndpoint {
@@ -269,7 +272,9 @@ function AdvancedCombobox({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{clearLabel}</div>
                 </div>
-                {!value ? <MdCheck className="mt-0.5 text-sm text-primary" /> : null}
+                {!value ? (
+                  <MdCheck className="mt-0.5 text-sm text-primary" />
+                ) : null}
               </CommandItem>
             </CommandGroup>
             <CommandGroup className="p-0">
@@ -287,7 +292,9 @@ function AdvancedCombobox({
                     <div className="truncate text-sm">{option.label}</div>
                     <div className="truncate text-xs text-muted-foreground">{option.subtitle}</div>
                   </div>
-                  {option.id === value ? <MdCheck className="mt-0.5 text-sm text-primary" /> : null}
+                  {option.id === value ? (
+                    <MdCheck className="mt-0.5 text-sm text-primary" />
+                  ) : null}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -870,7 +877,11 @@ export function SshForm({
             <TabsTrigger value="key" className="text-xs">
               {t("dialog.privateKey")}
             </TabsTrigger>
-            <TabsTrigger value="agent" className="text-xs">
+            <TabsTrigger
+              disabled={!supports("sshAgent")}
+              value="agent"
+              className="text-xs"
+            >
               {t("dialog.sshAgent", "SSH Agent")}
             </TabsTrigger>
           </TabsList>
@@ -1167,15 +1178,26 @@ export function SshForm({
           <span>{t("dialog.advancedConfig")}</span>
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-3 space-y-3">
-          <Tabs defaultValue="network" className="w-full">
+          <Tabs
+            defaultValue={supports("nativeFiles") ? "network" : "two-factor"}
+            className="w-full"
+          >
             <TabsList className="grid h-8 w-full grid-cols-3 pointer-events-auto">
-              <TabsTrigger value="network" className="text-xs">
+              <TabsTrigger
+                disabled={!supports("nativeFiles")}
+                value="network"
+                className="text-xs"
+              >
                 {t("dialog.proxySelect")}
               </TabsTrigger>
               <TabsTrigger value="two-factor" className="text-xs">
                 {t("dialog.twoFactorAuth")}
               </TabsTrigger>
-              <TabsTrigger value="agent" className="text-xs">
+              <TabsTrigger
+                disabled={!supports("sshAgent")}
+                value="agent"
+                className="text-xs"
+              >
                 {t("dialog.sshAgent", "SSH Agent")}
               </TabsTrigger>
             </TabsList>
@@ -1575,7 +1597,11 @@ export function SshForm({
           </Tabs>
           <Tabs defaultValue="post-login" className="w-full">
             <TabsList className="grid h-8 w-full grid-cols-5 pointer-events-auto">
-              <TabsTrigger value="post-login" className="text-xs">
+              <TabsTrigger
+                disabled={!supports("nativeFiles")}
+                value="post-login"
+                className="text-xs"
+              >
                 {t("dialog.commandExecution")}
               </TabsTrigger>
               <TabsTrigger value="terminal" className="text-xs">
@@ -1584,7 +1610,11 @@ export function SshForm({
               <TabsTrigger value="sftp" className="text-xs">
                 SFTP
               </TabsTrigger>
-              <TabsTrigger value="x11" className="text-xs">
+              <TabsTrigger
+                disabled={!supports("nativeFiles")}
+                value="x11"
+                className="text-xs"
+              >
                 {t("dialog.x11Forwarding")}
               </TabsTrigger>
               <TabsTrigger value="backspace" className="text-xs">
@@ -1664,8 +1694,13 @@ export function SshForm({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="standard">{t("dialog.sshProfileStandard")}</SelectItem>
-                        <SelectItem value="network_device">
+                        <SelectItem value="standard">
+                          {t("dialog.sshProfileStandard")}
+                        </SelectItem>
+                        <SelectItem
+                          disabled={!supports("sshExtensions")}
+                          value="network_device"
+                        >
                           {t("dialog.sshProfileNetworkDevice")}
                         </SelectItem>
                       </SelectContent>
@@ -1722,9 +1757,24 @@ export function SshForm({
                     <SelectContent>
                       <SelectItem value="global">{t("connection.encodingFollowGlobal")}</SelectItem>
                       <SelectItem value="UTF-8">UTF-8</SelectItem>
-                      <SelectItem value="GBK">GBK</SelectItem>
-                      <SelectItem value="GB2312">GB2312</SelectItem>
-                      <SelectItem value="GB18030">GB18030</SelectItem>
+                      <SelectItem
+                        disabled={!supports("legacyEncoding")}
+                        value="GBK"
+                      >
+                        GBK
+                      </SelectItem>
+                      <SelectItem
+                        disabled={!supports("legacyEncoding")}
+                        value="GB2312"
+                      >
+                        GB2312
+                      </SelectItem>
+                      <SelectItem
+                        disabled={!supports("legacyEncoding")}
+                        value="GB18030"
+                      >
+                        GB18030
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1738,18 +1788,21 @@ export function SshForm({
                   <Switch
                     className="mt-0.5"
                     size="sm"
+                    disabled={!supports("shellIntegration")}
                     checked={remoteDynamicTabTitle}
                     onCheckedChange={setRemoteDynamicTabTitle}
                   />
                 </div>
-                <ConnectionRecordingSettings
-                  useGlobal={recordingUseGlobal}
-                  onUseGlobalChange={setRecordingUseGlobal}
-                  autoStart={recordingAutoStart}
-                  onAutoStartChange={setRecordingAutoStart}
-                  mode={recordingMode}
-                  onModeChange={setRecordingMode}
-                />
+                {supports("recording") && (
+                  <ConnectionRecordingSettings
+                    useGlobal={recordingUseGlobal}
+                    onUseGlobalChange={setRecordingUseGlobal}
+                    autoStart={recordingAutoStart}
+                    onAutoStartChange={setRecordingAutoStart}
+                    mode={recordingMode}
+                    onModeChange={setRecordingMode}
+                  />
+                )}
               </div>
             </TabsContent>
 
@@ -1789,7 +1842,7 @@ export function SshForm({
                   <Switch
                     className="mt-0.5 shrink-0"
                     checked={sftpSettings.compatibility_mode}
-                    disabled={sftpDisabled}
+                    disabled={sftpDisabled || !supports("sshExtensions")}
                     onCheckedChange={(compatibility_mode) =>
                       setSftpSettings({
                         ...sftpSettings,
@@ -1817,11 +1870,21 @@ export function SshForm({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="off">{t("dialog.sftpCwdFollowOff")}</SelectItem>
-                      <SelectItem value="shell_integration">
+                      <SelectItem value="off">
+                        {t("dialog.sftpCwdFollowOff")}
+                      </SelectItem>
+                      <SelectItem
+                        disabled={!supports("shellIntegration")}
+                        value="shell_integration"
+                      >
                         {t("dialog.sftpCwdFollowShellIntegration")}
                       </SelectItem>
-                      <SelectItem value="rc_file">{t("dialog.sftpCwdFollowRcFile")}</SelectItem>
+                      <SelectItem
+                        disabled={!supports("shellIntegration")}
+                        value="rc_file"
+                      >
+                        {t("dialog.sftpCwdFollowRcFile")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="mt-2 text-[0.6875rem] leading-relaxed text-muted-foreground">
@@ -1852,7 +1915,11 @@ export function SshForm({
                       min={MIN_SFTP_SHELL_DETECTION_TIMEOUT_MS}
                       max={MAX_SFTP_SHELL_DETECTION_TIMEOUT_MS}
                       step={100}
-                      disabled={sftpDisabled || sftpSettings.cwd_follow_mode === "off"}
+                      disabled={
+                        sftpDisabled ||
+                        !supports("shellIntegration") ||
+                        sftpSettings.cwd_follow_mode === "off"
+                      }
                     />
                     <span className="shrink-0 text-[0.625rem] text-muted-foreground">ms</span>
                   </div>
@@ -1883,9 +1950,24 @@ export function SshForm({
                         {t("dialog.sftpFilenameEncodingFollowTerminal")}
                       </SelectItem>
                       <SelectItem value="UTF-8">UTF-8</SelectItem>
-                      <SelectItem value="GBK">GBK</SelectItem>
-                      <SelectItem value="GB2312">GB2312</SelectItem>
-                      <SelectItem value="GB18030">GB18030</SelectItem>
+                      <SelectItem
+                        disabled={!supports("legacyEncoding")}
+                        value="GBK"
+                      >
+                        GBK
+                      </SelectItem>
+                      <SelectItem
+                        disabled={!supports("legacyEncoding")}
+                        value="GB2312"
+                      >
+                        GB2312
+                      </SelectItem>
+                      <SelectItem
+                        disabled={!supports("legacyEncoding")}
+                        value="GB18030"
+                      >
+                        GB18030
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="mt-2 text-[0.6875rem] leading-relaxed text-muted-foreground">

@@ -1,5 +1,5 @@
-import { emit, listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { emit, listen } from "@/lib/backend/api";
+import { WebviewWindow } from "@/lib/backend/platform/webviewWindow";
 import {
   availableMonitors,
   getCurrentWindow,
@@ -7,7 +7,7 @@ import {
   primaryMonitor,
   type Window as TauriWindow,
   UserAttentionType,
-} from "@tauri-apps/api/window";
+} from "@/lib/backend/platform/window";
 import i18n from "../i18n";
 import { ChildWindowCommandQueue } from "./childWindowCommandQueue";
 import {
@@ -73,7 +73,12 @@ let modalGroupRaiseInFlight = false;
 let suppressChildFocusSyncUntil = 0;
 let modalTopmostPulseId = 0;
 
-type ModalGroupRaiseReason = "open" | "main-focus" | "child-focus" | "backdrop" | "close";
+type ModalGroupRaiseReason =
+  | "open"
+  | "main-focus"
+  | "child-focus"
+  | "backdrop"
+  | "close";
 
 interface ModalGroupRaiseOptions {
   focusLabel?: string;
@@ -163,7 +168,10 @@ function autoUploadOwnerLabel(label: string) {
 }
 
 export function isModalChildLabel(label: string) {
-  return modalOwnerLabel(label) !== null || label.startsWith(AUTO_UPLOAD_WINDOW_PREFIX);
+  return (
+    modalOwnerLabel(label) !== null ||
+    label.startsWith(AUTO_UPLOAD_WINDOW_PREFIX)
+  );
 }
 
 export function isOwnedModalChildLabel(label: string, ownerLabel = ownerMainWindowLabel) {
@@ -228,7 +236,9 @@ function shouldWarnPendingOpenConflict(existingUrl: string, requestedUrl: string
 }
 
 async function getMainWindow() {
-  return (await WebviewWindow.getByLabel(ownerMainWindowLabel)) ?? getCurrentWindow();
+  return (
+    (await WebviewWindow.getByLabel(ownerMainWindowLabel)) ?? getCurrentWindow()
+  );
 }
 
 export function rectOverlapsWorkArea(rect: WindowRectLike, workArea: WorkAreaLike) {
@@ -259,7 +269,10 @@ function findMonitorForRect<T extends { workArea: WorkAreaLike }>(
   rect: WindowRectLike,
   monitors: T[],
 ) {
-  return monitors.find((monitor) => rectOverlapsWorkArea(rect, monitor.workArea)) ?? null;
+  return (
+    monitors.find((monitor) => rectOverlapsWorkArea(rect, monitor.workArea)) ??
+    null
+  );
 }
 
 async function getWindowRect(win: TauriWindow): Promise<WindowRectLike> {
@@ -941,7 +954,11 @@ export function openTunnelConfig(editId?: string) {
   });
 }
 
-export function openAutoUpload(data: { sessionId: string; localPath: string; remotePath: string }) {
+export function openAutoUpload(data: {
+  sessionId: string;
+  localPath: string;
+  remotePath: string;
+}) {
   // Use a unique label for each upload dialog so multiple files modifying simultaneously don't conflict
   // We use the local path base64 (or just random) to make it unique per file
   const safePath = btoa(encodeURIComponent(data.localPath)).replace(/[^a-zA-Z0-9]/g, "");

@@ -1,5 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import { Eye, Monitor, Power, RotateCcw, ShieldAlert } from "lucide-react";
 import {
   memo,
@@ -107,7 +107,11 @@ function VncPaneHost({
   const imeRef = useRef<HTMLTextAreaElement | null>(null);
   const pressedKeysRef = useRef(new Set<number>());
   const pointerButtonsRef = useRef(new Set<number>());
-  const pendingPointerRef = useRef<{ x: number; y: number; buttonMask: number } | null>(null);
+  const pendingPointerRef = useRef<{
+    x: number;
+    y: number;
+    buttonMask: number;
+  } | null>(null);
   const pointerRafRef = useRef<number | null>(null);
   const composingRef = useRef(false);
   const lastLocalSentRef = useRef<string | null>(null);

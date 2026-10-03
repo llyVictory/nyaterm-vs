@@ -1,6 +1,6 @@
-import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@/lib/backend/api";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -485,11 +485,13 @@ export function AiAgentsTab() {
   };
   const [mcpStatus, setMcpStatus] = useState<McpRuntimeStatus | null>(null);
   const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
-  const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
-  const [claudeCliStatus, setClaudeCliStatus] = useState<ClaudeCodeCliStatus | null>(null);
-  const [claudeAccountStatus, setClaudeAccountStatus] = useState<ClaudeCodeAccountStatus | null>(
+  const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(
     null,
   );
+  const [claudeCliStatus, setClaudeCliStatus] =
+    useState<ClaudeCodeCliStatus | null>(null);
+  const [claudeAccountStatus, setClaudeAccountStatus] =
+    useState<ClaudeCodeAccountStatus | null>(null);
   const [deviceLogin, setDeviceLogin] = useState<CodexLoginStart | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -927,7 +929,8 @@ export function AiAgentsTab() {
                 {t("ai.claudeCodeVersion")}: {claudeCliStatus?.version || "-"}
               </div>
               <div>
-                {t("ai.claudeCodeAuthMode")}: {claudeAccountStatus?.authMode || "-"}
+                {t("ai.claudeCodeAuthMode")}:{" "}
+                {claudeAccountStatus?.authMode || "-"}
               </div>
             </div>
 
@@ -2113,7 +2116,9 @@ export function AiModelsTab() {
                         aria-controls={`model-config-${encodeURIComponent(model.id)}`}
                         disabled={!!providerDraft}
                         onClick={() =>
-                          setEditingModelId((current) => (current === model.id ? null : model.id))
+                          setEditingModelId((current) =>
+                            current === model.id ? null : model.id,
+                          )
                         }
                       >
                         <MdEdit className="text-[0.95rem]" />
@@ -2440,7 +2445,9 @@ export function AiModelsTab() {
               <div className="grid gap-2 border-b border-border/60 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,2.2fr)] sm:items-center">
                 <Label className="text-xs font-normal">
                   {t("settings.apiKey")}
-                  {selectedProviderApiKeyRequired ? <span aria-hidden="true"> *</span> : null}
+                  {selectedProviderApiKeyRequired ? (
+                    <span aria-hidden="true"> *</span>
+                  ) : null}
                 </Label>
                 <div className="space-y-1">
                   <div className="relative">
@@ -2550,7 +2557,11 @@ function ActionListEditor({
   const { t } = useTranslation();
 
   const updateAction = (id: string, patch: Partial<AICustomActionConfig>) => {
-    onChange(actions.map((action) => (action.id === id ? { ...action, ...patch } : action)));
+    onChange(
+      actions.map((action) =>
+        action.id === id ? { ...action, ...patch } : action,
+      ),
+    );
   };
 
   return (

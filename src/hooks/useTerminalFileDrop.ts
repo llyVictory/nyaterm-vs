@@ -1,5 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@/lib/backend/api";
+import { getCurrentWebview } from "@/lib/backend/platform/webview";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
@@ -206,35 +206,36 @@ export function useTerminalFileDrop({
         return;
       }
 
-      const payload = event.payload;
-      if (payload.kind === "leave") {
+        const payload = event.payload;
+        if (payload.kind === "leave") {
+          resetExternalDropHover();
+          return;
+        }
+
+        const isOverDropTarget = isDropPositionTopmostWithinElement(
+          payload.position,
+          containerRef.current,
+        );
+        const isActive = enabledRef.current && isOverDropTarget;
+
+        if (payload.kind === "enter" || payload.kind === "over") {
+          setIsExternalDropActive(isActive);
+          return;
+        }
+
+        if (payload.kind !== "drop") {
+          return;
+        }
+
         resetExternalDropHover();
-        return;
-      }
 
-      const isOverDropTarget = isDropPositionTopmostWithinElement(
-        payload.position,
-        containerRef.current,
-      );
-      const isActive = enabledRef.current && isOverDropTarget;
+        if (!isActive) {
+          return;
+        }
 
-      if (payload.kind === "enter" || payload.kind === "over") {
-        setIsExternalDropActive(isActive);
-        return;
-      }
-
-      if (payload.kind !== "drop") {
-        return;
-      }
-
-      resetExternalDropHover();
-
-      if (!isActive) {
-        return;
-      }
-
-      void processDropPaths(payload.paths);
-    });
+        void processDropPaths(payload.paths);
+      },
+    );
 
     return () => {
       cancelled = true;

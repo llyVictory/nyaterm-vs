@@ -1,5 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import {
   type ReactNode,
   useCallback,

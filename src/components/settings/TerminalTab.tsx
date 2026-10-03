@@ -1,5 +1,5 @@
-import { downloadDir } from "@tauri-apps/api/path";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { downloadDir } from "@/lib/backend/platform/path";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -71,7 +71,9 @@ function PathPickerInput({
     <div className="space-y-3">
       <div className="min-w-0">
         <Label className="text-sm font-medium leading-5">{label}</Label>
-        {desc && <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>}
+        {desc && (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>
+        )}
       </div>
       <div className="flex max-w-2xl flex-col gap-2 sm:flex-row">
         <Input

@@ -1,5 +1,5 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { type ComponentType, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdDataObject, MdOpenInNew, MdTerminal } from "react-icons/md";
@@ -130,7 +130,14 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
 
   const renderSourceIcon = (source: ImportSource) => {
     if (typeof source.icon === "string") {
-      return <img src={source.icon} alt={source.name} className="h-10 w-10" draggable={false} />;
+      return (
+        <img
+          src={`${import.meta.env.BASE_URL}${source.icon.replace(/^\//, "")}`}
+          alt={source.name}
+          className="h-10 w-10"
+          draggable={false}
+        />
+      );
     }
 
     const Icon = source.icon;
@@ -332,7 +339,7 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
               }}
             >
               <img
-                src="/icons/app/nyaterm.svg"
+                src={`${import.meta.env.BASE_URL}icons/app/nyaterm.svg`}
                 alt=""
                 className="h-8 w-8 shrink-0"
                 draggable={false}

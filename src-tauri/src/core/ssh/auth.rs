@@ -1213,10 +1213,10 @@ async fn authenticate_password_with_runtime_prompt(
         let Some(current_password) = password.as_deref() else {
             continue;
         };
-        let authenticated = handle
-            .authenticate_password(&config.username, current_password)
-            .await
-            .map_err(|error| AppError::Auth(format!("Authentication failed: {}", error)))?;
+        let authenticated =
+            nyaterm_core::ssh::protocol::password(handle, &config.username, current_password)
+                .await
+                .map_err(|error| AppError::Auth(format!("Authentication failed: {}", error)))?;
 
         match try_keyboard_interactive_after_partial(
             handle,

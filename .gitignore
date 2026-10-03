@@ -39,3 +39,9 @@ temp/
 .claude
 .codex
 .trae
+
+# Web runtime secrets and data
+.env
+.env.*
+nyaterm-web-data/
+web-test-data/
