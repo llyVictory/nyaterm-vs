@@ -44,7 +44,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Invalid public URL".into());
     }
     let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-    if url.scheme() != "https" && !loopback {
+    let allow_insecure_http = std::env::var("NYATERM_WEB_ALLOW_INSECURE_HTTP")
+        .unwrap_or_else(|_| "false".into())
+        .parse()
+        .unwrap_or(false);
+    if url.scheme() != "https"
+        && !loopback
+        && !allow_insecure_http
+    {
         return Err("Non-loopback public URLs require HTTPS".into());
     }
     let base_path = url.path().trim_end_matches('/').to_owned();
