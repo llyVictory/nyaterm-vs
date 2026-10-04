@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libs
 WORKDIR /app
 COPY src-tauri/crates/nyaterm-core src-tauri/crates/nyaterm-core
 COPY src-tauri/crates/nyaterm-web src-tauri/crates/nyaterm-web
+COPY src-tauri/crates/nyaterm-gpu src-tauri/crates/nyaterm-gpu
+COPY src-tauri/crates/otp src-tauri/crates/otp
 COPY src-tauri/vendor/russh src-tauri/vendor/russh
 COPY src-tauri/vendor/russh-sftp src-tauri/vendor/russh-sftp
 COPY src-tauri/vendor/vnc-rs src-tauri/vendor/vnc-rs
