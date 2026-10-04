@@ -210,10 +210,10 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
       has: page.getByText("readme.txt", { exact: true }),
     });
     await expect(readmeRow).toHaveCount(1);
-    await readmeRow.click({ button: "right" });
+    await readmeRow.click();
     await page
-      .getByRole("menuitem", {
-        name: t("fileExplorer.cmDownload"),
+      .getByRole("button", {
+        name: t("fileExplorer.downloadSelected"),
         exact: true,
       })
       .click();
