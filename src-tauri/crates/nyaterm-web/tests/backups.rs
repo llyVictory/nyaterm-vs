@@ -18,6 +18,9 @@ const LOGIN: &str = "integration-login-password-more-than-32";
 const DESKTOP_PASSWORD: &str = "desktop-backup-password";
 const WEB_PASSWORD: &str = "portable-web-backup-password";
 const SECRET: &str = "integration-secret-never-in-logs";
+const LEGACY_SHORT_PASSWORD: &str = "test";
+const LEGACY_LONG_PASSWORD: &str = "legacy-inline-password-with-symbols!";
+const AI_SECRET: &str = "integration-ai-proxy-password-never-in-logs";
 struct Server {
     process: Child,
     client: reqwest::Client,
@@ -154,6 +157,16 @@ impl Server {
             ("get_saved_credential_password", "credential", SECRET),
             ("get_ssh_key_private_key", "key", "private-key-fixture"),
             ("get_connection_password_value", "connection", SECRET),
+            (
+                "get_connection_password_value",
+                "legacy-short",
+                LEGACY_SHORT_PASSWORD,
+            ),
+            (
+                "get_connection_password_value",
+                "legacy-long",
+                LEGACY_LONG_PASSWORD,
+            ),
             ("get_otp_secret_value", "otp", "JBSWY3DPEHPK3PXP"),
         ] {
             assert_eq!(
@@ -161,6 +174,14 @@ impl Server {
                 json!(expected)
             );
         }
+        assert_eq!(
+            self.command(
+                "get_connection_password_value",
+                json!({"id":"legacy-empty"})
+            )
+            .await,
+            Value::Null
+        );
     }
 }
 
@@ -172,14 +193,35 @@ async fn desktop_web_cross_key_backups_are_atomic_and_diagnostics_are_redacted()
     std::fs::write(dist.join("index.html"), "NyaTerm").unwrap();
     storage::init(&temp.path().join("desktop")).unwrap();
     crypto::set_master_password(Some(DESKTOP_PASSWORD.into()));
+    let mut settings = config::AppSettings::default();
+    settings.ai.proxy.password = Some(crypto::encrypt(AI_SECRET).unwrap());
+    config::save_app_settings(&(), &settings).unwrap();
     config::save_passwords(&(),&serde_json::from_value(json!({"passwords":[{"id":"password","name":"fixture","password":crypto::encrypt(SECRET).unwrap()}]})).unwrap()).unwrap();
     config::save_credentials(&(),&serde_json::from_value(json!({"credentials":[{"id":"credential","name":"fixture","username":"test","password":crypto::encrypt(SECRET).unwrap()}]})).unwrap()).unwrap();
     config::save_keys(&(),&serde_json::from_value(json!({"keys":[{"id":"key","name":"fixture","key":crypto::encrypt("private-key-fixture").unwrap()}]})).unwrap()).unwrap();
     config::save_otp_entries(&(),&serde_json::from_value(json!({"entries":[{"id":"otp","otp_type":"totp","issuer":"fixture","username":"test","secret":crypto::encrypt("JBSWY3DPEHPK3PXP").unwrap()}]})).unwrap()).unwrap();
-    config::save_sessions(&(),&serde_json::from_value(json!({"connections":[{"id":"connection","name":"fixture","type":"ssh","host":"private.example","auth":{"mode":"password","password":crypto::encrypt(SECRET).unwrap()}},{"id":"desktop-only","name":"serial preserved","type":"serial","port_name":"COM5"}]})).unwrap()).unwrap();
+    config::save_sessions(&(), &serde_json::from_value(json!({"connections":[
+        {"id":"connection","name":"fixture","type":"ssh","host":"private.example","auth":{"mode":"password","password":crypto::encrypt(SECRET).unwrap()}},
+        {"id":"legacy-short","name":"legacy short","type":"ssh","host":"private.example","auth":{"mode":"password","password":LEGACY_SHORT_PASSWORD}},
+        {"id":"legacy-long","name":"legacy long","type":"ssh","host":"private.example","auth":{"mode":"password","password":LEGACY_LONG_PASSWORD}},
+        {"id":"legacy-empty","name":"legacy empty","type":"ssh","host":"private.example","auth":{"mode":"password"}},
+        {"id":"desktop-only","name":"serial preserved","type":"serial","port_name":"COM5"}
+    ]})).unwrap()).unwrap();
     let original_key = storage::load_master_key_token().unwrap();
     // This is exactly Desktop's existing snapshot + password encryption path.
-    let desktop_snapshot = backup::build_backup("1.2.12").unwrap();
+    let mut desktop_snapshot = backup::build_backup("1.2.12").unwrap();
+    // Desktop's codec can preserve Some("") even though storage normally clears it.
+    desktop_snapshot
+        .sessions
+        .connections
+        .iter_mut()
+        .find(|connection| connection.id == "legacy-empty")
+        .unwrap()
+        .auth
+        .as_mut()
+        .unwrap()
+        .password = Some(String::new());
+    desktop_snapshot.payload_hash = calculate_payload_hash(&desktop_snapshot).unwrap();
     let desktop_bytes = backup_crypto::encrypt_snapshot_bytes(
         &encode_portable_snapshot(&desktop_snapshot).unwrap(),
         DESKTOP_PASSWORD,
@@ -207,6 +249,10 @@ async fn desktop_web_cross_key_backups_are_atomic_and_diagnostics_are_redacted()
         &backup_crypto::decrypt_snapshot_bytes(&exported, WEB_PASSWORD).unwrap(),
     )
     .unwrap();
+    assert_eq!(
+        decoded.settings.ai.proxy.password.as_deref(),
+        Some(AI_SECRET)
+    );
     storage::save_master_key_token(decoded.master_key_token.as_deref().unwrap()).unwrap();
     crypto::set_master_password(Some(WEB_PASSWORD.into()));
     assert_eq!(
@@ -242,6 +288,38 @@ async fn desktop_web_cross_key_backups_are_atomic_and_diagnostics_are_redacted()
     corrupt[20] ^= 1;
     assert_eq!(target.import(&corrupt, WEB_PASSWORD).await.status(), 400);
     target.verify_secrets().await;
+    // Authenticated archives must still reject tampered inner encrypted passwords
+    // and plaintext in credential types outside the inline-password compatibility path.
+    for plaintext_key in [false, true] {
+        let mut invalid = desktop_snapshot.clone();
+        if plaintext_key {
+            invalid.keys.keys[0].key = Some("invalid-plaintext-private-key".into());
+        } else {
+            let token = invalid
+                .sessions
+                .connections
+                .iter_mut()
+                .find(|connection| connection.id == "connection")
+                .unwrap()
+                .auth
+                .as_mut()
+                .unwrap()
+                .password
+                .as_mut()
+                .unwrap();
+            let mut bytes = STANDARD.decode(&*token).unwrap();
+            bytes[12] ^= 1;
+            *token = STANDARD.encode(bytes);
+        }
+        invalid.payload_hash = calculate_payload_hash(&invalid).unwrap();
+        let bytes = backup_crypto::encrypt_snapshot_bytes(
+            &encode_portable_snapshot(&invalid).unwrap(),
+            DESKTOP_PASSWORD,
+        )
+        .unwrap();
+        assert_eq!(target.import(&bytes, DESKTOP_PASSWORD).await.status(), 400);
+        target.verify_secrets().await;
+    }
     // Valid encrypted snapshots with invalid note relationships must roll back all preceding writes.
     let mut invalid = desktop_snapshot.clone();
     invalid.sessions.connections.clear();
@@ -302,6 +380,8 @@ async fn desktop_web_cross_key_backups_are_atomic_and_diagnostics_are_redacted()
         LOGIN,
         DESKTOP_PASSWORD,
         WEB_PASSWORD,
+        LEGACY_LONG_PASSWORD,
+        AI_SECRET,
         "private.example",
         "private-key-fixture",
     ] {

@@ -11,9 +11,12 @@ use aes_gcm::{Aes256Gcm, Key, KeyInit, aead::OsRng};
 pub const MAX_BACKUP_BYTES: usize = 50 * 1024 * 1024;
 
 pub fn build_backup(app_version: &str) -> AppResult<PortableSnapshot> {
-    let mut settings = config::load_app_settings(&())?;
+    let settings = config::load_app_settings(&())?;
     // Loading can retain undecipherable settings for recovery; exports must reject them.
-    settings.ai = config::decrypt_ai_settings(settings.ai)?;
+    // Validate the stored ciphertext: load_app_settings already decrypts valid AI settings.
+    let stored_settings: config::AppSettings =
+        storage::load_settings_doc(storage::SettingsDocKey::AppSettings)?;
+    config::decrypt_ai_settings(stored_settings.ai)?;
     let mut snapshot = PortableSnapshot {
         schema_version: PORTABLE_SNAPSHOT_SCHEMA_VERSION,
         snapshot_kind: PortableSnapshotKind::Backup,
@@ -46,6 +49,7 @@ fn transcode(
     snapshot: &mut PortableSnapshot,
     source: &Key<Aes256Gcm>,
     target: &Key<Aes256Gcm>,
+    legacy_connection_passwords: bool,
 ) -> AppResult<()> {
     let convert = |value: &mut Option<String>| -> AppResult<()> {
         if let Some(token) = value {
@@ -55,7 +59,15 @@ fn transcode(
     };
     for connection in &mut snapshot.sessions.connections {
         if let Some(auth) = &mut connection.auth {
-            convert(&mut auth.password)?;
+            match auth.password.as_deref() {
+                Some("") => auth.password = None,
+                Some(token) if legacy_connection_passwords => {
+                    auth.password = Some(crypto::transcode_legacy_connection_password(
+                        token, source, target,
+                    )?);
+                }
+                _ => convert(&mut auth.password)?,
+            }
         }
     }
     for key in &mut snapshot.keys.keys {
@@ -82,7 +94,12 @@ pub fn export_backup(password: &str, app_version: &str) -> AppResult<Vec<u8>> {
     validate_password(password)?;
     let mut snapshot = build_backup(app_version)?;
     let portable_key = Aes256Gcm::generate_key(OsRng);
-    transcode(&mut snapshot, &crypto::get_master_key()?, &portable_key)?;
+    transcode(
+        &mut snapshot,
+        &crypto::get_master_key()?,
+        &portable_key,
+        false,
+    )?;
     snapshot.master_key_token = Some(crypto::backup_key_token(&portable_key, password)?);
     snapshot.payload_hash = calculate_payload_hash(&snapshot)?;
     let encoded = zeroize::Zeroizing::new(encode_portable_snapshot(&snapshot)?);
@@ -112,7 +129,9 @@ pub fn prepare_import(bytes: &[u8], password: &str) -> AppResult<PortableSnapsho
             .ok_or_else(|| AppError::Crypto("Backup key missing".into()))?,
         password,
     )?;
-    transcode(&mut snapshot, &source, &crypto::get_master_key()?)?;
+    // Desktop snapshots can contain legacy plaintext inline passwords. Only accept
+    // those after the outer encryption, payload hash and source key are verified.
+    transcode(&mut snapshot, &source, &crypto::get_master_key()?, true)?;
     // Keep the destination key token and master password. AI fields in portable settings are plaintext.
     snapshot.master_key_token = storage::load_master_key_token()?;
     snapshot.payload_hash = calculate_payload_hash(&snapshot)?;

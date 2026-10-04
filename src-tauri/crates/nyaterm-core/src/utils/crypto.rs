@@ -242,11 +242,36 @@ pub(crate) fn transcode_secret(
     );
     std::str::from_utf8(&plain)
         .map_err(|_| AppError::Crypto("Invalid backup credential encoding".into()))?;
+    encrypt_backup_secret(&plain, target)
+}
+
+/// Compatibility for inline passwords in authenticated Desktop backups only.
+/// A value shaped like an AES-GCM token must still pass decryption; never retry
+/// failed authentication as plaintext. Other credential types remain strict.
+pub(crate) fn transcode_legacy_connection_password(
+    token: &str,
+    source: &Key<Aes256Gcm>,
+    target: &Key<Aes256Gcm>,
+) -> AppResult<String> {
+    // 28 bytes (nonce + tag) require at least 38 base64 characters, even without
+    // padding. Malformed base64 that still looks like a token must also fail closed.
+    let looks_like_ciphertext = token.len() >= 38
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='));
+    if looks_like_ciphertext {
+        transcode_secret(token, source, target)
+    } else {
+        encrypt_backup_secret(token.as_bytes(), target)
+    }
+}
+
+fn encrypt_backup_secret(plain: &[u8], target: &Key<Aes256Gcm>) -> AppResult<String> {
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let mut encrypted = nonce.to_vec();
     encrypted.extend(
         Aes256Gcm::new(target)
-            .encrypt(&nonce, plain.as_slice())
+            .encrypt(&nonce, plain)
             .map_err(|_| AppError::Crypto("Backup credential encryption failed".into()))?,
     );
     Ok(B64.encode(encrypted))
@@ -385,6 +410,52 @@ pub fn decrypt_optional(token: &Option<String>) -> AppResult<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backup_legacy_connection_passwords_are_encrypted_for_the_target_key() {
+        let source = Aes256Gcm::generate_key(OsRng);
+        let target = Aes256Gcm::generate_key(OsRng);
+        for plaintext in ["test", "long-legacy-password-with-symbols!", "旧密码🔑"] {
+            let token = transcode_legacy_connection_password(plaintext, &source, &target).unwrap();
+            let bytes = B64.decode(&token).unwrap();
+            let plain = Aes256Gcm::new(&target)
+                .decrypt(aes_gcm::Nonce::from_slice(&bytes[..12]), &bytes[12..])
+                .unwrap();
+            assert_eq!(plain, plaintext.as_bytes());
+            assert!(
+                Aes256Gcm::new(&source)
+                    .decrypt(aes_gcm::Nonce::from_slice(&bytes[..12]), &bytes[12..])
+                    .is_err()
+            );
+            assert!(transcode_secret(plaintext, &source, &target).is_err());
+        }
+    }
+
+    #[test]
+    fn backup_legacy_connection_passwords_do_not_bypass_ciphertext_integrity() {
+        let source = Aes256Gcm::generate_key(OsRng);
+        let target = Aes256Gcm::generate_key(OsRng);
+        let token = encrypt_backup_secret(b"encrypted password", &source).unwrap();
+        let converted = transcode_legacy_connection_password(&token, &source, &target).unwrap();
+        let bytes = B64.decode(converted).unwrap();
+        assert_eq!(
+            Aes256Gcm::new(&target)
+                .decrypt(aes_gcm::Nonce::from_slice(&bytes[..12]), &bytes[12..])
+                .unwrap(),
+            b"encrypted password"
+        );
+
+        let mut corrupt = B64.decode(&token).unwrap();
+        corrupt[12] ^= 1;
+        assert!(
+            transcode_legacy_connection_password(&B64.encode(corrupt), &source, &target).is_err()
+        );
+        assert!(transcode_legacy_connection_password(&token, &target, &source).is_err());
+        assert!(
+            transcode_legacy_connection_password(token.trim_end_matches('='), &source, &target)
+                .is_err()
+        );
+    }
 
     fn wrap_key_for_test(master_key: &Key<Aes256Gcm>, wrapping_key: &Key<Aes256Gcm>) -> Vec<u8> {
         let cipher = Aes256Gcm::new(wrapping_key);
