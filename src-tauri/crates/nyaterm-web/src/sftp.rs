@@ -33,6 +33,14 @@ pub fn supports(command: &str) -> bool {
             | "write_remote_file_text"
             | "get_file_properties"
             | "get_remote_file_stat"
+            | "read_remote_file_bytes"
+            | "create_remote_symlink"
+            | "update_remote_symlink_target"
+            | "update_remote_file_attributes"
+            | "chmod_remote_file"
+            | "find_missing_remote_entries"
+            | "copy_file_entry"
+            | "move_file_entry"
     )
 }
 pub async fn open(session: &WebSession) -> Result<russh_sftp::client::SftpSession> {
@@ -72,6 +80,37 @@ fn path<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
             .ok_or(WebError::bad("Remote path required"))?,
     )
 }
+fn mode(value: Option<&str>) -> Result<Option<u32>> {
+    value
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| {
+            let value = v.trim();
+            let parsed = u32::from_str_radix(value, 8)
+                .map_err(|_| WebError::bad("Invalid octal permissions"))?;
+            if parsed > 0o7777 {
+                return Err(WebError::bad("Invalid octal permissions"));
+            }
+            Ok(parsed)
+        })
+        .transpose()
+}
+async fn apply_mode(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    permissions: Option<u32>,
+) -> Result<()> {
+    if let Some(permissions) = permissions {
+        sftp.set_metadata(
+            path,
+            russh_sftp::protocol::FileAttributes {
+                permissions: Some(permissions),
+                ..russh_sftp::protocol::FileAttributes::empty()
+            },
+        )
+        .await?;
+    }
+    Ok(())
+}
 fn entry(name: String, attrs: &russh_sftp::protocol::FileAttributes) -> files::FileEntry {
     files::FileEntry {
         name,
@@ -92,6 +131,9 @@ pub async fn command(
     args: &Value,
 ) -> Result<Value> {
     // Raw filename encodings and recursive/native workflows have no Web MVP contract.
+    if matches!(command, "copy_file_entry" | "move_file_entry") {
+        return copy_entry(state, owner, command, args).await;
+    }
     if !args["rawPathToken"].is_null() {
         return Err(WebError::unsupported());
     }
@@ -102,6 +144,7 @@ pub async fn command(
         .try_acquire_owned()
         .map_err(|_| WebError::bad("Too many SFTP operations"))?;
     let sftp = open(&session).await?;
+    let mut temporary_link = None;
     let operation = async {
         Ok(match command {
             "get_home_dir" => json!(sftp.canonicalize(".").await?),
@@ -153,16 +196,147 @@ pub async fn command(
                 Value::Null
             }
             "create_remote_dir" => {
-                sftp.create_dir(path(args, "path")?).await?;
+                let input_mode: Option<String> = crate::commands::argument(args, "mode")?;
+                let permissions = mode(input_mode.as_deref())?;
+                let p = path(args, "path")?;
+                sftp.create_dir(p).await?;
+                apply_mode(&sftp, p, permissions).await?;
                 Value::Null
             }
             "create_remote_file" => {
+                let input_mode: Option<String> = crate::commands::argument(args, "mode")?;
+                let permissions = mode(input_mode.as_deref())?;
                 sftp.create(path(args, "path")?)
                     .await?
                     .shutdown()
                     .await
                     .map_err(|_| WebError::bad("Remote write failed"))?;
+                apply_mode(&sftp, path(args, "path")?, permissions).await?;
                 Value::Null
+            }
+            "create_remote_symlink" => {
+                sftp.symlink_openssh(path(args, "targetPath")?, path(args, "linkPath")?)
+                    .await?;
+                Value::Null
+            }
+            "update_remote_symlink_target" => {
+                let p = path(args, "path")?;
+                let target = path(args, "targetPath")?;
+                if !sftp.symlink_metadata(p).await?.is_symlink() {
+                    return Err(WebError::bad("Remote path is not a symbolic link"));
+                }
+                // Create the replacement before touching the original link.
+                let temporary = format!("{p}.nyaterm-{}.link", uuid::Uuid::new_v4());
+                temporary_link = Some(temporary.clone());
+                sftp.symlink_openssh(target, &temporary).await?;
+                sftp.rename_replace(&temporary, p).await?;
+                temporary_link = None;
+                Value::Null
+            }
+            "chmod_remote_file" | "update_remote_file_attributes" => {
+                let p = path(args, "path")?;
+                let update: files::RemoteFileAttributeUpdate = if command == "chmod_remote_file" {
+                    files::RemoteFileAttributeUpdate {
+                        mode: Some(crate::commands::text(args, "mode")?.into()),
+                        ..Default::default()
+                    }
+                } else {
+                    crate::commands::argument(args, "update")?
+                };
+                if update.recursive {
+                    return Err(WebError::bad(
+                        "Recursive attribute changes require a transfer task",
+                    ));
+                }
+                let current = sftp.metadata(p).await?;
+                let parse_id = |value: Option<&str>| -> Result<Option<u32>> {
+                    value
+                        .filter(|v| !v.trim().is_empty())
+                        .map(|v| {
+                            v.trim().parse().map_err(|_| {
+                                WebError::bad("Web SFTP requires a numeric UID or GID")
+                            })
+                        })
+                        .transpose()
+                };
+                let uid = parse_id(update.owner.as_deref())?;
+                let gid = parse_id(update.group.as_deref())?;
+                let permissions = mode(update.mode.as_deref())?;
+                if uid.is_some() || gid.is_some() || permissions.is_some() {
+                    // SFTP v3 serializes UID and GID together: preserve the
+                    // unspecified half instead of silently changing it to root.
+                    let ownership = uid.is_some() || gid.is_some();
+                    let attrs = russh_sftp::protocol::FileAttributes {
+                        permissions,
+                        uid: if ownership {
+                            Some(
+                                uid.or(current.uid)
+                                    .ok_or(WebError::bad("Remote UID unavailable"))?,
+                            )
+                        } else {
+                            None
+                        },
+                        gid: if ownership {
+                            Some(
+                                gid.or(current.gid)
+                                    .ok_or(WebError::bad("Remote GID unavailable"))?,
+                            )
+                        } else {
+                            None
+                        },
+                        ..russh_sftp::protocol::FileAttributes::empty()
+                    };
+                    sftp.set_metadata(p, attrs).await?;
+                }
+                Value::Null
+            }
+            "find_missing_remote_entries" => {
+                let paths: Vec<String> = crate::commands::argument(args, "paths")?;
+                let mut missing = Vec::new();
+                for p in paths {
+                    validate_path(&p)?;
+                    match sftp.symlink_metadata(&p).await {
+                        Ok(_) => {}
+                        Err(russh_sftp::client::error::Error::Status(status))
+                            if status.status_code
+                                == russh_sftp::protocol::StatusCode::NoSuchFile =>
+                        {
+                            missing.push(p)
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                json!(missing)
+            }
+            "read_remote_file_bytes" => {
+                let p = path(args, "path")?;
+                let limit = args["maxBytes"]
+                    .as_u64()
+                    .filter(|v| *v > 0 && *v <= 25 * 1024 * 1024)
+                    .ok_or(WebError::bad(
+                        "Preview limit must be between 1 byte and 25 MiB",
+                    ))?;
+                let attrs = sftp.metadata(p).await?;
+                if attrs.is_dir() || attrs.size.is_some_and(|size| size > limit) {
+                    return Err(WebError::bad("Remote file exceeds preview limit"));
+                }
+                let mut bytes = Vec::new();
+                sftp.open(p)
+                    .await?
+                    .take(limit + 1)
+                    .read_to_end(&mut bytes)
+                    .await
+                    .map_err(|_| WebError::bad("Remote read failed"))?;
+                if bytes.len() as u64 > limit {
+                    return Err(WebError::bad("Remote file exceeds preview limit"));
+                }
+                json!(files::RemoteBinaryFile {
+                    path: p.into(),
+                    size: bytes.len() as u64,
+                    mtime: attrs.mtime.unwrap_or(0) as u64,
+                    mtime_nanos: None,
+                    content_bytes: bytes
+                })
             }
             "read_remote_file_text" | "open_remote_file_text" => {
                 let p = path(args, "path")?;
@@ -271,12 +445,209 @@ pub async fn command(
         })
     };
     let result = tokio::select! {_ = session.cancel.cancelled()=>Err(WebError::bad("Session closed")),result=tokio::time::timeout(Duration::from_secs(30),operation)=>result.map_err(|_|WebError::bad("SFTP timed out"))?};
+    if let Some(path) = temporary_link {
+        let _ = tokio::time::timeout(Duration::from_secs(2), sftp.remove_file(path)).await;
+    }
     let _ = tokio::time::timeout(Duration::from_secs(2), sftp.close()).await;
     result
 }
 #[derive(Deserialize)]
 pub struct TransferPath {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CopyEndpoint {
+    session_id: String,
+    kind: String,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CopyRequest {
+    source: CopyEndpoint,
+    target: CopyEndpoint,
+    file_name: String,
+    is_directory: bool,
+    transfer_id: Option<String>,
+    duplicate_strategy_override: Option<String>,
+}
+async fn copy_entry(state: &Arc<State>, owner: &str, command: &str, args: &Value) -> Result<Value> {
+    let request: CopyRequest = crate::commands::argument(args, "request")?;
+    if request.source.kind != "remote" || request.target.kind != "remote" {
+        return Err(WebError::unsupported());
+    }
+    validate_path(&request.source.path)?;
+    validate_path(&request.target.path)?;
+    let source = state.session(owner, &request.source.session_id).await?;
+    let target = state.session(owner, &request.target.session_id).await?;
+    let same = source.id == target.id;
+    if request.is_directory && !(same && command == "move_file_entry") {
+        return Err(WebError::bad("Recursive copies require a transfer task"));
+    }
+    if request.file_name.is_empty()
+        || matches!(request.file_name.as_str(), "." | "..")
+        || request.file_name.contains(['/', '\\', '\0'])
+    {
+        return Err(WebError::bad("Invalid file name"));
+    }
+    let target_path = format!(
+        "{}/{}",
+        request.target.path.trim_end_matches('/'),
+        request.file_name
+    );
+    validate_path(&target_path)?;
+    if same && request.source.path == target_path {
+        return Err(WebError::bad("Source and destination are identical"));
+    }
+    let _source_permit = source
+        .transfers
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| WebError::bad("Too many transfers"))?;
+    let _target_permit = if same {
+        None
+    } else {
+        Some(
+            target
+                .transfers
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| WebError::bad("Too many transfers"))?,
+        )
+    };
+    let source_sftp = Arc::new(open(&source).await?);
+    let target_sftp = if same {
+        source_sftp.clone()
+    } else {
+        Arc::new(open(&target).await?)
+    };
+    let attrs = source_sftp.symlink_metadata(&request.source.path).await?;
+    let mut destination = target_path;
+    let mut overwrite = false;
+    if target_sftp.try_exists(&destination).await? {
+        let strategy = request.duplicate_strategy_override.clone().unwrap_or(
+            nyaterm_core::config::load_app_settings(&())?
+                .transfer
+                .duplicate_strategy,
+        );
+        let strategy = if strategy == "ask" {
+            state.prompt(owner,"transfer-duplicate-request",json!({"sessionId":target.id,"remotePath":destination,"fileName":request.file_name,"isDirectory":attrs.is_dir()}),&target.cancel).await?.as_str().unwrap_or("skip").to_owned()
+        } else {
+            strategy
+        };
+        match strategy.as_str() {
+            "skip" => return Ok(json!("skipped")),
+            "overwrite" if !attrs.is_dir() => {
+                overwrite = true;
+            }
+            "rename" => {
+                destination = format!("{destination}.{}", uuid::Uuid::new_v4());
+            }
+            _ => {
+                return Err(WebError::bad(
+                    "Destination exists; choose skip, rename or overwrite",
+                ));
+            }
+        }
+    }
+    let id = request
+        .transfer_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let temporary = format!("{destination}.nyaterm-{}.part", uuid::Uuid::new_v4());
+    let mut transfer = Transfer {
+        state: state.clone(),
+        owner: owner.into(),
+        session_id: target.id.clone(),
+        id,
+        path: destination.clone(),
+        direction: "copy",
+        total: attrs.size.unwrap_or(0),
+        bytes: 0,
+        sftp: target_sftp.clone(),
+        temporary: None,
+        done: false,
+        last_progress: std::time::Instant::now(),
+    };
+    let operation = async {
+        transfer.progress("started").await;
+        if same && command == "move_file_entry" {
+            if overwrite {
+                source_sftp
+                    .rename_replace(&request.source.path, &destination)
+                    .await?;
+            } else {
+                source_sftp
+                    .rename(&request.source.path, &destination)
+                    .await?;
+            }
+            transfer.bytes = transfer.total;
+        } else {
+            if attrs.is_dir() {
+                return Err(WebError::bad("Recursive copies require a transfer task"));
+            }
+            transfer.temporary = Some(temporary.clone());
+            if attrs.is_symlink() {
+                let link = source_sftp.read_link(&request.source.path).await?;
+                target_sftp.symlink_openssh(link, &temporary).await?;
+            } else {
+                if transfer.total > 1024 * 1024 * 1024 {
+                    return Err(WebError::bad("Copy exceeds 1 GiB"));
+                }
+                let mut reader = source_sftp.open(&request.source.path).await?;
+                let mut writer = target_sftp.create(&temporary).await?;
+                let mut buffer = vec![0u8; 64 * 1024];
+                loop {
+                    let size = reader
+                        .read(&mut buffer)
+                        .await
+                        .map_err(|_| WebError::bad("Remote read failed"))?;
+                    if size == 0 {
+                        break;
+                    }
+                    transfer.bytes += size as u64;
+                    if transfer.bytes > 1024 * 1024 * 1024 {
+                        return Err(WebError::bad("Copy exceeds 1 GiB"));
+                    }
+                    writer
+                        .write_all(&buffer[..size])
+                        .await
+                        .map_err(|_| WebError::bad("Remote write failed"))?;
+                    transfer.progress("progress").await;
+                }
+                writer
+                    .shutdown()
+                    .await
+                    .map_err(|_| WebError::bad("Remote write failed"))?;
+                if transfer.bytes != transfer.total {
+                    return Err(WebError::bad("Source changed during copy"));
+                }
+                apply_mode(
+                    &target_sftp,
+                    &temporary,
+                    attrs.permissions.map(|v| v & 0o7777),
+                )
+                .await?;
+            }
+            if overwrite {
+                target_sftp.rename_replace(&temporary, &destination).await?;
+            } else {
+                target_sftp.rename(&temporary, &destination).await?;
+            }
+            transfer.temporary = None;
+            if command == "move_file_entry" {
+                source_sftp.remove_file(&request.source.path).await?;
+            }
+        }
+        Ok::<_, WebError>(())
+    };
+    let result = tokio::select! {_=source.cancel.cancelled()=>Err(WebError::bad("Source session closed")),_=target.cancel.cancelled()=>Err(WebError::bad("Target session closed")),result=tokio::time::timeout(Duration::from_secs(3600),operation)=>result.unwrap_or(Err(WebError::bad("Copy timed out")))};
+    if let Err(error) = result {
+        transfer.finish("error").await;
+        return Err(error);
+    }
+    transfer.finish("completed").await;
+    Ok(json!("copied"))
 }
 struct Transfer {
     state: Arc<State>,

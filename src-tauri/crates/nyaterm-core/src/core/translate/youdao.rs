@@ -13,11 +13,16 @@ struct YoudaoResponse {
 }
 
 fn truncate_for_sign(q: &str) -> String {
-    let len = q.len();
+    let chars = q.chars().collect::<Vec<_>>();
+    let len = chars.len();
     if len <= 20 {
         q.to_string()
     } else {
-        format!("{}{len}{}", &q[..10], &q[len - 10..])
+        format!(
+            "{}{len}{}",
+            chars[..10].iter().collect::<String>(),
+            chars[len - 10..].iter().collect::<String>()
+        )
     }
 }
 

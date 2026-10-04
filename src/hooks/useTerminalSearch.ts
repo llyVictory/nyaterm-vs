@@ -1,6 +1,7 @@
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@/lib/invoke";
+import { supports } from "@/lib/backend/runtime";
 import {
   createDefaultTerminalHistorySearchState,
   createDefaultTerminalSearchState,
@@ -531,6 +532,7 @@ export function useTerminalSearch(
 
   const setActiveMode = useCallback(
     (mode: TerminalSearchMode) => {
+      if (mode === "history" && !supports("terminalHistory")) return;
       setActiveModeState(mode);
       activeModeRef.current = mode;
       const query = searchStateRef.current.query;

@@ -5,7 +5,7 @@ impl QuickCommandsStore {
         }
     }
 
-    pub fn load_from_disk(&self, app: &AppHandle) -> AppResult<()> {
+    pub fn load_from_disk(&self, app: &impl Sized) -> AppResult<()> {
         let config = config::load_quick_commands(app)?;
         self.replace(config);
         Ok(())
@@ -15,7 +15,7 @@ impl QuickCommandsStore {
         self.config.read().unwrap().clone()
     }
 
-    pub fn save_all(&self, app: &AppHandle, config: QuickCommandsConfig) -> AppResult<()> {
+    pub fn save_all(&self, app: &impl Sized, config: QuickCommandsConfig) -> AppResult<()> {
         config::save_quick_commands(app, &config)?;
         self.replace(config);
         Ok(())
@@ -23,12 +23,15 @@ impl QuickCommandsStore {
 
     pub fn upsert(
         &self,
-        app: &AppHandle,
+        app: &impl Sized,
         mut command: QuickCommand,
         new_category: Option<QuickCommandCategory>,
     ) -> AppResult<QuickCommandsConfig> {
         let mut config = self.snapshot();
         let now = now_millis();
+        if command.id.is_empty() {
+            command.id = Uuid::new_v4().to_string();
+        }
 
         if let Some(mut category) = new_category {
             if !config.categories.iter().any(|item| item.id == category.id) {
@@ -68,10 +71,10 @@ impl QuickCommandsStore {
         Ok(config)
     }
 
-    pub fn increment_use_count(&self, app: &AppHandle, id: &str) -> AppResult<()> {
+    pub fn increment_use_count(&self, app: &impl Sized, id: &str) -> AppResult<()> {
         let mut config = self.snapshot();
         if let Some(cmd) = config.commands.iter_mut().find(|c| c.id == id) {
-            cmd.use_count = Some(cmd.use_count.unwrap_or(0) + 1);
+            cmd.use_count = Some(cmd.use_count.unwrap_or(0).saturating_add(1));
             cmd.updated_at = Some(now_millis());
             self.save_all(app, config)?;
         }
@@ -80,7 +83,7 @@ impl QuickCommandsStore {
 
     pub fn import_from_file(
         &self,
-        app: &AppHandle,
+        app: &impl Sized,
         file_path: &str,
         source: QuickCommandsImportSource,
     ) -> AppResult<QuickCommandsImportResult> {
@@ -119,12 +122,41 @@ impl QuickCommandsStore {
     fn replace(&self, config: QuickCommandsConfig) {
         *self.config.write().unwrap() = config;
     }
+
+    /// Browser imports receive text, never a path on the server filesystem.
+    pub fn import_from_text(
+        &self,
+        app: &impl Sized,
+        raw: &str,
+        source: QuickCommandsImportSource,
+    ) -> AppResult<QuickCommandsImportResult> {
+        let imported = match source {
+            QuickCommandsImportSource::NyatermJson => parse_nyaterm_import(raw)?,
+            QuickCommandsImportSource::WindtermQuickbar => parse_windterm_quickbar(raw)?,
+            QuickCommandsImportSource::XshellXts => {
+                return Err(AppError::Unsupported(
+                    "XTS requires an archive import".into(),
+                ));
+            }
+        };
+        if imported.commands.is_empty() {
+            return Err(AppError::Config("No valid quick commands found".into()));
+        }
+        let mut config = self.snapshot();
+        let stats = merge_import(&mut config, imported)?;
+        let result = QuickCommandsImportResult {
+            imported_commands: stats.added_commands,
+            imported_categories: stats.added_categories,
+            updated_commands: stats.updated_commands,
+            total_commands: config.commands.len(),
+            total_categories: config.categories.len(),
+        };
+        self.save_all(app, config)?;
+        Ok(result)
+    }
 }
 
-fn next_category_sort_order(
-    categories: &[QuickCommandCategory],
-    parent_id: Option<&str>,
-) -> i32 {
+fn next_category_sort_order(categories: &[QuickCommandCategory], parent_id: Option<&str>) -> i32 {
     categories
         .iter()
         .filter(|category| category.parent_id.as_deref() == parent_id)

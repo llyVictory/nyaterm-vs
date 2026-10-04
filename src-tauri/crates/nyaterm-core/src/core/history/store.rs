@@ -39,6 +39,7 @@ impl CommandHistoryStore {
                 return Ok(());
             }
             self.entries = entries;
+            self.entries.sort_by_key(|entry| entry.last_used_at_ms);
             self.dirty = false;
             return Ok(());
         };

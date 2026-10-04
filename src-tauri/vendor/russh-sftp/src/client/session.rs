@@ -2,10 +2,10 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::{
+    RawSftpSession,
     error::Error,
     fs::{File, Metadata, ReadDir},
     rawsession::{Limits, SftpResult},
-    RawSftpSession,
 };
 use crate::{
     client::Config,
@@ -347,6 +347,29 @@ impl SftpSession {
         N: Into<String>,
     {
         self.session.rename(oldpath, newpath).await.map(|_| ())
+    }
+
+    /// Rename a file or directory using raw bytes for both paths.
+    /// Atomically replace a destination via the OpenSSH POSIX rename extension.
+    /// Unsupported servers return an error without removing the destination.
+    pub async fn rename_replace(&self, oldpath: &str, newpath: &str) -> SftpResult<()> {
+        let mut data = Vec::new();
+        for path in [oldpath, newpath] {
+            let len = u32::try_from(path.len()).map_err(|_| Error::UnexpectedPacket)?;
+            data.extend_from_slice(&len.to_be_bytes());
+            data.extend_from_slice(path.as_bytes());
+        }
+        match self
+            .session
+            .extended("posix-rename@openssh.com", data)
+            .await?
+        {
+            crate::protocol::Packet::Status(status) if status.status_code == StatusCode::Ok => {
+                Ok(())
+            }
+            crate::protocol::Packet::Status(status) => Err(Error::Status(status)),
+            _ => Err(Error::UnexpectedPacket),
+        }
     }
 
     /// Rename a file or directory using raw bytes for both paths.

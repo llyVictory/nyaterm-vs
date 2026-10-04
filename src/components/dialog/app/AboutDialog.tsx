@@ -87,7 +87,7 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
             : conpty.lastUsed
               ? t("about.conptyLastUsed", {
                   source: conpty.lastUsed === "bundled" ? bundledLabel : systemLabel,
-              })
+                })
               : t("about.conptyNotStarted");
 
   const packageManagerDisplay = supportInfo?.packageManager
@@ -100,7 +100,11 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
     }
 
     const runtimeLabel =
-      supportInfo.runtime === "portable" ? t("about.portable") : t("about.installed");
+      supportInfo.runtime === "web"
+        ? "Web"
+        : supportInfo.runtime === "portable"
+          ? t("about.portable")
+          : t("about.installed");
     const text = [
       "NyaTerm Support Information",
       `Version: ${appVersion}`,
@@ -128,9 +132,11 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
   const architectureDisplay =
     supportInfo?.architecture ?? (supportInfoFailed ? t("about.unknown") : t("common.loading"));
   const runtimeDisplay = supportInfo
-    ? supportInfo.runtime === "portable"
-      ? t("about.portable")
-      : t("about.installed")
+    ? supportInfo.runtime === "web"
+      ? "Web"
+      : supportInfo.runtime === "portable"
+        ? t("about.portable")
+        : t("about.installed")
     : supportInfoFailed
       ? t("about.unknown")
       : t("common.loading");
@@ -174,14 +180,8 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
               aria-label={t("about.copySupportInfo")}
               disabled={!supportInfoReady}
             >
-              {copied ? (
-                <Check className="size-3.5" />
-              ) : (
-                <Copy className="size-3.5" />
-              )}
-              {copied
-                ? t("about.supportInfoCopiedShort")
-                : t("about.copySupportInfo")}
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {copied ? t("about.supportInfoCopiedShort") : t("about.copySupportInfo")}
             </Button>
           </div>
           <dl className="grid grid-cols-[minmax(0,auto)_1fr] gap-x-4 gap-y-1.5 text-xs">

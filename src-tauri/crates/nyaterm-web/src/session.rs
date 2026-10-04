@@ -99,6 +99,7 @@ pub struct WebSession {
     pub ready: AtomicBool,
     pub transfers: Arc<tokio::sync::Semaphore>,
     pub sftp: config::SftpSettings,
+    pub stats: nyaterm_core::core::monitoring::stats::RemoteStatsSampler,
 }
 pub enum SessionProtocol {
     Ssh,
@@ -120,7 +121,8 @@ impl WebSession {
             SessionProtocol::Vnc(web) => *web.state.lock().unwrap() == "active",
             _ => self.ready.load(Ordering::Acquire),
         } && !self.cancel.is_cancelled();
-        json!({"id":self.id,"name":self.name,"session_type":kind,"host":self.host,"port":self.port,"username":self.username,"connection_id":self.connection_id,"owner_window_label":"main","workspace_pane_id":self.workspace_pane_id,"attached":self.attached.load(Ordering::Acquire),"ready":self.ready.load(Ordering::Acquire),"connected":connected,"terminal_available":terminal,"shell_available":terminal,"sftp_available":sftp,"remote_file_browser_enabled":sftp,"remote_stats_enabled":false,"injection_active":false,"runtime_mode":"standard","ssh_runtime_mode":"standard","dynamic_title_enabled":false,"dynamic_title_integration_active":false})
+        let stats = matches!(self.protocol, SessionProtocol::Ssh) && connected;
+        json!({"id":self.id,"name":self.name,"session_type":kind,"host":self.host,"port":self.port,"username":self.username,"connection_id":self.connection_id,"owner_window_label":"main","workspace_pane_id":self.workspace_pane_id,"attached":self.attached.load(Ordering::Acquire),"ready":self.ready.load(Ordering::Acquire),"connected":connected,"terminal_available":terminal,"shell_available":terminal,"sftp_available":sftp,"remote_file_browser_enabled":sftp,"remote_stats_enabled":stats,"injection_active":false,"runtime_mode":"standard","ssh_runtime_mode":"standard","dynamic_title_enabled":false,"dynamic_title_integration_active":false})
     }
 }
 
@@ -171,6 +173,7 @@ pub(crate) async fn register(
             enabled: false,
             ..Default::default()
         }),
+        stats: Default::default(),
     });
     let mut registry = state.sessions.lock().await;
     if registry.len() >= 128 || registry.values().filter(|s| s.owner == owner).count() >= 16 {

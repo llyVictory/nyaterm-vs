@@ -11,10 +11,16 @@ use nyaterm_core::{config, services, storage, utils::crypto};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-fn argument<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T> {
+#[derive(serde::Deserialize)]
+struct SortOrderUpdate {
+    id: String,
+    sort_order: i32,
+}
+
+pub(crate) fn argument<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T> {
     Ok(serde_json::from_value(args[name].clone())?)
 }
-fn text<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
+pub(crate) fn text<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
     args[name]
         .as_str()
         .ok_or(WebError::bad("Missing command argument"))
@@ -28,9 +34,12 @@ pub async fn route(
     // Explicit allowlist; no dynamic reflection or Desktop invoke handler here.
     let result = match command.as_str() {
         "get_app_runtime_info" => json!({"mode":"web","portable":false,"packageManager":null,"executableDir":"","dataDir":"","configDir":"","logDir":"","webviewDataDir":"","portableMarkerPath":null}),
+        "get_support_info" => json!({"os":format!("Web server ({})",std::env::consts::OS),"architecture":std::env::consts::ARCH,"runtime":"web","packageManager":null}),
         "get_app_settings" => {
             let mut settings = config::load_app_settings(&())?;
-            if settings.security.master_password.is_some() { settings.security.master_password=Some("__SET__".into()); }
+            // Web unlocks with the stored master password, or re-authenticates
+            // with the Web login password when no master password is configured.
+            settings.security.master_password=Some("__SET__".into());
             settings.ai=config::mask_ai_settings(settings.ai);
             settings.cloud_sync=config::mask_cloud_sync_settings(settings.cloud_sync);
             json!(settings)
@@ -57,6 +66,13 @@ pub async fn route(
             storage::update_settings_doc::<config::AppSettings,_,_>(storage::SettingsDocKey::AppSettings,|settings| { settings.ui=ui;Ok(()) })?;
             state.broadcast("settings-changed",Value::Null).await;Value::Null
         },
+        "save_app_language" => {
+            let _guard=state.mutation.lock().await;
+            let language:String=argument(&args,"language")?;
+            storage::update_settings_doc::<config::AppSettings,_,_>(storage::SettingsDocKey::AppSettings,|settings| { settings.ui.language=Some(language);Ok(()) })?;
+            state.broadcast("settings-changed",Value::Null).await;Value::Null
+        },
+        "verify_master_password" => json!(crate::auth::verify_unlock(&state,&args).await?),
         "get_saved_connections" => {
             let mut connections=config::load_config(&())?.connections;
             let values=connections.iter_mut().map(|conn|{let exists=conn.auth.as_ref().is_some_and(|a|a.password.is_some());if let Some(auth)=&mut conn.auth {auth.password=None;}let mut value=json!(conn);if !value["auth"].is_null(){value["auth"]["has_password"]=json!(exists);}value}).collect::<Vec<_>>();
@@ -74,7 +90,47 @@ pub async fn route(
             let mut config=config::load_config(&())?;config.connections.retain(|c|Some(c.id.as_str())!=args["id"].as_str());config::save_config(&(),&config)?;
             state.broadcast("connections-changed",Value::Null).await;Value::Null
         },
+        "update_connection_icon" | "update_connection_asset_from_monitoring" => {
+            let _guard=state.mutation.lock().await;let mut cfg=config::load_config(&())?;
+            let id=text(&args,"connectionId")?;
+            let connection=cfg.connections.iter_mut().find(|c|c.id==id).ok_or(WebError::bad("Connection not found"))?;
+            if command=="update_connection_icon" {connection.icon=args["icon"].as_str().map(str::trim).filter(|v|!v.is_empty()).map(String::from);connection.icon_auto_detect=Some(argument(&args,"iconAutoDetect")?);}
+            else {
+                let patch:config::AssetMetadata=argument(&args,"assetPatch")?;
+                let asset=connection.asset.get_or_insert_with(Default::default);
+                if patch.hostname.is_some(){asset.hostname=patch.hostname;}
+                if patch.os_name.is_some(){asset.os_name=patch.os_name;}
+                if patch.architecture.is_some(){asset.architecture=patch.architecture;}
+                if patch.cpu_model.is_some(){asset.cpu_model=patch.cpu_model;}
+                if patch.cpu_cores.is_some(){asset.cpu_cores=patch.cpu_cores;}
+                if patch.memory_bytes.is_some(){asset.memory_bytes=patch.memory_bytes;}
+                if patch.disks.is_some(){asset.disks=patch.disks;}
+                if patch.updated_at.is_some(){asset.updated_at=patch.updated_at;}
+                if let Some(accelerators)=patch.accelerators {if !accelerators.is_empty(){let types=accelerators.iter().map(|a|a.r#type.clone()).collect::<Vec<_>>();let current=asset.accelerators.get_or_insert_with(Vec::new);current.retain(|a|!types.contains(&a.r#type));current.extend(accelerators);}}
+            }
+            config::save_config(&(),&cfg)?;state.broadcast("connections-changed",Value::Null).await;Value::Null
+        },
         "get_groups" => json!(config::load_config(&())?.groups),
+        "delete_group" | "clear_all_connections" | "reorder_items" => {
+            let _guard=state.mutation.lock().await;
+            let mut cfg=config::load_config(&())?;
+            match command.as_str() {
+                "delete_group" => {
+                    let mut ids=std::collections::HashSet::from([text(&args,"id")?.to_owned()]);
+                    loop { let before=ids.len(); for group in &cfg.groups { if group.parent_id.as_ref().is_some_and(|id|ids.contains(id)) { ids.insert(group.id.clone()); } } if before==ids.len() { break; } }
+                    cfg.groups.retain(|g|!ids.contains(&g.id));
+                    cfg.connections.retain(|c|c.group_id.as_ref().is_none_or(|id|!ids.contains(id)));
+                },
+                "clear_all_connections" => { cfg.connections.clear();cfg.groups.clear(); },
+                _ => {
+                    let connections:Vec<SortOrderUpdate>=argument(&args,"connections")?;
+                    let groups:Vec<SortOrderUpdate>=argument(&args,"groups")?;
+                    for update in connections { if let Some(c)=cfg.connections.iter_mut().find(|c|c.id==update.id) { c.sort_order=update.sort_order; } }
+                    for update in groups { if let Some(g)=cfg.groups.iter_mut().find(|g|g.id==update.id) { g.sort_order=update.sort_order; } }
+                }
+            }
+            config::save_config(&(),&cfg)?;state.broadcast("connections-changed",Value::Null).await;Value::Null
+        },
         "get_proxies" => json!(config::load_proxies(&())?.into_iter().map(|mut proxy| { proxy.password=None; proxy }).collect::<Vec<_>>()),
         "get_proxy_groups" => json!(config::load_proxy_groups(&())?),
         "get_proxy_password" => {
@@ -111,6 +167,17 @@ pub async fn route(
             let mut proxies=config::load_proxies(&())?;proxies.retain(|p|p.group_id.as_deref()!=Some(id));config::save_proxies(&(),&proxies)?;state.broadcast("proxy-saved",Value::Null).await;Value::Null
         },
         "get_connection_custom_icons" => json!(config::load_config(&())?.custom_icons),
+        "delete_connection_custom_icon" => {
+            let _guard=state.mutation.lock().await;let id=text(&args,"id")?;let mut cfg=config::load_config(&())?;cfg.custom_icons.retain(|icon|icon.id!=id);config::save_config(&(),&cfg)?;state.broadcast("connections-changed",Value::Null).await;Value::Null
+        },
+        "import_connection_icon" => {
+            let _guard=state.mutation.lock().await;
+            let data=text(&args,"dataUrl")?;
+            if data.len()>512*1024 {return Err(WebError::bad("Icon exceeds 512 KiB"));}
+            let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+            let icon=config::connection_custom_icon_from_data_url(data,text(&args,"name")?,now).ok_or(WebError::bad("Invalid icon data"))?;
+            let mut cfg=config::load_config(&())?;cfg.custom_icons.retain(|i|i.id!=icon.id);cfg.custom_icons.push(icon.clone());config::save_config(&(),&cfg)?;state.broadcast("connections-changed",Value::Null).await;json!(icon)
+        },
         "get_supported_ssh_algorithms" => json!(nyaterm_core::ssh::algorithms::get_supported_ssh_algorithms()),
         "save_group" => {
             let _guard=state.mutation.lock().await;
@@ -153,14 +220,17 @@ pub async fn route(
         "get_ssh_key_private_key" => json!(config::decrypt_key_pem(&config::load_key_by_id(&(),text(&args,"id")?)?)?),
         "get_ssh_key_public_key" => { let key=config::load_key_by_id(&(),text(&args,"id")?)?;let plain=config::decrypt_key_pem(&key)?.ok_or(WebError::bad("Private key required"))?;json!(services::derive_public_key_for_copy(&plain,key.passphrase.as_deref())?) },
         "delete_credential" => { let _guard=state.mutation.lock().await;let mut config=config::load_credentials(&())?;let id=text(&args,"id")?;config.credentials.retain(|p|p.id!=id);config::save_credentials(&(),&config)?;state.broadcast("credentials-changed",Value::Null).await;Value::Null },
+        "reorder_credentials" => { let _guard=state.mutation.lock().await;let updates:Vec<SortOrderUpdate>=argument(&args,"updates")?;let mut cfg=config::load_credentials(&())?;config::reorder_credentials(&mut cfg,&updates.into_iter().map(|u|(u.id,u.sort_order)).collect::<Vec<_>>());config::save_credentials(&(),&cfg)?;state.broadcast("credentials-changed",Value::Null).await;Value::Null },
         "get_known_hosts" => json!(storage::list_known_hosts()?),
         "delete_known_host" => { storage::delete_known_host(text(&args,"id")?)?;Value::Null },
-        "respond_host_key_verify" | "submit_ssh_auth_response" | "cancel_ssh_auth_request" | "submit_otp_response" => {
+        "clear_known_hosts" => { let _guard=state.mutation.lock().await;storage::clear_known_hosts()?;Value::Null },
+        "respond_host_key_verify" | "submit_ssh_auth_response" | "cancel_ssh_auth_request" | "submit_otp_response" | "respond_transfer_duplicate" => {
             let id=text(&args,"requestId")?;
+            if command == "respond_transfer_duplicate" && !matches!(args["action"].as_str(),Some("skip"|"overwrite")) {return Err(WebError::bad("Invalid duplicate choice"));}
             let mut prompts=state.prompts.lock().await;
             if !prompts.get(id).is_some_and(|p|p.owner==owner.0){return Err(WebError::forbidden());}
             let prompt=prompts.remove(id).unwrap();
-            let reply=match command.as_str(){"respond_host_key_verify"=>args["accepted"].clone(),"cancel_ssh_auth_request"=>Value::Null,"submit_otp_response"=>args["responses"].clone(),_=>args["response"].clone()};
+            let reply=match command.as_str(){"respond_host_key_verify"=>args["accepted"].clone(),"cancel_ssh_auth_request"=>Value::Null,"submit_otp_response"=>args["responses"].clone(),"respond_transfer_duplicate"=>{if !matches!(args["action"].as_str(),Some("skip"|"overwrite")){return Err(WebError::bad("Invalid duplicate choice"));}args["action"].clone()},_=>args["response"].clone()};
             let _=prompt.reply.send(reply);Value::Null
         },
         "close_session" => { state.session(&owner.0,text(&args,"sessionId")?).await?.cancel.cancel();Value::Null },
@@ -168,7 +238,7 @@ pub async fn route(
         "vnc_input_batch" | "vnc_set_clipboard_text" | "vnc_reconnect" | "close_vnc_session" | "respond_vnc_server_key" => crate::vnc::command(&state,&owner.0,&command,&args).await?,
         "list_sessions" | "get_sessions" => json!(state.sessions.lock().await.values().filter(|s|s.owner==owner.0).map(|s|s.info()).collect::<Vec<_>>()),
         "get_session_info" => state.session(&owner.0,text(&args,"sessionId")?).await?.info(),
-        "try_get_terminal_cwd" | "get_session_cwd" => { state.session(&owner.0,text(&args,"sessionId")?).await?;Value::Null },
+        "get_terminal_cwd" | "try_get_terminal_cwd" | "get_session_cwd" => { state.session(&owner.0,text(&args,"sessionId")?).await?;Value::Null },
         "get_app_lock_state" => json!(false),
         "get_system_fonts" => json!(["JetBrains Mono","monospace"]),
         "get_system_font_infos" => json!([{"family":"JetBrains Mono","monospace":true}]),
@@ -176,8 +246,18 @@ pub async fn route(
         "get_plugin_capabilities" => crate::plugins::capabilities(),
         "check_web_plugin_compatibility" => crate::plugins::check(&args["manifest"]),
         "get_plugin_marketplace" => json!({"target":"web","catalog":{"catalogVersion":1,"repository":{"id":"web","name":"Web"},"generatedAt":"","plugins":[]}}),
-        "get_command_history" | "fuzzy_search_history" | "get_quick_commands" => json!([]),
-        "register_command_submission" | "register_command_confirmation_candidate" => { state.session(&owner.0,text(&args,"sessionId")?).await?;Value::Null },
+        command if crate::suggestions::supports(command) => crate::suggestions::command(&state,&owner.0,command,&args).await?,
+        command if crate::notes::supports(command) => crate::notes::command(&state,command,&args).await?,
+        command if crate::otp::supports(command) => crate::otp::command(&state,command,&args).await?,
+        command if crate::monitoring::supports(command) => crate::monitoring::command(&state,&owner.0,command,&args).await?,
+        "translate_text" => {
+            let settings=config::load_app_settings(&())?;
+            let input=text(&args,"text")?;
+            if input.len()>64*1024 { return Err(WebError::bad("Translation text exceeds 64 KiB")); }
+            let target=text(&args,"targetLanguage")?;
+            let target=if target.is_empty() { &settings.translation.target_language } else { target };
+            json!(tokio::time::timeout(std::time::Duration::from_secs(30),nyaterm_core::core::translate::translate(text(&args,"provider")?,input,target,&settings.translation)).await.map_err(|_|WebError::bad("Translation timed out"))??)
+        },
         "finish_recording_scope" | "notify_mcp_session_restore_complete" => Value::Null,
         command if crate::sftp::supports(command) => crate::sftp::command(&state,&owner.0,command,&args).await?,
         command if crate::ai::supports(command) => crate::ai::command(&state,&owner.0,command,&args).await?,

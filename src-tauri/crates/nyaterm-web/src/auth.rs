@@ -35,6 +35,32 @@ fn equal(a: &[u8], b: &[u8]) -> bool {
     use subtle::ConstantTimeEq;
     bool::from(a.ct_eq(b))
 }
+/// UI secret reveal uses real verification without replacing the login or
+/// changing the server's encryption key hierarchy.
+pub async fn verify_unlock(state: &State, args: &serde_json::Value) -> Result<bool> {
+    let password = zeroize::Zeroizing::new(crate::commands::text(args, "password")?.to_owned());
+    let mut attempts = state.login_attempts.lock().await;
+    attempts.retain(|instant| instant.elapsed() < Duration::from_secs(60));
+    if attempts.len() >= 20 {
+        return Err(WebError(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Try again later".into(),
+        ));
+    }
+    attempts.push(Instant::now());
+    drop(attempts);
+    let settings = nyaterm_core::config::load_app_settings(&())?;
+    let expected = match settings.security.master_password {
+        Some(ciphertext) => {
+            let stored = zeroize::Zeroizing::new(
+                nyaterm_core::utils::crypto::decrypt_settings_secret(&ciphertext)?,
+            );
+            digest(&stored)
+        }
+        None => state.password_hash,
+    };
+    Ok(equal(&digest(&password), &expected))
+}
 pub fn cookie_owner(headers: &HeaderMap) -> Option<String> {
     headers
         .get(header::COOKIE)?

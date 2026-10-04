@@ -31,6 +31,8 @@ struct Echo {
     channels: HashMap<ChannelId, Channel<server::Msg>>,
     sftp_channels: std::collections::HashSet<ChannelId>,
     files: Arc<std::sync::Mutex<HashMap<String, Vec<u8>>>>,
+    attributes: Arc<std::sync::Mutex<HashMap<String, sf::FileAttributes>>>,
+    posix_rename: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Clone for Echo {
     fn clone(&self) -> Self {
@@ -39,6 +41,8 @@ impl Clone for Echo {
             channels: HashMap::new(),
             sftp_channels: Default::default(),
             files: self.files.clone(),
+            attributes: self.attributes.clone(),
+            posix_rename: self.posix_rename.clone(),
         }
     }
 }
@@ -85,6 +89,8 @@ impl server::Handler for Echo {
             channel.into_stream(),
             MemoryFiles {
                 files: self.files.clone(),
+                attributes: self.attributes.clone(),
+                posix_rename: self.posix_rename.clone(),
                 listed: false,
             },
         )
@@ -107,6 +113,25 @@ impl server::Handler for Echo {
     }
     async fn shell_request(&mut self, id: ChannelId, s: &mut Session) -> Result<(), Self::Error> {
         s.channel_success(id)?;
+        Ok(())
+    }
+    async fn exec_request(
+        &mut self,
+        id: ChannelId,
+        data: &[u8],
+        s: &mut Session,
+    ) -> Result<(), Self::Error> {
+        s.channel_success(id)?;
+        if !data.starts_with(b"kill -") {
+            s.data(
+                id,
+                b"PROCESS\t42\t1\troot\tSs\t0.4\t1.2\t1234\t5678\t01:02\tsshd\t/usr/sbin/sshd -D\n"
+                    .to_vec(),
+            )?;
+        }
+        s.exit_status_request(id, 0)?;
+        s.eof(id)?;
+        s.close(id)?;
         Ok(())
     }
     async fn window_change_request(
@@ -150,6 +175,8 @@ impl server::Handler for Echo {
 use russh_sftp::protocol::{self as sf, StatusCode as SfCode};
 struct MemoryFiles {
     files: Arc<std::sync::Mutex<HashMap<String, Vec<u8>>>>,
+    attributes: Arc<std::sync::Mutex<HashMap<String, sf::FileAttributes>>>,
+    posix_rename: Arc<std::sync::atomic::AtomicBool>,
     listed: bool,
 }
 fn success(id: u32) -> sf::Status {
@@ -238,7 +265,13 @@ impl russh_sftp::server::Handler for MemoryFiles {
         let file = files.get(&path).ok_or(SfCode::NoSuchFile)?;
         Ok(sf::Attrs {
             id,
-            attrs: attrs(file.len()),
+            attrs: self
+                .attributes
+                .lock()
+                .unwrap()
+                .get(&path)
+                .cloned()
+                .unwrap_or_else(|| attrs(file.len())),
         })
     }
     async fn lstat(&mut self, id: u32, path: String) -> Result<sf::Attrs, SfCode> {
@@ -250,12 +283,108 @@ impl russh_sftp::server::Handler for MemoryFiles {
     async fn rename(&mut self, id: u32, old: String, new: String) -> Result<sf::Status, SfCode> {
         let mut files = self.files.lock().unwrap();
         let bytes = files.remove(&old).ok_or(SfCode::NoSuchFile)?;
-        files.insert(new, bytes);
+        files.insert(new.clone(), bytes);
+        let mut attributes = self.attributes.lock().unwrap();
+        if let Some(value) = attributes.remove(&old) {
+            attributes.insert(new, value);
+        }
         Ok(success(id))
     }
     async fn remove(&mut self, id: u32, path: String) -> Result<sf::Status, SfCode> {
         self.files.lock().unwrap().remove(&path);
+        self.attributes.lock().unwrap().remove(&path);
         Ok(success(id))
+    }
+    async fn setstat(
+        &mut self,
+        id: u32,
+        path: String,
+        update: sf::FileAttributes,
+    ) -> Result<sf::Status, SfCode> {
+        assert!(
+            update.size.is_none(),
+            "Attribute updates must not truncate files"
+        );
+        assert!(
+            update.atime.is_none() && update.mtime.is_none(),
+            "Attribute updates must preserve timestamps"
+        );
+        if !self.files.lock().unwrap().contains_key(&path) {
+            return Err(SfCode::NoSuchFile);
+        }
+        let mut attributes = self.attributes.lock().unwrap();
+        let current = attributes.entry(path).or_insert_with(|| attrs(0));
+        if let Some(mode) = update.permissions {
+            current.permissions =
+                Some(current.permissions.unwrap_or(0o100644) & 0o170000 | mode & 0o7777);
+        }
+        if update.uid.is_some() {
+            current.uid = update.uid;
+        }
+        if update.gid.is_some() {
+            current.gid = update.gid;
+        }
+        Ok(success(id))
+    }
+    async fn mkdir(
+        &mut self,
+        id: u32,
+        path: String,
+        _: sf::FileAttributes,
+    ) -> Result<sf::Status, SfCode> {
+        self.files.lock().unwrap().insert(path.clone(), vec![]);
+        let mut value = attrs(0);
+        value.permissions = Some(0o40755);
+        self.attributes.lock().unwrap().insert(path, value);
+        Ok(success(id))
+    }
+    async fn symlink(
+        &mut self,
+        id: u32,
+        target: String,
+        link: String,
+    ) -> Result<sf::Status, SfCode> {
+        // The OpenSSH wire convention sends target before link name.
+        let mut files = self.files.lock().unwrap();
+        if files.contains_key(&link) {
+            return Err(SfCode::Failure);
+        }
+        files.insert(link.clone(), target.into_bytes());
+        let mut value = attrs(0);
+        value.permissions = Some(0o120777);
+        self.attributes.lock().unwrap().insert(link, value);
+        Ok(success(id))
+    }
+    async fn readlink(&mut self, id: u32, path: String) -> Result<sf::Name, SfCode> {
+        let files = self.files.lock().unwrap();
+        let target = files.get(&path).ok_or(SfCode::NoSuchFile)?;
+        Ok(sf::Name {
+            id,
+            files: vec![sf::File::dummy(String::from_utf8(target.clone()).unwrap())],
+        })
+    }
+    async fn extended(
+        &mut self,
+        id: u32,
+        request: String,
+        data: Vec<u8>,
+    ) -> Result<sf::Packet, SfCode> {
+        if request != "posix-rename@openssh.com"
+            || !self.posix_rename.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return Err(SfCode::OpUnsupported);
+        }
+        let mut bytes = data.as_slice();
+        let mut paths = vec![];
+        for _ in 0..2 {
+            let len = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+            paths.push(String::from_utf8(bytes[4..4 + len].to_vec()).unwrap());
+            bytes = &bytes[4 + len..];
+        }
+        assert!(bytes.is_empty());
+        Ok(sf::Packet::Status(
+            self.rename(id, paths[0].clone(), paths[1].clone()).await?,
+        ))
     }
     async fn realpath(&mut self, id: u32, _: String) -> Result<sf::Name, SfCode> {
         Ok(sf::Name {
@@ -434,10 +563,16 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     });
     let files = Arc::new(std::sync::Mutex::new(HashMap::new()));
     let ssh_files = files.clone();
+    let attributes = Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let ssh_attributes = attributes.clone();
+    let posix_rename = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let ssh_posix_rename = posix_rename.clone();
     let ssh_task = tokio::spawn(async move {
         Echo {
             resize,
             files: ssh_files,
+            attributes: ssh_attributes,
+            posix_rename: ssh_posix_rename,
             channels: HashMap::new(),
             sftp_channels: Default::default(),
         }
@@ -650,6 +785,359 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     assert_eq!(entries[0]["name"], "large.bin");
     assert_eq!(entries[0]["mtime"], 1700000000);
     assert_eq!(entries[0]["owner"], "1000");
+    // Binary previews honor caller limits and session ownership.
+    files
+        .lock()
+        .unwrap()
+        .insert("/preview.png".into(), vec![0, 255, 128, 10]);
+    let (status, _, preview) = request(
+        &app,
+        &state,
+        "commands/read_remote_file_bytes",
+        Some(json!({"sessionId":id,"path":"/preview.png","maxBytes":4})),
+        Some(&owner),
+        Some(&csrf),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(preview["contentBytes"], json!([0, 255, 128, 10]));
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/read_remote_file_bytes",
+            Some(json!({"sessionId":id,"path":"/large.bin","maxBytes":4})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/read_remote_file_bytes",
+            Some(json!({"sessionId":id,"path":"/large.bin","maxBytes":6*1024*1024})),
+            Some(&other),
+            Some(&other_csrf)
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    // Copy endpoint paths are destination directories, not destination files.
+    let copy = json!({"request":{"source":{"sessionId":id,"kind":"remote","path":"/large.bin"},"target":{"sessionId":id,"kind":"remote","path":"/"},"fileName":"copied.bin","isDirectory":false,"duplicateStrategyOverride":"skip"}});
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/copy_file_entry",
+            Some(copy.clone()),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2,
+        "copied"
+    );
+    assert_eq!(files.lock().unwrap().get("/copied.bin"), Some(&payload));
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/copy_file_entry",
+            Some(copy),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2,
+        "skipped"
+    );
+    let move_entry = json!({"request":{"source":{"sessionId":id,"kind":"remote","path":"/copied.bin"},"target":{"sessionId":id,"kind":"remote","path":"/"},"fileName":"moved.bin","isDirectory":false}});
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/move_file_entry",
+            Some(move_entry),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2,
+        "copied"
+    );
+    assert!(!files.lock().unwrap().contains_key("/copied.bin"));
+    assert_eq!(files.lock().unwrap().get("/moved.bin"), Some(&payload));
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/find_missing_remote_entries",
+            Some(json!({"sessionId":id,"paths":["/large.bin","/missing.bin"]})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2,
+        json!(["/missing.bin"])
+    );
+    // Attribute updates preserve the unspecified ownership field and file type.
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/create_remote_file",
+            Some(json!({"sessionId":id,"path":"/private.txt","mode":"0600"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        attributes.lock().unwrap()["/private.txt"].permissions,
+        Some(0o100600)
+    );
+    assert_eq!(request(&app,&state,"commands/update_remote_file_attributes",Some(json!({"sessionId":id,"path":"/private.txt","update":{"owner":"1234","mode":"0640"}})),Some(&owner),Some(&csrf)).await.0,StatusCode::OK);
+    {
+        let values = attributes.lock().unwrap();
+        let value = &values["/private.txt"];
+        assert_eq!(value.uid, Some(1234));
+        assert_eq!(value.gid, Some(1000));
+        assert_eq!(value.permissions, Some(0o100640));
+    }
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/create_remote_dir",
+            Some(json!({"sessionId":id,"path":"/private-dir","mode":"0700"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        attributes.lock().unwrap()["/private-dir"].permissions,
+        Some(0o40700)
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/chmod_remote_file",
+            Some(json!({"sessionId":id,"path":"/private.txt","mode":"9999"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(request(&app,&state,"commands/update_remote_file_attributes",Some(json!({"sessionId":id,"path":"/private.txt","update":{"recursive":true,"mode":"0777"}})),Some(&owner),Some(&csrf)).await.0,StatusCode::BAD_REQUEST);
+    assert_eq!(
+        attributes.lock().unwrap()["/private.txt"].permissions,
+        Some(0o100640)
+    );
+    // OpenSSH link order and atomic replacement are exercised over the wire.
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/create_remote_symlink",
+            Some(json!({"sessionId":id,"linkPath":"/link","targetPath":"/private.txt"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/get_file_properties",
+            Some(json!({"sessionId":id,"path":"/link"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2["symlink_target"],
+        "/private.txt"
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/update_remote_symlink_target",
+            Some(json!({"sessionId":id,"path":"/link","targetPath":"/preview.png"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(files.lock().unwrap()["/link"], b"/preview.png");
+    posix_rename.store(false, std::sync::atomic::Ordering::Relaxed);
+    assert_ne!(
+        request(
+            &app,
+            &state,
+            "commands/update_remote_symlink_target",
+            Some(json!({"sessionId":id,"path":"/link","targetPath":"/large.bin"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(files.lock().unwrap()["/link"], b"/preview.png");
+    assert!(!files.lock().unwrap().keys().any(|p| p.ends_with(".link")));
+    posix_rename.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Monitoring uses private exec channels and enforces session ownership.
+    let (status, _, processes) = request(
+        &app,
+        &state,
+        "commands/get_remote_processes",
+        Some(json!({"sessionId":id})),
+        Some(&owner),
+        Some(&csrf),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(processes[0]["pid"], 42);
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/get_remote_processes",
+            Some(json!({"sessionId":id})),
+            Some(&other),
+            Some(&other_csrf)
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/signal_remote_process",
+            Some(json!({"sessionId":id,"pid":42,"signal":"TERM; touch /bad"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/signal_remote_process",
+            Some(json!({"sessionId":id,"pid":42,"signal":"TERM"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    socket
+        .send(Message::Binary(b"exec-is-private".to_vec().into()))
+        .await
+        .unwrap();
+    assert_eq!(binary(&mut socket).await, b"exec-is-private");
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/register_command_submission",
+            Some(json!({"sessionId":id,"command":"  uptime  "})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/get_command_history",
+            Some(json!({})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2,
+        json!(["uptime"])
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/register_command_confirmation_candidate",
+            Some(json!({"sessionId":id,"command":"whoami"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2,
+        false
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/register_command_submission",
+            Some(json!({"sessionId":id,"command":"should-not-record"})),
+            Some(&other),
+            Some(&other_csrf)
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/fuzzy_search_history",
+            Some(json!({"pattern":"upt","limit":8})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .2[0]["command"],
+        "uptime"
+    );
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/delete_command_history",
+            Some(json!({"command":"uptime"})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
     let body = Body::from_stream(futures_util::stream::iter(vec![
         Ok(axum::body::Bytes::from_static(b"partial")),
         Err(std::io::Error::other("test interrupted upload")),

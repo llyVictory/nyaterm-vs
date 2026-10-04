@@ -2,11 +2,16 @@ pub mod ai;
 pub mod auth;
 pub mod commands;
 pub mod error;
+pub mod monitoring;
 pub mod network;
+pub mod notes;
+pub mod otp;
 pub mod plugins;
+pub mod remote_exec;
 pub mod session;
 pub mod sftp;
 pub mod state;
+pub mod suggestions;
 pub mod telnet;
 pub mod vnc;
 

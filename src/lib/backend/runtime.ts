@@ -27,12 +27,13 @@ export type Capability =
   | "transferControl"
   | "legacyEncoding"
   | "shellIntegration"
+  | "commandSuggestions"
+  | "terminalHistory"
+  | "recursiveTransfers"
   | "sshExtensions";
 
 export const runtime =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
-    ? "desktop"
-    : "web";
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? "desktop" : "web";
 const webCapabilities = new Set<Capability>([
   "ssh",
   "telnet",
@@ -43,19 +44,19 @@ const webCapabilities = new Set<Capability>([
   "settings",
   "browserFiles",
   "plugins",
+  "commandSuggestions",
+  "remoteMonitoring",
 ]);
 export function supports(capability: Capability): boolean {
   return runtime === "desktop" || webCapabilities.has(capability);
 }
 export function requireCapability(capability: Capability): void {
-  if (!supports(capability))
-    throw new Error(`Capability unavailable in Web mode: ${capability}`);
+  if (!supports(capability)) throw new Error(`Capability unavailable in Web mode: ${capability}`);
 }
 /** Build and reverse-proxy base paths are supplied by Vite, never by localhost. */
 export function backendURL(path: string): URL {
   const base = new URL(import.meta.env.BASE_URL, window.location.origin);
-  if (base.origin !== window.location.origin)
-    throw new Error("Backend must use the same origin");
+  if (base.origin !== window.location.origin) throw new Error("Backend must use the same origin");
   return new URL(path.replace(/^\//, ""), base);
 }
 
@@ -68,14 +69,18 @@ const webPanels = new Set([
   "settings",
   "plugins",
   "network",
+  "quickCommands",
+  "quickCmdBar",
+  "notes",
+  "resourceMonitor",
+  "gpuMonitor",
+  "ascendNpuMonitor",
+  "processManager",
 ]);
 export function supportsPanel(id: string): boolean {
   return runtime === "desktop" || webPanels.has(id);
 }
 
 export function supportsSettingsTab(id: string): boolean {
-  return (
-    runtime === "desktop" ||
-    !new Set(["ai-agents", "security", "syncBackup", "translation"]).has(id)
-  );
+  return runtime === "desktop" || !new Set(["ai-agents", "security", "syncBackup"]).has(id);
 }

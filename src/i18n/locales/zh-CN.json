@@ -1210,7 +1210,8 @@
     "uploadFolderContents": "上传文件夹内容",
     "uploadFolderContentsEmpty": "所选文件夹中没有可上传的内容。",
     "uploadOnce": "上传一次",
-    "uploadPrompt": "远程文件已修改，是否上传更改？"
+    "uploadPrompt": "远程文件已修改，是否上传更改？",
+    "webRecursiveTransferUnavailable": "Web 暂不支持递归传输，目录仅支持在同一会话内移动。"
   },
   "filePreview": {
     "clearSort": "清除排序",
@@ -2005,6 +2006,7 @@
     "unlockTitle": "验证主密码",
     "unlockedDesc": "明文仅在当前面板打开期间显示。",
     "unlockedTitle": "明文已显示",
+    "webUnlockDescription": "已配置主密码时请输入主密码；否则请输入 Web 登录密码。",
     "wrongPassword": "主密码错误，请重试。"
   },
   "securityAuth": {

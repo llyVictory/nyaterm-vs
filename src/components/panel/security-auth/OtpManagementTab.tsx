@@ -1,4 +1,6 @@
 import { emit } from "@/lib/backend/api";
+import { runtime } from "@/lib/backend/runtime";
+import { pickBrowserOtpUri } from "@/lib/backend/browserArtifacts";
 import { open as openFileDialog } from "@/lib/backend/platform/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -90,15 +92,26 @@ export function OtpManagementTab({ activeSessionId = null, onCountChange }: OtpM
 
     setQrImporting(true);
     try {
-      const selected = await openFileDialog({
-        multiple: false,
-        title: t("otpManager.selectQrImage"),
-        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"] }],
-      });
+      const uri = runtime === "web" ? await pickBrowserOtpUri() : null;
+      if (runtime === "web" && !uri) return;
+      const selected =
+        uri ??
+        (await openFileDialog({
+          multiple: false,
+          title: t("otpManager.selectQrImage"),
+          filters: [
+            {
+              name: "Images",
+              extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"],
+            },
+          ],
+        }));
       const selectedPath = Array.isArray(selected) ? selected[0] : selected;
       if (!selectedPath) return;
 
-      const parsed = await invoke<OtpEntry>("import_otp_from_qr", { path: selectedPath });
+      const parsed = uri
+        ? await invoke<OtpEntry>("parse_otp_uri", { uri })
+        : await invoke<OtpEntry>("import_otp_from_qr", { path: selectedPath });
       resetEdit();
       setEditingId("__new__");
       setEditEntry({
@@ -113,7 +126,9 @@ export function OtpManagementTab({ activeSessionId = null, onCountChange }: OtpM
       });
       setIsNew(true);
     } catch (error) {
-      toast.error(t("otpManager.qrImportFailed"), { description: String(error) });
+      toast.error(t("otpManager.qrImportFailed"), {
+        description: String(error),
+      });
     } finally {
       setQrImporting(false);
     }
@@ -130,7 +145,9 @@ export function OtpManagementTab({ activeSessionId = null, onCountChange }: OtpM
     setIsNew(false);
 
     try {
-      const secret = await invoke<string | null>("get_otp_secret_value", { id: entry.id });
+      const secret = await invoke<string | null>("get_otp_secret_value", {
+        id: entry.id,
+      });
       if (editRequestRef.current !== requestId) return;
       setEditEntry((prev) => ({
         ...prev,
@@ -207,7 +224,9 @@ export function OtpManagementTab({ activeSessionId = null, onCountChange }: OtpM
       }
 
       try {
-        const result = await invoke<OtpCodeResult>("generate_otp_code", { id: entry.id });
+        const result = await invoke<OtpCodeResult>("generate_otp_code", {
+          id: entry.id,
+        });
         await sendSessionInput(activeSessionId, result.code, {
           preview: null,
           registerSubmission: null,
@@ -219,7 +238,9 @@ export function OtpManagementTab({ activeSessionId = null, onCountChange }: OtpM
           await loadEntries();
         }
       } catch (error) {
-        toast.error(t("otpManager.sendToTerminalFailed"), { description: String(error) });
+        toast.error(t("otpManager.sendToTerminalFailed"), {
+          description: String(error),
+        });
       }
     },
     [activeSessionId, loadEntries, t],

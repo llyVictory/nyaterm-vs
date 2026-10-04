@@ -1210,7 +1210,8 @@
     "uploadFolderContents": "上傳資料夾內容",
     "uploadFolderContentsEmpty": "所選資料夾中沒有可上傳的內容。",
     "uploadOnce": "上傳一次",
-    "uploadPrompt": "遠端檔案已修改，是否上傳變更？"
+    "uploadPrompt": "遠端檔案已修改，是否上傳變更？",
+    "webRecursiveTransferUnavailable": "Web 暫不支援遞迴傳輸，目錄僅支援在同一工作階段內移動。"
   },
   "filePreview": {
     "clearSort": "清除排序",
@@ -2002,6 +2003,7 @@
     "unlockTitle": "驗證主密碼",
     "unlockedDesc": "明文僅在目前面板開啟期間顯示。",
     "unlockedTitle": "明文已顯示",
+    "webUnlockDescription": "已設定主密碼時請輸入主密碼；否則請輸入 Web 登入密碼。",
     "wrongPassword": "主密碼錯誤，請重試。"
   },
   "securityAuth": {

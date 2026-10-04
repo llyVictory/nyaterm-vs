@@ -5017,7 +5017,10 @@ dependencies = [
  "genai",
  "hex",
  "hmac 0.12.1",
+ "md-5 0.10.6",
  "nucleo-matcher",
+ "nyaterm-gpu",
+ "rand 0.8.8",
  "redb",
  "regex",
  "reqwest 0.13.4",
@@ -5035,9 +5038,11 @@ dependencies = [
  "tokio-socks",
  "tokio-util",
  "tracing",
+ "urlencoding",
  "uuid",
  "vnc-rs",
  "zeroize",
+ "zip 8.6.0",
 ]
 
 [[package]]

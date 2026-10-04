@@ -6,6 +6,7 @@ rust-version = "1.94"
 
 [dependencies]
 nyaterm-core = { path = "../nyaterm-core" }
+nyaterm-otp = { path = "../otp" }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower-http = { version = "0.6", features = ["fs", "set-header"] }

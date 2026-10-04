@@ -1,7 +1,6 @@
-import {
-  open as openFileDialog,
-  save as saveFileDialog,
-} from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
+import { downloadJson, pickBrowserFile, readBrowserJson } from "@/lib/backend/browserArtifacts";
+import { open as openFileDialog, save as saveFileDialog } from "@/lib/backend/platform/dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -142,13 +141,8 @@ export function ThemeDesignerDialog({
     setDraft((current) => (current ? { ...current, ...patch } : current));
   }
 
-  function patchColor(
-    path: Parameters<typeof setThemeColor>[1],
-    value: string,
-  ) {
-    setDraft((current) =>
-      current ? setThemeColor(current, path, value) : current,
-    );
+  function patchColor(path: Parameters<typeof setThemeColor>[1], value: string) {
+    setDraft((current) => (current ? setThemeColor(current, path, value) : current));
   }
 
   function saveDraft() {
@@ -193,6 +187,11 @@ export function ThemeDesignerDialog({
 
   async function exportDraft() {
     if (!draft || !saveDraft()) return;
+    if (runtime === "web") {
+      downloadJson("nyaterm-theme.json", draft);
+      toast.success(t("settings.themeDesignerExportSuccess"));
+      return;
+    }
     const outputPath = await saveFileDialog({
       defaultPath: "nyaterm-theme.json",
       filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
@@ -214,14 +213,20 @@ export function ThemeDesignerDialog({
   }
 
   async function importTheme() {
-    const filePath = await openFileDialog({
-      multiple: false,
-      filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
-    });
+    const filePath =
+      runtime === "web"
+        ? await pickBrowserFile(".json")
+        : await openFileDialog({
+            multiple: false,
+            filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
+          });
     if (!filePath || Array.isArray(filePath)) return;
 
     try {
-      const imported = await invoke<Theme>("read_theme_file", { filePath });
+      const imported =
+        filePath instanceof File
+          ? await readBrowserJson<Theme>(filePath)
+          : await invoke<Theme>("read_theme_file", { filePath });
       const existingIds = new Set([...availableThemes.map((theme) => theme.id)]);
       const next = normalizeImportedTheme(imported, existingIds);
       const errors = validateTheme(next);
@@ -312,7 +317,10 @@ export function ThemeDesignerDialog({
                   >
                     <span
                       className="h-4 w-4 shrink-0 rounded-sm border"
-                      style={{ backgroundColor: theme.swatch, borderColor: "var(--df-border)" }}
+                      style={{
+                        backgroundColor: theme.swatch,
+                        borderColor: "var(--df-border)",
+                      }}
                     />
                     <span className="min-w-0 flex-1 truncate">{theme.name}</span>
                     {(appearance.theme === theme.id || appearance.terminal_theme === theme.id) && (
@@ -480,7 +488,10 @@ function ThemePreview({ theme }: { theme: Theme }) {
           <span className="text-xs font-semibold">{theme.name}</span>
           <span
             className="rounded-sm px-2 py-1 text-[0.65rem]"
-            style={{ backgroundColor: theme.colors.primary, color: theme.colors.onPrimary }}
+            style={{
+              backgroundColor: theme.colors.primary,
+              color: theme.colors.onPrimary,
+            }}
           >
             {theme.label}
           </span>

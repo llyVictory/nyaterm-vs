@@ -193,9 +193,11 @@ fn upsert_command(config: &mut QuickCommandsConfig, command: QuickCommand) -> bo
     {
         let created_at = existing.created_at;
         let use_count = existing.use_count;
+        let sort_order = existing.sort_order;
         *existing = command;
         existing.created_at = created_at.or(existing.created_at);
         existing.use_count = use_count.or(existing.use_count);
+        existing.sort_order = existing.sort_order.or(sort_order);
         false
     } else {
         config.commands.push(command);

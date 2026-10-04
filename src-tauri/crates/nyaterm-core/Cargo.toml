@@ -18,6 +18,11 @@ sha2 = "0.10"
 sha1 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+md-5 = "0.10"
+urlencoding = "2"
+rand = "0.8"
+nyaterm-gpu = { path = "../nyaterm-gpu" }
+zip = "8"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
 font-kit = "0.14.3"

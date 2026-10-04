@@ -1,4 +1,6 @@
 import { randomUUID } from "@/lib/uuid";
+import { runtime } from "@/lib/backend/runtime";
+import { pickBrowserImage } from "@/lib/backend/browserArtifacts";
 import { listen } from "@/lib/backend/api";
 import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { openUrl } from "@/lib/backend/platform/opener";
@@ -354,7 +356,9 @@ export function AiGeneralTab() {
               label={t("settings.proxyProtocol")}
               value={proxy.protocol}
               onValueChange={(protocol) =>
-                updateProxy({ protocol: protocol as AIProxySettings["protocol"] })
+                updateProxy({
+                  protocol: protocol as AIProxySettings["protocol"],
+                })
               }
             >
               <SelectItem value="http">HTTP</SelectItem>
@@ -486,13 +490,11 @@ export function AiAgentsTab() {
   };
   const [mcpStatus, setMcpStatus] = useState<McpRuntimeStatus | null>(null);
   const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
-  const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(
+  const [accountStatus, setAccountStatus] = useState<CodexAccountStatus | null>(null);
+  const [claudeCliStatus, setClaudeCliStatus] = useState<ClaudeCodeCliStatus | null>(null);
+  const [claudeAccountStatus, setClaudeAccountStatus] = useState<ClaudeCodeAccountStatus | null>(
     null,
   );
-  const [claudeCliStatus, setClaudeCliStatus] =
-    useState<ClaudeCodeCliStatus | null>(null);
-  const [claudeAccountStatus, setClaudeAccountStatus] =
-    useState<ClaudeCodeAccountStatus | null>(null);
   const [deviceLogin, setDeviceLogin] = useState<CodexLoginStart | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -930,8 +932,7 @@ export function AiAgentsTab() {
                 {t("ai.claudeCodeVersion")}: {claudeCliStatus?.version || "-"}
               </div>
               <div>
-                {t("ai.claudeCodeAuthMode")}:{" "}
-                {claudeAccountStatus?.authMode || "-"}
+                {t("ai.claudeCodeAuthMode")}: {claudeAccountStatus?.authMode || "-"}
               </div>
             </div>
 
@@ -1406,12 +1407,18 @@ export function AiModelsTab() {
               credentialId: credential.id,
             });
             if (providerListRefreshGeneration.current === generation) {
-              setProviderStatuses((current) => ({ ...current, [credential.id]: "success" }));
+              setProviderStatuses((current) => ({
+                ...current,
+                [credential.id]: "success",
+              }));
             }
             return { credential, names };
           } catch {
             if (providerListRefreshGeneration.current === generation) {
-              setProviderStatuses((current) => ({ ...current, [credential.id]: "error" }));
+              setProviderStatuses((current) => ({
+                ...current,
+                [credential.id]: "error",
+              }));
             }
             return null;
           }
@@ -1458,9 +1465,15 @@ export function AiModelsTab() {
       return next;
     });
     try {
-      await invoke("test_ai_model_connection", { aiSettings: ai, modelId: model.id });
+      await invoke("test_ai_model_connection", {
+        aiSettings: ai,
+        modelId: model.id,
+      });
       if (modelTestGeneration.current !== generation) return;
-      setModelTestResults((previous) => ({ ...previous, [model.id]: "success" }));
+      setModelTestResults((previous) => ({
+        ...previous,
+        [model.id]: "success",
+      }));
       toast.success(t("ai.modelTestSucceeded", { model: model.name }));
     } catch (error) {
       if (modelTestGeneration.current !== generation) return;
@@ -1657,7 +1670,11 @@ export function AiModelsTab() {
     }
     setProviderDraft((current) =>
       current?.credential.id === id
-        ? { ...current, isAutomatic: false, credential: { ...current.credential, ...patch } }
+        ? {
+            ...current,
+            isAutomatic: false,
+            credential: { ...current.credential, ...patch },
+          }
         : current,
     );
   };
@@ -1667,6 +1684,14 @@ export function AiModelsTab() {
     if (!credential || credential.provider_kind !== "openai_compatible") return;
 
     try {
+      if (runtime === "web") {
+        const image = await pickBrowserImage();
+        if (image)
+          updateSelectedProviderCredential(credential.id, {
+            icon_data_url: image.dataUrl,
+          });
+        return;
+      }
       const selectedPath = await openDialog({
         directory: false,
         multiple: false,
@@ -1680,8 +1705,12 @@ export function AiModelsTab() {
       });
       if (typeof selectedPath !== "string" || !selectedPath) return;
 
-      const iconDataUrl = await invoke<string>("import_ai_provider_icon", { path: selectedPath });
-      updateSelectedProviderCredential(credential.id, { icon_data_url: iconDataUrl });
+      const iconDataUrl = await invoke<string>("import_ai_provider_icon", {
+        path: selectedPath,
+      });
+      updateSelectedProviderCredential(credential.id, {
+        icon_data_url: iconDataUrl,
+      });
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -1690,15 +1719,22 @@ export function AiModelsTab() {
   const changeSelectedProviderName = (value: string) => {
     if (!selectedProviderCredential) return;
     if (providerDraft) {
-      updateSelectedProviderCredential(selectedProviderCredential.id, { name: value });
+      updateSelectedProviderCredential(selectedProviderCredential.id, {
+        name: value,
+      });
       return;
     }
-    setProviderNameInput({ credentialId: selectedProviderCredential.id, value });
+    setProviderNameInput({
+      credentialId: selectedProviderCredential.id,
+      value,
+    });
     if (
       value.trim() &&
       !providerNameTaken(value, enabledCredentials, selectedProviderCredential.id)
     ) {
-      updateSelectedProviderCredential(selectedProviderCredential.id, { name: value });
+      updateSelectedProviderCredential(selectedProviderCredential.id, {
+        name: value,
+      });
     }
   };
 
@@ -1915,7 +1951,10 @@ export function AiModelsTab() {
     setProviderModelCount(null);
     setProviderConnectionStatus("testing");
     if (!providerDraft) {
-      setProviderStatuses((current) => ({ ...current, [credentialId]: "testing" }));
+      setProviderStatuses((current) => ({
+        ...current,
+        [credentialId]: "testing",
+      }));
     }
     try {
       const aiSettings = providerDraft
@@ -1932,7 +1971,10 @@ export function AiModelsTab() {
         setProviderModelCount(modelNames.length);
         setProviderConnectionStatus("success");
         if (!providerDraft) {
-          setProviderStatuses((current) => ({ ...current, [credentialId]: "success" }));
+          setProviderStatuses((current) => ({
+            ...current,
+            [credentialId]: "success",
+          }));
         }
         if (providerDraft) {
           setTestedDraftModels({ credentialId, names: modelNames });
@@ -1958,7 +2000,10 @@ export function AiModelsTab() {
       if (providerConnectionTestGeneration.current === requestGeneration) {
         setProviderConnectionStatus("error");
         if (!providerDraft) {
-          setProviderStatuses((current) => ({ ...current, [credentialId]: "error" }));
+          setProviderStatuses((current) => ({
+            ...current,
+            [credentialId]: "error",
+          }));
         }
         toast.error(getErrorMessage(error));
       }
@@ -2117,9 +2162,7 @@ export function AiModelsTab() {
                         aria-controls={`model-config-${encodeURIComponent(model.id)}`}
                         disabled={!!providerDraft}
                         onClick={() =>
-                          setEditingModelId((current) =>
-                            current === model.id ? null : model.id,
-                          )
+                          setEditingModelId((current) => (current === model.id ? null : model.id))
                         }
                       >
                         <MdEdit className="text-[0.95rem]" />
@@ -2446,9 +2489,7 @@ export function AiModelsTab() {
               <div className="grid gap-2 border-b border-border/60 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,2.2fr)] sm:items-center">
                 <Label className="text-xs font-normal">
                   {t("settings.apiKey")}
-                  {selectedProviderApiKeyRequired ? (
-                    <span aria-hidden="true"> *</span>
-                  ) : null}
+                  {selectedProviderApiKeyRequired ? <span aria-hidden="true"> *</span> : null}
                 </Label>
                 <div className="space-y-1">
                   <div className="relative">
@@ -2504,7 +2545,9 @@ export function AiModelsTab() {
                 <div className="flex items-center justify-end gap-2">
                   {providerModelCount !== null ? (
                     <span className="text-xs text-muted-foreground">
-                      {t("ai.connectionModelCount", { count: providerModelCount })}
+                      {t("ai.connectionModelCount", {
+                        count: providerModelCount,
+                      })}
                     </span>
                   ) : null}
                   <span
@@ -2558,11 +2601,7 @@ function ActionListEditor({
   const { t } = useTranslation();
 
   const updateAction = (id: string, patch: Partial<AICustomActionConfig>) => {
-    onChange(
-      actions.map((action) =>
-        action.id === id ? { ...action, ...patch } : action,
-      ),
-    );
+    onChange(actions.map((action) => (action.id === id ? { ...action, ...patch } : action)));
   };
 
   return (

@@ -1211,7 +1211,8 @@
     "uploadFolderContents": "Upload Folder Contents",
     "uploadFolderContentsEmpty": "The selected folder contains no items to upload.",
     "uploadOnce": "Upload Once",
-    "uploadPrompt": "Remote file changed. Upload changes?"
+    "uploadPrompt": "Remote file changed. Upload changes?",
+    "webRecursiveTransferUnavailable": "Recursive transfers are not available in Web mode. Move directories within the same session."
   },
   "filePreview": {
     "clearSort": "Clear sort",
@@ -2007,6 +2008,7 @@
     "unlockTitle": "Verify password",
     "unlockedDesc": "Plaintext is visible while this panel is open.",
     "unlockedTitle": "Visible",
+    "webUnlockDescription": "Enter the master password if configured; otherwise enter your Web sign-in password.",
     "wrongPassword": "Wrong password. Try again."
   },
   "securityAuth": {

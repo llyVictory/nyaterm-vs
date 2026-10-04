@@ -1,4 +1,6 @@
 import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
+import { pickBrowserFile } from "@/lib/backend/browserArtifacts";
 import { openUrl } from "@/lib/backend/platform/opener";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -74,15 +76,20 @@ export default function QuickCommandsImportDialog({
 
     setImportingSource(source.id);
     try {
-      const selected = await openFileDialog({
-        multiple: false,
-        filters: [{ name: t(source.nameKey), extensions: source.extensions }],
-      });
+      const selected =
+        runtime === "web"
+          ? await pickBrowserFile(source.extensions.map((ext) => `.${ext}`).join(","))
+          : await openFileDialog({
+              multiple: false,
+              filters: [{ name: t(source.nameKey), extensions: source.extensions }],
+            });
       if (!selected || Array.isArray(selected)) return;
+      if (selected instanceof File && selected.size > 1024 * 1024)
+        throw new Error("Import exceeds 1 MiB");
 
       onClose();
       const result = await invoke<QuickCommandImportResult>("import_quick_commands", {
-        filePath: selected,
+        ...(selected instanceof File ? { content: await selected.text() } : { filePath: selected }),
         source: source.id,
       });
       toast.success(
@@ -117,7 +124,9 @@ export default function QuickCommandsImportDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3 pt-2">
-          {IMPORT_SOURCES.map((source) => {
+          {IMPORT_SOURCES.filter(
+            (source) => runtime === "desktop" || source.id !== "xshell_xts",
+          ).map((source) => {
             const isImporting = importingSource === source.id;
             return (
               <button

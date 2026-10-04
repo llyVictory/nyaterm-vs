@@ -1,7 +1,2 @@
-//! Remote resource monitoring parsers and command scripts.
-
-pub mod ascend_npu;
-pub mod docker;
-pub mod gpu;
-pub mod process;
-pub mod stats;
+//! Shared transport-neutral monitoring implementation.
+pub use nyaterm_core::core::monitoring::*;

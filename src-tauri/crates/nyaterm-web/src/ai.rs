@@ -16,6 +16,36 @@ pub async fn command(
     args: &Value,
 ) -> Result<Value> {
     match command {
+        "append_ai_audit" => {
+            let mut request: AppendAiAuditRequest =
+                serde_json::from_value(args["request"].clone())?;
+            request.user_input = request
+                .user_input
+                .map(|v| redaction::redact_sensitive_text(&v));
+            request.generated_command = request
+                .generated_command
+                .map(|v| redaction::redact_sensitive_text(&v));
+            request.error = request.error.map(|v| redaction::redact_sensitive_text(&v));
+            Ok(json!(history::append_ai_audit(&(), request)?))
+        }
+        "reveal_ai_provider_api_key" => {
+            let settings = config::load_app_settings(&())?.ai;
+            let id = crate::commands::text(args, "credentialId")?;
+            let key = settings
+                .provider_credentials
+                .iter()
+                .find(|c| c.id == id)
+                .and_then(|c| c.api_key.as_ref())
+                .or_else(|| {
+                    settings
+                        .provider_profiles
+                        .iter()
+                        .find(|c| c.id == id)
+                        .and_then(|c| c.api_key.as_ref())
+                })
+                .ok_or(WebError::bad("Provider key not configured"))?;
+            Ok(json!(key))
+        }
         "clear_ai_history" => {
             history::clear_ai_history_storage(&())?;
             Ok(Value::Null)
@@ -111,6 +141,8 @@ pub fn supports(command: &str) -> bool {
     matches!(
         command,
         "clear_ai_history"
+            | "append_ai_audit"
+            | "reveal_ai_provider_api_key"
             | "rebind_ai_session"
             | "test_ai_provider_connection"
             | "refresh_ai_model_settings"

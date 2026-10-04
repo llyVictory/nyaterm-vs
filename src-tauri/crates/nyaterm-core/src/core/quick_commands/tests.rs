@@ -195,12 +195,16 @@ mod tests {
             .filter(|category| category.name == "Deploy")
             .collect();
         assert_eq!(deploy_categories.len(), 2);
-        assert!(deploy_categories
-            .iter()
-            .any(|category| category.parent_id.as_deref() == Some("dev")));
-        assert!(deploy_categories
-            .iter()
-            .any(|category| category.parent_id.as_deref() == Some("ops")));
+        assert!(
+            deploy_categories
+                .iter()
+                .any(|category| category.parent_id.as_deref() == Some("dev"))
+        );
+        assert!(
+            deploy_categories
+                .iter()
+                .any(|category| category.parent_id.as_deref() == Some("ops"))
+        );
     }
 
     #[test]

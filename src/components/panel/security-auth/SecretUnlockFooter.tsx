@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useApp } from "@/context/AppContext";
 import { invoke } from "@/lib/invoke";
+import { runtime } from "@/lib/backend/runtime";
 import { openSettings } from "@/lib/windowManager";
 
 interface SecretUnlockFooterProps {
@@ -149,8 +150,12 @@ export function SecretUnlockFooter({
         <DialogContent showCloseButton={false} className="max-w-xs">
           <DialogHeader>
             <DialogTitle className="text-sm">{t("secretUnlock.unlockTitle")}</DialogTitle>
-            <DialogDescription className="sr-only">
-              {t("secretUnlock.unlockTitle")}
+            <DialogDescription className={runtime === "web" ? "text-xs" : "sr-only"}>
+              {t(
+                runtime === "web"
+                  ? "secretUnlock.webUnlockDescription"
+                  : "secretUnlock.unlockTitle",
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

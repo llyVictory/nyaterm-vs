@@ -1,4 +1,6 @@
 import { open as openDialog } from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
+import { pickBrowserImage } from "@/lib/backend/browserArtifacts";
 import { GripVertical } from "lucide-react";
 import { motion, Reorder, useDragControls } from "motion/react";
 import {
@@ -204,11 +206,7 @@ function PercentSlider({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <Label className="text-sm font-medium leading-5">{label}</Label>
-          {desc && (
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {desc}
-            </p>
-          )}
+          {desc && <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>}
         </div>
         <span className="shrink-0 rounded-md border border-border/70 bg-background/60 px-2 py-1 font-mono text-xs text-muted-foreground">
           {percent}%
@@ -239,17 +237,21 @@ function BackgroundImageSection({
   const hasImage = isBackgroundImageEnabled(appearance);
 
   const handleBrowse = async () => {
-    const selected = await openDialog({
-      directory: false,
-      multiple: false,
-      filters: [
-        {
-          name: t("settings.backgroundImageFiles"),
-          extensions: BACKGROUND_IMAGE_EXTENSIONS,
-        },
-      ],
-      title: t("settings.selectBackgroundImage"),
-    });
+    const browserImage = runtime === "web" ? await pickBrowserImage(1920) : null;
+    if (runtime === "web" && !browserImage) return;
+    const selected =
+      browserImage?.dataUrl ??
+      (await openDialog({
+        directory: false,
+        multiple: false,
+        filters: [
+          {
+            name: t("settings.backgroundImageFiles"),
+            extensions: BACKGROUND_IMAGE_EXTENSIONS,
+          },
+        ],
+        title: t("settings.selectBackgroundImage"),
+      }));
     const selectedPath = Array.isArray(selected) ? selected[0] : selected;
     if (typeof selectedPath !== "string" || !selectedPath) return;
 
@@ -315,7 +317,9 @@ function BackgroundImageSection({
           disabled={!hasImage}
           controlClassName="max-w-sm"
           onValueChange={(value) =>
-            onChange({ background_image_fit: normalizeBackgroundImageFit(value) })
+            onChange({
+              background_image_fit: normalizeBackgroundImageFit(value),
+            })
           }
         >
           {BACKGROUND_IMAGE_FITS.map((fit) => (
@@ -381,10 +385,7 @@ const FONT_DRAG_TRANSITION = { duration: 0.12, ease: "easeOut" } as const;
 const FONT_WHILE_DRAG = { zIndex: 20 } as const;
 
 function haveSameFontOrder(items: SortableFontItem[], fonts: string[]) {
-  return (
-    items.length === fonts.length &&
-    items.every((item, index) => item.font === fonts[index])
-  );
+  return items.length === fonts.length && items.every((item, index) => item.font === fonts[index]);
 }
 
 function reconcileFontItems(
@@ -484,7 +485,9 @@ const FontSelectControl = memo(function FontSelectControl({
           <SelectItem
             value={item.font}
             disabled
-            style={{ fontFamily: previewFontFamily(item.font, previewFallback) }}
+            style={{
+              fontFamily: previewFontFamily(item.font, previewFallback),
+            }}
           >
             {item.font}
             {showUnknownMarker && " (Custom/Missing)"}
@@ -630,9 +633,7 @@ const FontStackSection = memo(function FontStackSection({
           value={option}
           style={{ fontFamily: previewFontFamily(option, previewFallback) }}
         >
-          {option}{" "}
-          {builtInFonts.has(option.toLowerCase()) &&
-            `(${t("settings.fontBuiltIn")})`}
+          {option} {builtInFonts.has(option.toLowerCase()) && `(${t("settings.fontBuiltIn")})`}
         </SelectItem>
       )),
     [builtInFonts, options, previewFallback, t],
@@ -765,9 +766,7 @@ const FontStackSection = memo(function FontStackSection({
   const updateFont = useCallback(
     (id: string, font: string) => {
       applyFontItems(
-        fontItemsRef.current.map((item) =>
-          item.id === id ? { ...item, font } : item,
-        ),
+        fontItemsRef.current.map((item) => (item.id === id ? { ...item, font } : item)),
       );
     },
     [applyFontItems],

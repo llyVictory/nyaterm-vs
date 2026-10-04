@@ -1,4 +1,5 @@
-import { supports } from "@/lib/backend/runtime";
+import { runtime, supports } from "@/lib/backend/runtime";
+import { pickBrowserImage } from "@/lib/backend/browserArtifacts";
 import { emit } from "@/lib/backend/api";
 import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { open as openDialog } from "@/lib/backend/platform/dialog";
@@ -84,12 +85,20 @@ const DEFAULT_SFTP_SETTINGS: SftpSettings = {
 };
 const DEFAULT_SSH_AGENT_FORWARDING_CONFIG: SshAgentForwardingConfig = {
   enabled: false,
-  sources: { external_agent: false, external_agent_endpoints: [], stored_keys: true },
+  sources: {
+    external_agent: false,
+    external_agent_endpoints: [],
+    stored_keys: true,
+  },
   policy: { mode: "allowlist", fingerprints: [] },
 };
 const SESSION_TYPE_TABS = [
   { value: "ssh", capability: "ssh", label: "SSH" },
-  { value: "local", capability: "localShell", labelKey: "dialog.localTerminal" },
+  {
+    value: "local",
+    capability: "localShell",
+    labelKey: "dialog.localTerminal",
+  },
   { value: "telnet", capability: "telnet", label: "Telnet" },
   { value: "serial", capability: "serial", labelKey: "dialog.serial" },
   { value: "rdp", capability: "remoteDesktop", label: "RDP" },
@@ -152,7 +161,10 @@ function normalizeSshAgentForwardingConfig(
       policy:
         value.policy?.mode === "all"
           ? { mode: "all" }
-          : { mode: "allowlist", fingerprints: value.policy?.fingerprints ?? [] },
+          : {
+              mode: "allowlist",
+              fingerprints: value.policy?.fingerprints ?? [],
+            },
     };
   }
 
@@ -265,11 +277,11 @@ export default function NewSessionPage() {
   const [authAgentEndpoint, setAuthAgentEndpoint] = useState<SshAgentEndpoint>({
     type: "auto",
   });
-  const [agentForwardingConfig, setAgentForwardingConfig] =
-    useState<SshAgentForwardingConfig>(DEFAULT_SSH_AGENT_FORWARDING_CONFIG);
-  const [sshAlgorithms, setSshAlgorithms] = useState<SshAlgorithmPreferences>(
-    DEFAULT_SSH_ALGORITHMS,
+  const [agentForwardingConfig, setAgentForwardingConfig] = useState<SshAgentForwardingConfig>(
+    DEFAULT_SSH_AGENT_FORWARDING_CONFIG,
   );
+  const [sshAlgorithms, setSshAlgorithms] =
+    useState<SshAlgorithmPreferences>(DEFAULT_SSH_ALGORITHMS);
   const [sshProfile, setSshProfile] = useState<SshProfile>("standard");
   const [sshTerminalType, setSshTerminalType] = useState<SshTerminalTypeSelection>("default");
   const [sftpSettings, setSftpSettings] = useState<SftpSettings>(DEFAULT_SFTP_SETTINGS);
@@ -319,9 +331,7 @@ export default function NewSessionPage() {
           if (!resolvedShell) return;
           setDefaultLocalShell(resolvedShell);
           if (!editId) {
-            setShellPath((current) =>
-              current === FALLBACK_LOCAL_SHELL ? resolvedShell : current,
-            );
+            setShellPath((current) => (current === FALLBACK_LOCAL_SHELL ? resolvedShell : current));
           }
         })
         .catch(() => undefined);
@@ -638,24 +648,30 @@ export default function NewSessionPage() {
 
   const handleImportCustomIcon = useCallback(async () => {
     try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        filters: [
-          {
-            name: t("dialog.connectionIconFiles"),
-            extensions: CUSTOM_ICON_EXTENSIONS,
-          },
-        ],
-        title: t("dialog.selectConnectionIcon"),
-      });
+      const browserImage = runtime === "web" ? await pickBrowserImage() : null;
+      if (runtime === "web" && !browserImage) return;
+      const selected =
+        browserImage?.name ??
+        (await openDialog({
+          directory: false,
+          multiple: false,
+          filters: [
+            {
+              name: t("dialog.connectionIconFiles"),
+              extensions: CUSTOM_ICON_EXTENSIONS,
+            },
+          ],
+          title: t("dialog.selectConnectionIcon"),
+        }));
       const selectedPath = Array.isArray(selected) ? selected[0] : selected;
       if (typeof selectedPath !== "string" || !selectedPath) {
         return;
       }
 
       const importedIcon = await invoke<ConnectionCustomIcon>("import_connection_icon", {
-        path: selectedPath,
+        ...(browserImage
+          ? { dataUrl: browserImage.dataUrl, name: browserImage.name }
+          : { path: selectedPath }),
       });
       setCustomIcons((icons) => {
         const next = icons.filter((icon) => icon.id !== importedIcon.id);
@@ -1006,7 +1022,10 @@ export default function NewSessionPage() {
                   ? "vnc"
                   : "serial";
       const network =
-        currentTab === "ssh" || currentTab === "telnet" || currentTab === "rdp" || currentTab === "vnc"
+        currentTab === "ssh" ||
+        currentTab === "telnet" ||
+        currentTab === "rdp" ||
+        currentTab === "vnc"
           ? (() => {
               const nextNetwork: NonNullable<SavedConnection["network"]> = {};
               if (proxyId) {
@@ -1293,7 +1312,9 @@ export default function NewSessionPage() {
         <div className="shrink-0 px-4 pt-3 sm:px-5">
           <TabsList
             className="grid h-8 w-full pointer-events-auto"
-            style={{ gridTemplateColumns: `repeat(${sessionTypeTabs.length}, minmax(0, 1fr))` }}
+            style={{
+              gridTemplateColumns: `repeat(${sessionTypeTabs.length}, minmax(0, 1fr))`,
+            }}
           >
             {sessionTypeTabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className="text-xs">
@@ -1321,12 +1342,7 @@ export default function NewSessionPage() {
                     {(() => {
                       const def = resolveConnectionIcon(iconKey);
                       const IconComp = def.icon;
-                      return (
-                        <IconComp
-                          style={{ color: def.color }}
-                          className="text-sm"
-                        />
-                      );
+                      return <IconComp style={{ color: def.color }} className="text-sm" />;
                     })()}
                   </Button>
                 </PopoverTrigger>
@@ -1558,7 +1574,10 @@ export default function NewSessionPage() {
                             key={g.id}
                             type="button"
                             className={`w-full py-1.5 text-left text-xs transition-colors hover:bg-accent ${groupId === g.id ? "bg-primary/15 text-primary" : ""}`}
-                            style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: "12px" }}
+                            style={{
+                              paddingLeft: `${12 + depth * 16}px`,
+                              paddingRight: "12px",
+                            }}
                             onClick={() => {
                               setGroupId(g.id);
                               setNewGroupNamePending("");
@@ -1608,7 +1627,9 @@ export default function NewSessionPage() {
                     </div>
                     <p className="px-1 pt-1 text-[0.6875rem] leading-snug text-muted-foreground">
                       {newGroupParentLabel
-                        ? t("dialog.newGroupParentHint", { group: newGroupParentLabel })
+                        ? t("dialog.newGroupParentHint", {
+                            group: newGroupParentLabel,
+                          })
                         : t("dialog.newGroupRootHint")}
                     </p>
                   </div>
@@ -1716,7 +1737,14 @@ export default function NewSessionPage() {
 
           <TabsContent value="telnet" className="space-y-3 m-0 border-0 outline-none w-full">
             <TelnetForm
-              network={{ proxyId, setProxyId, proxies, jumpHostId, setJumpHostId, jumpHostOptions }}
+              network={{
+                proxyId,
+                setProxyId,
+                proxies,
+                jumpHostId,
+                setJumpHostId,
+                jumpHostOptions,
+              }}
               host={host}
               setHost={setHost}
               port={telnetPort}

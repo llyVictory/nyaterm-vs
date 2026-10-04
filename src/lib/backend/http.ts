@@ -5,10 +5,7 @@ import { closeBrowserVnc, closeAllBrowserVnc, sendBrowserVnc } from "./vnc";
 let csrf: string | undefined;
 let source: EventSource | undefined;
 let eventReady: Promise<void> | undefined;
-const sockets = new Map<
-  string,
-  { socket: WebSocket; ready: Promise<void>; closed: boolean }
->();
+const sockets = new Map<string, { socket: WebSocket; ready: Promise<void>; closed: boolean }>();
 const nativeCommands =
   /^(create_local_session|create_serial_session|create_rdp_session|.*zmodem.*|.*serial_modem.*|.*local_file.*|.*watcher.*|open_local.*|install_plugin|import_plugin)$/;
 
@@ -28,10 +25,7 @@ export async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const value = await response.json();
-  if (!response.ok)
-    throw new Error(
-      value.error ?? `Backend request failed (${response.status})`,
-    );
+  if (!response.ok) throw new Error(value.error ?? `Backend request failed (${response.status})`);
   return value as T;
 }
 export async function authenticate(password?: string): Promise<void> {
@@ -99,9 +93,7 @@ async function attach(id: string): Promise<void> {
       } catch {
         state.closed = true;
         socket.close();
-        void request("api/commands/close_session", { sessionId: id }).catch(
-          () => {},
-        );
+        void request("api/commands/close_session", { sessionId: id }).catch(() => {});
       }
     } else {
       const event = JSON.parse(data);
@@ -134,16 +126,11 @@ async function attach(id: string): Promise<void> {
   sockets.set(id, state);
   return state.ready;
 }
-async function terminalSend(
-  id: string,
-  message: string | Uint8Array,
-): Promise<void> {
+async function terminalSend(id: string, message: string | Uint8Array): Promise<void> {
   await attach(id);
   const socket = sockets.get(id)?.socket;
-  if (!socket || socket.readyState !== WebSocket.OPEN)
-    throw new Error("Terminal is disconnected");
-  if (socket.bufferedAmount > 1024 * 1024)
-    throw new Error("Terminal input queue is full");
+  if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Terminal is disconnected");
+  if (socket.bufferedAmount > 1024 * 1024) throw new Error("Terminal input queue is full");
   socket.send(message);
 }
 export async function httpInvoke<T>(
@@ -152,29 +139,50 @@ export async function httpInvoke<T>(
 ): Promise<T> {
   if (command === "get_default_local_shell") requireCapability("localShell");
   if (nativeCommands.test(command)) requireCapability("nativeFiles");
-  if (command === "read_clipboard_text")
-    return (await navigator.clipboard.readText()) as T;
+  if (command === "read_clipboard_text") return (await navigator.clipboard.readText()) as T;
   if (command === "write_clipboard_text") {
     await navigator.clipboard.writeText(String(args.text));
     return undefined as T;
   }
-  if (
-    command === "read_clipboard_path_payload" ||
-    command === "upload_clipboard_image_to_ssh"
-  )
-    return null as T;
+  if (command === "read_clipboard_path_payload") return null as T;
+  if (command === "upload_clipboard_image_to_ssh") {
+    if (!navigator.clipboard?.read) return null as T;
+    const items = await navigator.clipboard.read();
+    const item = items.find((entry) => entry.types.includes("image/png"));
+    if (!item) return null as T;
+    const image = await item.getType("image/png");
+    if (image.size > 10 * 1024 * 1024) throw new Error("Clipboard image exceeds 10 MiB");
+    const sessionId = String(args.sessionId);
+    const directory =
+      typeof args.remoteDir === "string"
+        ? args.remoteDir
+        : await request<string>("api/commands/get_home_dir", { sessionId });
+    const path = `${directory.replace(/\/$/, "")}/nyaterm-clipboard-${crypto.randomUUID()}.png`;
+    const url = backendURL(`api/sessions/${encodeURIComponent(sessionId)}/upload`);
+    url.searchParams.set("path", path);
+    const response = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { ...csrfHeader(), "Content-Type": "application/octet-stream" },
+      body: image,
+    });
+    if (!response.ok)
+      throw new Error((await response.json()).error ?? "Clipboard image upload failed");
+    return { remote_path: path } as T;
+  }
   if (command === "read_clipboard_file_paths") return [] as T;
   if (
     [
       "claim_external_open_requests",
       "get_tunnels",
-      "get_otp_entries",
       "get_local_shells",
       "list_serial_ports",
     ].includes(command)
   )
     return [] as T;
   if (command === "log_frontend_batch") return undefined as T;
+  // Web terminal streams use bounded WebSocket queues, not desktop byte credits.
+  if (command === "ack_session_output") return undefined as T;
   const id = String(args.sessionId ?? "");
   switch (command) {
     case "quit_application": {
@@ -209,19 +217,13 @@ export async function httpInvoke<T>(
       await attach(id);
       return undefined as T;
     case "write_to_session":
-      await terminalSend(
-        id,
-        JSON.stringify({ type: "input", data: args.data }),
-      );
+      await terminalSend(id, JSON.stringify({ type: "input", data: args.data }));
       return undefined as T;
     case "write_bytes_to_session":
       await terminalSend(id, new Uint8Array(args.data as number[]));
       return undefined as T;
     case "resize_session":
-      await terminalSend(
-        id,
-        JSON.stringify({ type: "resize", cols: args.cols, rows: args.rows }),
-      );
+      await terminalSend(id, JSON.stringify({ type: "resize", cols: args.cols, rows: args.rows }));
       return undefined as T;
     case "vnc_input_batch":
       await sendBrowserVnc(id, { type: "input", events: args.events });
