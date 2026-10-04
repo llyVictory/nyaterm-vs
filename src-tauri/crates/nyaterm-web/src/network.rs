@@ -58,14 +58,20 @@ fn open_inner(
         match resolved.kind {
             TransportRouteKind::Direct => Ok(network::open_direct_transport(&host, port)
                 .await
-                .map_err(|e| WebError::bad(e.to_string()))?),
+                .map_err(|error| {
+                    crate::observability::record_error(&error);
+                    WebError::bad(error.to_string())
+                })?),
             TransportRouteKind::Proxy => {
                 let proxy = network::resolve_proxy(&(), resolved.proxy_id.as_deref().unwrap())
-                    .map_err(|e| match e {
-                        nyaterm_core::error::AppError::Crypto(_) => {
-                            WebError::bad("Proxy credentials could not be decrypted")
+                    .map_err(|e| {
+                        crate::observability::record_error(&e);
+                        match e {
+                            nyaterm_core::error::AppError::Crypto(_) => {
+                                WebError::bad("Proxy credentials could not be decrypted")
+                            }
+                            _ => WebError::bad("Proxy configuration is missing or invalid"),
                         }
-                        _ => WebError::bad("Proxy configuration is missing or invalid"),
                     })?;
                 if !matches!(proxy.protocol.as_str(), "socks5" | "http") {
                     return Err(WebError::bad(
@@ -75,7 +81,10 @@ fn open_inner(
                 validate_target(&proxy.host, proxy.port)?;
                 Ok(network::open_proxy_transport(proxy, &host, port)
                     .await
-                    .map_err(|e| WebError::bad(e.to_string()))?)
+                    .map_err(|error| {
+                        crate::observability::record_error(&error);
+                        WebError::bad(error.to_string())
+                    })?)
             }
             TransportRouteKind::SshJump => {
                 let id = resolved.proxy_jump_id.unwrap();

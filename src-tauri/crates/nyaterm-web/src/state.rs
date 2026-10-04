@@ -114,6 +114,10 @@ impl State {
             ))
     }
     pub async fn close_owner(&self, owner: &str) {
+        tracing::info!(
+            event = "auth.session_closed",
+            "Web login closed and sessions cancelled"
+        );
         if let Some(login) = self.logins.lock().await.remove(owner) {
             login.cancel.cancel();
         }
@@ -141,7 +145,7 @@ impl Drop for PromptCleanup {
     fn drop(&mut self) {
         let state = self.state.clone();
         let id = self.id.clone();
-        tokio::spawn(async move {
+        crate::observability::spawn(async move {
             state.prompts.lock().await.remove(&id);
         });
     }

@@ -10,6 +10,7 @@ use axum::{
 use nyaterm_core::{config, services, storage, utils::crypto};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use tracing::Instrument;
 
 #[derive(serde::Deserialize)]
 struct SortOrderUpdate {
@@ -31,8 +32,21 @@ pub async fn route(
     Path(command): Path<String>,
     Json(args): Json<Value>,
 ) -> Result<Json<Value>> {
+    let span = tracing::info_span!("web.command", operation=%command, session_id=args["sessionId"].as_str());
+    async move {
     // Explicit allowlist; no dynamic reflection or Desktop invoke handler here.
     let result = match command.as_str() {
+        "import_keyword_highlight_rules" => {
+            let _guard = state.mutation.lock().await;
+            let content = text(&args, "content")?;
+            if content.len() > 1024 * 1024 { return Err(WebError::bad("Import exceeds 1 MiB")); }
+            let rules = nyaterm_core::core::keyword_highlights::parse_keyword_highlight_import(content)?;
+            let result = storage::update_settings_doc::<config::AppSettings,_,_>(storage::SettingsDocKey::AppSettings, |settings| {
+                nyaterm_core::core::keyword_highlights::merge_keyword_highlight_rules(&mut settings.terminal.keyword_highlights, rules, || uuid::Uuid::new_v4().to_string())
+            })?;
+            state.broadcast("settings-changed", Value::Null).await;
+            json!(result)
+        },
         "get_app_runtime_info" => json!({"mode":"web","portable":false,"packageManager":null,"executableDir":"","dataDir":"","configDir":"","logDir":"","webviewDataDir":"","portableMarkerPath":null}),
         "get_support_info" => json!({"os":format!("Web server ({})",std::env::consts::OS),"architecture":std::env::consts::ARCH,"runtime":"web","packageManager":null}),
         "get_app_settings" => {
@@ -57,6 +71,7 @@ pub async fn route(
             next.ai=config::encrypt_ai_settings(config::merge_masked_ai_settings(&current.ai,next.ai))?;
             next.cloud_sync=config::encrypt_cloud_sync_settings(config::merge_masked_cloud_sync_settings(&current.cloud_sync,next.cloud_sync))?;
             config::save_app_settings(&(),&next)?;
+            crate::observability::configure(&next.diagnostics);
             state.broadcast("settings-changed",Value::Null).await;
             Value::Null
         },
@@ -263,5 +278,7 @@ pub async fn route(
         command if crate::ai::supports(command) => crate::ai::command(&state,&owner.0,command,&args).await?,
         _ => return Err(WebError::unsupported()),
     };
+    tracing::info!(event="command.completed", status=200, "Web command completed");
     Ok(Json(result))
+    }.instrument(span).await
 }

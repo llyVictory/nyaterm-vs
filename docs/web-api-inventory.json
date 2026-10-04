@@ -4,8 +4,8 @@
   "scope": "Production frontend invoke calls, conditional literal branches, browser adapter and explicit server allowlists. Static evidence only; capability-gated desktop calls are not Web defects.",
   "counts": {
     "browser-adapter": 23,
-    "server-allowlist": 124,
-    "desktop-or-unmatched": 147
+    "server-allowlist": 125,
+    "desktop-or-unmatched": 146
   },
   "serverCommands": [
     "append_ai_audit",
@@ -93,6 +93,7 @@
     "get_system_fonts",
     "get_terminal_cwd",
     "import_connection_icon",
+    "import_keyword_highlight_rules",
     "import_quick_commands",
     "increment_quick_command_use_count",
     "list_ai_model_names",
@@ -217,7 +218,7 @@
       "locations": [
         {
           "file": "src/lib/logger.ts",
-          "line": 300
+          "line": 331
         }
       ]
     },
@@ -931,7 +932,7 @@
       "locations": [
         {
           "file": "src/components/panel/security-auth/KeyManagementTab.tsx",
-          "line": 207
+          "line": 203
         }
       ]
     },
@@ -1103,7 +1104,7 @@
       "locations": [
         {
           "file": "src/hooks/useConfigTransfer.tsx",
-          "line": 46
+          "line": 78
         }
       ]
     },
@@ -1113,7 +1114,7 @@
       "locations": [
         {
           "file": "src/hooks/useConfigTransfer.tsx",
-          "line": 106
+          "line": 168
         }
       ]
     },
@@ -1255,7 +1256,7 @@
       "locations": [
         {
           "file": "src/components/dialog/terminal/KeywordHighlightImportDialog.tsx",
-          "line": 59
+          "line": 66
         },
         {
           "file": "src/context/AppProvider.tsx",
@@ -1863,7 +1864,7 @@
       "locations": [
         {
           "file": "src/components/panel/security-auth/KeyManagementTab.tsx",
-          "line": 132
+          "line": 133
         }
       ]
     },
@@ -1873,7 +1874,7 @@
       "locations": [
         {
           "file": "src/components/panel/security-auth/KeyManagementTab.tsx",
-          "line": 261
+          "line": 257
         }
       ]
     },
@@ -1883,7 +1884,7 @@
       "locations": [
         {
           "file": "src/components/panel/security-auth/KeyManagementTab.tsx",
-          "line": 274
+          "line": 270
         }
       ]
     },
@@ -1897,7 +1898,7 @@
         },
         {
           "file": "src/components/panel/security-auth/KeyManagementTab.tsx",
-          "line": 74
+          "line": 76
         },
         {
           "file": "src/components/sessions/SshForm.tsx",
@@ -2013,7 +2014,7 @@
       "locations": [
         {
           "file": "src/hooks/useConfigTransfer.tsx",
-          "line": 70
+          "line": 123
         }
       ]
     },
@@ -2029,11 +2030,11 @@
     },
     {
       "command": "import_keyword_highlight_rules",
-      "boundary": "desktop-or-unmatched",
+      "boundary": "server-allowlist",
       "locations": [
         {
           "file": "src/components/dialog/terminal/KeywordHighlightImportDialog.tsx",
-          "line": 56
+          "line": 63
         }
       ]
     },
@@ -2063,7 +2064,7 @@
       "locations": [
         {
           "file": "src/components/dialog/connections/ImportDialog.tsx",
-          "line": 167
+          "line": 171
         }
       ]
     },
@@ -2073,7 +2074,7 @@
       "locations": [
         {
           "file": "src/components/dialog/connections/ImportDialog.tsx",
-          "line": 179
+          "line": 213
         }
       ]
     },
@@ -2083,11 +2084,11 @@
       "locations": [
         {
           "file": "src/components/dialog/connections/ImportDialog.tsx",
-          "line": 166
+          "line": 170
         },
         {
           "file": "src/components/dialog/connections/ImportDialog.tsx",
-          "line": 200
+          "line": 234
         }
       ]
     },
@@ -2433,7 +2434,7 @@
         },
         {
           "file": "src/hooks/useConfigTransfer.tsx",
-          "line": 85
+          "line": 140
         }
       ]
     },
@@ -2687,7 +2688,7 @@
       "locations": [
         {
           "file": "src/components/dialog/theme/ThemeDesignerDialog.tsx",
-          "line": 229
+          "line": 236
         }
       ]
     },
@@ -3221,7 +3222,7 @@
       "locations": [
         {
           "file": "src/components/panel/security-auth/KeyManagementTab.tsx",
-          "line": 186
+          "line": 182
         }
       ]
     },
@@ -3958,7 +3959,7 @@
     },
     {
       "file": "src/lib/backend/api.ts",
-      "line": 13,
+      "line": 14,
       "expression": "command"
     },
     {

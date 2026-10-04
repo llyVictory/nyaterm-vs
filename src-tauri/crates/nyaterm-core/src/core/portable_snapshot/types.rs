@@ -6,13 +6,13 @@ pub enum PortableSnapshotKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentEndpointTargetPlatform {
+pub enum AgentEndpointTargetPlatform {
     Unix,
     Windows,
 }
 
 impl AgentEndpointTargetPlatform {
-    pub(crate) fn current() -> Self {
+    pub fn current() -> Self {
         if cfg!(windows) {
             Self::Windows
         } else {
@@ -45,7 +45,7 @@ fn normalize_portable_session_tags(sessions: &mut config::SessionsConfig) -> boo
 }
 
 /// Removes device-specific Agent endpoints that cannot work on the restore target.
-pub(crate) fn normalize_backup_sessions_for_platform(
+pub fn normalize_backup_sessions_for_platform(
     sessions: &mut config::SessionsConfig,
     platform: AgentEndpointTargetPlatform,
 ) -> crate::error::AppResult<bool> {
@@ -150,7 +150,7 @@ pub struct PortableSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct DecodedPortableSnapshot {
+pub struct DecodedPortableSnapshot {
     pub snapshot: PortableSnapshot,
     pub source_payload_hash: String,
 }

@@ -361,10 +361,7 @@ fn prepare_json_ssh_auth(
             })
         }
         "agent" => {
-            if auth.password.is_some()
-                || auth.password_ref.is_some()
-                || auth.key_ref.is_some()
-            {
+            if auth.password.is_some() || auth.password_ref.is_some() || auth.key_ref.is_some() {
                 return Err(AppError::Config(format!(
                     "{context}: agent auth cannot include password, password_ref, or key_ref"
                 )));

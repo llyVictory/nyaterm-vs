@@ -182,7 +182,7 @@ fn unwrap_master_key_with_compatible_wrapping(
 }
 
 /// Loads the master key from redb `master.key`, creating it on first use.
-fn get_master_key() -> AppResult<Key<Aes256Gcm>> {
+pub(crate) fn get_master_key() -> AppResult<Key<Aes256Gcm>> {
     if let Some(encoded) = crate::storage::load_master_key_token()? {
         let raw = B64
             .decode(encoded.trim())
@@ -202,6 +202,54 @@ fn get_master_key() -> AppResult<Key<Aes256Gcm>> {
         write_wrapped_master_key(&master_key, &wrapping_key)?;
         Ok(master_key)
     }
+}
+
+/// Portable backups wrap a key with an explicit password without changing runtime keys.
+pub(crate) fn backup_key_token(key: &Key<Aes256Gcm>, password: &str) -> AppResult<String> {
+    let cipher = Aes256Gcm::new(&derive_wrapping_key(Some(password))?);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let mut bytes = nonce.to_vec();
+    bytes.extend(
+        cipher
+            .encrypt(&nonce, key.as_slice())
+            .map_err(|_| AppError::Crypto("Backup key wrapping failed".into()))?,
+    );
+    Ok(B64.encode(bytes))
+}
+
+pub(crate) fn backup_key(token: &str, password: &str) -> AppResult<Key<Aes256Gcm>> {
+    let bytes = B64
+        .decode(token)
+        .map_err(|_| AppError::Crypto("Invalid backup key".into()))?;
+    Ok(unwrap_master_key_with_compatible_wrapping(&bytes, Some(password))?.0)
+}
+
+pub(crate) fn transcode_secret(
+    token: &str,
+    source: &Key<Aes256Gcm>,
+    target: &Key<Aes256Gcm>,
+) -> AppResult<String> {
+    let bytes = B64
+        .decode(token)
+        .map_err(|_| AppError::Crypto("Invalid backup credential".into()))?;
+    if bytes.len() < 28 {
+        return Err(AppError::Crypto("Invalid backup credential".into()));
+    }
+    let plain = zeroize::Zeroizing::new(
+        Aes256Gcm::new(source)
+            .decrypt(aes_gcm::Nonce::from_slice(&bytes[..12]), &bytes[12..])
+            .map_err(|_| AppError::Crypto("Backup credential decryption failed".into()))?,
+    );
+    std::str::from_utf8(&plain)
+        .map_err(|_| AppError::Crypto("Invalid backup credential encoding".into()))?;
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let mut encrypted = nonce.to_vec();
+    encrypted.extend(
+        Aes256Gcm::new(target)
+            .encrypt(&nonce, plain.as_slice())
+            .map_err(|_| AppError::Crypto("Backup credential encryption failed".into()))?,
+    );
+    Ok(B64.encode(encrypted))
 }
 
 pub fn verify_master_key_token() -> AppResult<()> {

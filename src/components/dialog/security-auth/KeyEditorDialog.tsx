@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { runtime } from "@/lib/backend/runtime";
 
 export type KeyMaterialMode = "content" | "file";
 
@@ -107,24 +108,37 @@ function KeyMaterialInput({
     <div className="space-y-1.5 rounded-md border bg-background/40 p-2">
       <div className="flex items-center justify-between gap-2">
         <Label className="min-w-0 truncate text-xs font-medium">{title}</Label>
-        <Tabs
-          value={mode}
-          onValueChange={(value) => onModeChange(value as KeyMaterialMode)}
-          className="shrink-0"
-        >
-          <TabsList className="grid h-7 w-32 grid-cols-2">
-            <TabsTrigger value="content" className="h-6 px-1.5 text-[0.6875rem]">
-              <ClipboardPaste className="h-3 w-3" />
-              {t("settings.keyInputContentMode")}
-            </TabsTrigger>
-            <TabsTrigger value="file" className="h-6 px-1.5 text-[0.6875rem]">
-              <FileText className="h-3 w-3" />
-              {t("settings.keyInputFileMode")}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {runtime === "web" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => void onPickFile()}
+          >
+            <FileText className="size-3" />
+            {t("settings.keyInputFileMode")}
+          </Button>
+        ) : (
+          <Tabs
+            value={mode}
+            onValueChange={(value) => onModeChange(value as KeyMaterialMode)}
+            className="shrink-0"
+          >
+            <TabsList className="grid h-7 w-32 grid-cols-2">
+              <TabsTrigger value="content" className="h-6 px-1.5 text-[0.6875rem]">
+                <ClipboardPaste className="h-3 w-3" />
+                {t("settings.keyInputContentMode")}
+              </TabsTrigger>
+              <TabsTrigger value="file" className="h-6 px-1.5 text-[0.6875rem]">
+                <FileText className="h-3 w-3" />
+                {t("settings.keyInputFileMode")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
       </div>
-      {mode === "content" ? (
+      {mode === "content" || runtime === "web" ? (
         <Textarea
           value={contentValue}
           onChange={(event) => onContentChange(event.target.value)}
@@ -195,7 +209,11 @@ export function KeyEditorDialog({
   const { t } = useTranslation();
 
   return (
-    <Dialog disablePointerDismissal open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
+    <Dialog
+      disablePointerDismissal
+      open={open}
+      onOpenChange={(nextOpen) => !nextOpen && onCancel()}
+    >
       <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-3 pr-12">
           <DialogTitle className="text-sm">

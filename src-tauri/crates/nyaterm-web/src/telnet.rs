@@ -108,7 +108,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
     .await?;
     let id = session.id.clone();
     let startup = args["startupCommand"].clone();
-    tokio::spawn(async move {
+    crate::observability::spawn(async move {
         let result = async {
             let transport = crate::network::open(
                 state.clone(),
@@ -120,6 +120,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
             )
             .await?;
             session.ready.store(true, Ordering::Release);
+            tracing::info!(event="session.connected", session_id=%session.id, operation="telnet", "Telnet session connected");
             if let Some(id) = &session.connection_id {
                 nyaterm_core::storage::mark_connection_used(id)?;
             }
@@ -135,6 +136,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
         }
         .await;
         let end = if let Err(e) = result {
+            tracing::warn!(event="session.connect_failed", session_id=%session.id, operation="telnet", reason=crate::observability::error_reason(&e.1), "Telnet session failed");
             state
                 .event(
                     &session.owner,

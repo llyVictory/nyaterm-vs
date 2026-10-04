@@ -48,10 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "false".into())
         .parse()
         .unwrap_or(false);
-    if url.scheme() != "https"
-        && !loopback
-        && !allow_insecure_http
-    {
+    if url.scheme() != "https" && !loopback && !allow_insecure_http {
         return Err("Non-loopback public URLs require HTTPS".into());
     }
     let base_path = url.path().trim_end_matches('/').to_owned();
@@ -62,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = PathBuf::from(
         std::env::var("NYATERM_WEB_DATA_DIR").unwrap_or_else(|_| "./nyaterm-web-data".into()),
     );
+    nyaterm_web::observability::init(&data);
     std::fs::create_dir_all(&data)?;
     #[cfg(unix)]
     {
@@ -69,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))?;
     }
     nyaterm_core::storage::init(&data)?;
+    nyaterm_web::observability::reload_settings();
     // Existing encrypted master-password data is not silently discarded. Web
     // unwraps it with the external server key, preserving the existing key hierarchy.
     if let Some(secret) = nyaterm_core::storage::load_settings_doc::<
@@ -100,12 +99,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         mutation: Mutex::new(()),
         shutdown: tokio_util::sync::CancellationToken::new(),
     });
-    tokio::spawn(nyaterm_web::reap(state.clone()));
+    nyaterm_web::observability::spawn(nyaterm_web::reap(state.clone()));
     let bind = std::env::var("NYATERM_WEB_BIND").unwrap_or_else(|_| "127.0.0.1:8080".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
-    eprintln!("NyaTerm Web listening on {bind}");
+    tracing::info!(event = "server.started", "NyaTerm Web server started");
     let shutdown = state.shutdown.clone();
-    tokio::spawn(async move {
+    nyaterm_web::observability::spawn(async move {
         #[cfg(unix)]
         {
             let mut terminate =
@@ -138,5 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })
     .await;
+    tracing::info!(event = "server.stopped", "NyaTerm Web server stopped");
+    nyaterm_web::observability::shutdown();
     Ok(())
 }

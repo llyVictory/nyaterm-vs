@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,7 +342,10 @@ mod tests {
             ConnectionType::Ssh { host, username, .. }
                 if host == "bad.example.com" && username == "fallback"
         ));
-        assert_eq!(prepared.connections[0].auth.as_ref().expect("auth").mode, "none");
+        assert_eq!(
+            prepared.connections[0].auth.as_ref().expect("auth").mode,
+            "none"
+        );
         assert!(matches!(
             &prepared.connections[1].config,
             ConnectionType::Ssh { host, username, .. }
@@ -646,10 +648,9 @@ mod tests {
 
         let mut buffer = vec![0_u8; plaintext.len() + WINDTERM_AES_IV_LENGTH];
         buffer[..plaintext.len()].copy_from_slice(plaintext.as_bytes());
-        let ciphertext =
-            cbc::Encryptor::<aes::Aes256>::new(&crypto.key.into(), &crypto.iv.into())
-                .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
-                .expect("encrypt windterm payload");
+        let ciphertext = cbc::Encryptor::<aes::Aes256>::new(&crypto.key.into(), &crypto.iv.into())
+            .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
+            .expect("encrypt windterm payload");
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, ciphertext)
     }
 
@@ -854,6 +855,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "desktop-importer")]
     #[test]
     fn termius_normalizes_local_key_variants() {
         use base64::Engine as _;
@@ -869,10 +871,7 @@ mod tests {
         let key = normalize_termius_local_key_bytes(raw.as_bytes()).expect("raw bytes key");
         assert_eq!(key.as_ref(), raw.as_bytes());
 
-        let utf16le: Vec<u8> = raw
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect();
+        let utf16le: Vec<u8> = raw.encode_utf16().flat_map(u16::to_le_bytes).collect();
         let key = normalize_termius_local_key_bytes(&utf16le).expect("utf16 key");
         assert_eq!(key.as_ref(), raw.as_bytes());
 
@@ -881,6 +880,7 @@ mod tests {
         assert_eq!(key.as_ref(), raw.as_bytes());
     }
 
+    #[cfg(feature = "desktop-importer")]
     #[test]
     fn termius_decrypts_secretbox_values_and_rejects_corruption() {
         let key = *b"12345678901234567890123456789012";
@@ -896,6 +896,7 @@ mod tests {
         assert!(error.to_string().contains("Cannot decrypt Termius"));
     }
 
+    #[cfg(feature = "desktop-importer")]
     #[test]
     fn termius_tagged_string_parser_handles_multibyte_lengths() {
         let long = "x".repeat(300);
@@ -907,6 +908,7 @@ mod tests {
         assert_eq!(strings, vec!["private_key".to_string(), long]);
     }
 
+    #[cfg(feature = "desktop-importer")]
     #[test]
     fn termius_maps_host_ports_from_linked_ssh_configs() {
         let mut bytes = Vec::new();
@@ -1031,7 +1033,10 @@ mod tests {
 
         let prepared = parse_json_import_content(json).expect("parse electerm");
 
-        assert_eq!(prepared.groups, vec![vec!["Prod".to_string(), "Web".to_string()]]);
+        assert_eq!(
+            prepared.groups,
+            vec![vec!["Prod".to_string(), "Web".to_string()]]
+        );
         assert_eq!(
             prepared.connections[0].group_path,
             Some(vec!["Prod".to_string(), "Web".to_string()])
@@ -1088,6 +1093,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "desktop-importer")]
     #[test]
     fn termius_maps_hosts_groups_passwords_and_keys() {
         crate::utils::crypto::set_master_password(None);
@@ -1166,17 +1172,28 @@ mod tests {
             Some(vec!["Production".to_string()])
         );
 
-        let password_auth = prepared.connections[1].auth.as_ref().expect("password auth");
+        let password_auth = prepared.connections[1]
+            .auth
+            .as_ref()
+            .expect("password auth");
         assert_eq!(password_auth.mode, "password");
         assert!(password_auth.account_id.is_some());
         assert!(password_auth.password_id.is_none());
-        assert!(prepared.passwords.iter().any(|entry| entry.username == "root"));
-        assert!(prepared
-            .passwords
-            .iter()
-            .any(|entry| entry.username == "deploy"));
+        assert!(
+            prepared
+                .passwords
+                .iter()
+                .any(|entry| entry.username == "root")
+        );
+        assert!(
+            prepared
+                .passwords
+                .iter()
+                .any(|entry| entry.username == "deploy")
+        );
     }
 
+    #[cfg(feature = "desktop-importer")]
     #[test]
     fn termius_identity_password_keeps_host_username() {
         crate::utils::crypto::set_master_password(None);

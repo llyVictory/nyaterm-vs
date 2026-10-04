@@ -1,7 +1,4 @@
-import { runtime } from "@/lib/backend/runtime";
-import { downloadJson, pickBrowserFile, readBrowserJson } from "@/lib/backend/browserArtifacts";
-import { open as openFileDialog, save as saveFileDialog } from "@/lib/backend/platform/dialog";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   MdCheck,
@@ -31,6 +28,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { downloadJson, pickBrowserFile, readBrowserJson } from "@/lib/backend/browserArtifacts";
+import { open as openFileDialog, save as saveFileDialog } from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
 import {
   ALL_THEME_COLOR_FIELDS,
   appendCustomThemePatch,
@@ -110,6 +110,8 @@ export function ThemeDesignerDialog({
   applyAppearance,
 }: ThemeDesignerDialogProps) {
   const { t } = useTranslation();
+  const fileInFlight = useRef(false);
+  const [fileBusy, setFileBusy] = useState(false);
   const customThemes = appearance.custom_themes ?? [];
   const [sourceThemeId, setSourceThemeId] = useState(appearance.theme || DEFAULT_THEME_ID);
   const [selectedThemeId, setSelectedThemeId] = useState<string | null>(null);
@@ -186,20 +188,19 @@ export function ThemeDesignerDialog({
   }
 
   async function exportDraft() {
-    if (!draft || !saveDraft()) return;
-    if (runtime === "web") {
-      downloadJson("nyaterm-theme.json", draft);
-      toast.success(t("settings.themeDesignerExportSuccess"));
-      return;
-    }
-    const outputPath = await saveFileDialog({
-      defaultPath: "nyaterm-theme.json",
-      filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
-    });
-    if (!outputPath) return;
-
+    if (!draft || fileInFlight.current) return;
+    fileInFlight.current = true;
+    setFileBusy(true);
     try {
-      await invoke("write_theme_file", { outputPath, theme: draft });
+      if (runtime === "web") downloadJson("nyaterm-theme.json", draft);
+      else {
+        const outputPath = await saveFileDialog({
+          defaultPath: "nyaterm-theme.json",
+          filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
+        });
+        if (!outputPath) return;
+        await invoke("write_theme_file", { outputPath, theme: draft });
+      }
       toast.success(t("settings.themeDesignerExportSuccess"));
     } catch (error) {
       logger.error({
@@ -209,20 +210,26 @@ export function ThemeDesignerDialog({
         error,
       });
       toast.error(t("settings.themeDesignerExportFailed", { error: String(error) }));
+    } finally {
+      fileInFlight.current = false;
+      setFileBusy(false);
     }
   }
 
   async function importTheme() {
-    const filePath =
-      runtime === "web"
-        ? await pickBrowserFile(".json")
-        : await openFileDialog({
-            multiple: false,
-            filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
-          });
-    if (!filePath || Array.isArray(filePath)) return;
-
+    if (fileInFlight.current) return;
+    fileInFlight.current = true;
+    setFileBusy(true);
     try {
+      const filePath =
+        runtime === "web"
+          ? await pickBrowserFile(".json")
+          : await openFileDialog({
+              multiple: false,
+              filters: [{ name: "NyaTerm Theme", extensions: ["json"] }],
+            });
+      if (!filePath || Array.isArray(filePath)) return;
+
       const imported =
         filePath instanceof File
           ? await readBrowserJson<Theme>(filePath)
@@ -246,6 +253,9 @@ export function ThemeDesignerDialog({
         error,
       });
       toast.error(t("settings.themeDesignerImportFailed", { error: String(error) }));
+    } finally {
+      fileInFlight.current = false;
+      setFileBusy(false);
     }
   }
 
@@ -286,11 +296,16 @@ export function ThemeDesignerDialog({
                 {t("settings.themeDesignerCopyTheme")}
               </Button>
               <div className="grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" onClick={importTheme}>
+                <Button size="sm" variant="outline" onClick={importTheme} disabled={fileBusy}>
                   <MdUpload />
                   {t("settings.themeDesignerImport")}
                 </Button>
-                <Button size="sm" variant="outline" onClick={exportDraft} disabled={!draft}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={exportDraft}
+                  disabled={!draft || fileBusy}
+                >
                   <MdDownload />
                   {t("settings.themeDesignerExport")}
                 </Button>

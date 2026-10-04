@@ -1,10 +1,10 @@
-import { supports } from "@/lib/backend/runtime";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { SelectItem } from "@/components/ui/select";
 import { useApp } from "@/context/AppContext";
 import { useConfigTransfer } from "@/hooks/useConfigTransfer";
 import { AVAILABLE_LANGUAGES } from "@/i18n";
+import { runtime, supports } from "@/lib/backend/runtime";
 import { HEADER_STATUS_MODES, normalizeHeaderStatusMode } from "@/lib/headerStatus";
 import {
   SettingFieldGrid,
@@ -19,7 +19,7 @@ const HIDDEN_HEADER_STATUS_VALUE = "hidden";
 export function GeneralTab() {
   const { t, i18n } = useTranslation();
   const { appSettings, updateAppSettings, updateUi } = useApp();
-  const { handleExportDiagnostics, handleOpenLogs } = useConfigTransfer();
+  const { handleExportDiagnostics, handleOpenLogs, transferBusy } = useConfigTransfer();
   const headerStatusSettingValue =
     appSettings.ui.header_status_visible === false
       ? HIDDEN_HEADER_STATUS_VALUE
@@ -162,17 +162,19 @@ export function GeneralTab() {
           </SettingSelect>
         </SettingFieldGrid>
 
-        <SettingRow label={t("settings.openLogs")} desc={t("settings.openLogsDesc")}>
-          <Button variant="outline" size="sm" onClick={handleOpenLogs}>
-            {t("settings.openLogs")}
-          </Button>
-        </SettingRow>
+        {runtime === "desktop" && (
+          <SettingRow label={t("settings.openLogs")} desc={t("settings.openLogsDesc")}>
+            <Button variant="outline" size="sm" onClick={handleOpenLogs}>
+              {t("settings.openLogs")}
+            </Button>
+          </SettingRow>
+        )}
 
         <SettingRow
           label={t("settings.exportDiagnostics")}
           desc={t("settings.exportDiagnosticsDesc")}
         >
-          <Button size="sm" onClick={handleExportDiagnostics}>
+          <Button size="sm" disabled={transferBusy} onClick={handleExportDiagnostics}>
             {t("settings.exportDiagnostics")}
           </Button>
         </SettingRow>

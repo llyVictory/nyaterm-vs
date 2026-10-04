@@ -86,7 +86,7 @@ nyaterm-core = { path = "crates/nyaterm-core", features = ["test-support"] }
 tokio = { version = "1", features = ["test-util"] }
 
 [dependencies]
-nyaterm-core = { path = "crates/nyaterm-core" }
+nyaterm-core = { path = "crates/nyaterm-core", features = ["desktop-importer"] }
 tempfile = "3"
 nyaterm-gpu = { path = "crates/nyaterm-gpu" }
 nyaterm-otp = { path = "crates/otp" }

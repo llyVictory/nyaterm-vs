@@ -1,7 +1,11 @@
 fn parse_mobaxterm(path: &str) -> AppResult<Vec<ImportedSession>> {
     let raw =
         std::fs::read(path).map_err(|e| AppError::Config(format!("Cannot read file: {e}")))?;
-    let content = decode_bytes(&raw);
+    parse_mobaxterm_bytes(&raw)
+}
+
+fn parse_mobaxterm_bytes(raw: &[u8]) -> AppResult<Vec<ImportedSession>> {
+    let content = decode_bytes(raw);
 
     let sections = parse_ini_sections(&content);
     let mut sessions = Vec::new();

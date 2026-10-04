@@ -1,16 +1,17 @@
 import type { EventCallback, Options, UnlistenFn } from "@tauri-apps/api/event";
+import { browserEmit, browserListen } from "./events";
+import { httpInvoke } from "./http";
 import { runtime } from "./runtime";
 import { tauriBackend } from "./tauri";
-import { httpInvoke } from "./http";
-import { browserEmit, browserListen } from "./events";
 
 export function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
+  context?: { requestId?: string },
 ): Promise<T> {
   return runtime === "desktop"
     ? tauriBackend.invoke<T>(command, args)
-    : httpInvoke<T>(command, args);
+    : httpInvoke<T>(command, args, context);
 }
 export function listen<T>(
   event: string,
@@ -24,8 +25,6 @@ export function listen<T>(
     : browserListen(event, callback);
 }
 export function emit<T>(event: string, payload?: T): Promise<void> {
-  return runtime === "desktop"
-    ? tauriBackend.emit(event, payload)
-    : browserEmit(event, payload);
+  return runtime === "desktop" ? tauriBackend.emit(event, payload) : browserEmit(event, payload);
 }
 export type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";

@@ -196,10 +196,7 @@ fn load_termius_local_key() -> AppResult<Zeroizing<[u8; 32]>> {
         }
     }
 
-    let candidates = [
-        ("Termius/localKey", "localKey"),
-        ("Termius", "localKey"),
-    ];
+    let candidates = [("Termius/localKey", "localKey"), ("Termius", "localKey")];
 
     for (service, user) in candidates {
         match keyring::Entry::new(service, user).and_then(|entry| entry.get_secret()) {
@@ -297,10 +294,8 @@ fn normalize_termius_local_key_candidates(
 }
 
 fn read_leveldb_records(db_path: &Path) -> AppResult<Vec<u8>> {
-    let tmp_path = std::env::temp_dir().join(format!(
-        "nyaterm-termius-leveldb-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp_path =
+        std::env::temp_dir().join(format!("nyaterm-termius-leveldb-{}", uuid::Uuid::new_v4()));
     copy_leveldb_dir(db_path, &tmp_path)?;
 
     let result = read_copied_leveldb_records(&tmp_path);
@@ -516,7 +511,12 @@ fn is_record_marker(strings: &[TermiusTaggedValue], index: usize) -> bool {
 }
 
 fn collect_host_record(strings: &[TermiusTaggedValue], index: usize) -> Option<TermiusRawHost> {
-    let record = collect_fields(strings, index, &["address", "label", "username", "password"], 80);
+    let record = collect_fields(
+        strings,
+        index,
+        &["address", "label", "username", "password"],
+        80,
+    );
     let address = record.get("address").cloned();
     let label = record.get("label").cloned();
     if address.as_ref().is_none_or(|value| value.trim().is_empty())
@@ -562,7 +562,10 @@ fn collect_identity_record(
     index: usize,
 ) -> Option<TermiusRawIdentity> {
     let record = collect_fields(strings, index, &["label", "username", "password"], 80);
-    if !record.contains_key("username") && !record.contains_key("password") && !record.contains_key("ssh_key") {
+    if !record.contains_key("username")
+        && !record.contains_key("password")
+        && !record.contains_key("ssh_key")
+    {
         return None;
     }
 
@@ -631,7 +634,9 @@ fn collect_fields(
                 .as_str()
                 .is_some_and(|text| is_termius_field_name(text) || is_record_type_name(text));
             if !is_nested_name {
-                fields.entry(key.to_string()).or_insert(value.to_field_value());
+                fields
+                    .entry(key.to_string())
+                    .or_insert(value.to_field_value());
             }
         }
         cursor += 1;
@@ -675,8 +680,7 @@ fn is_record_type_name(value: &str) -> bool {
 fn is_termius_field_name(value: &str) -> bool {
     matches!(
         value,
-        "id"
-            | "local_id"
+        "id" | "local_id"
             | "updated_at"
             | "label"
             | "address"
@@ -722,17 +726,11 @@ fn record_id(strings: &[TermiusTaggedValue], index: usize) -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn nested_record_id(
-    strings: &[TermiusTaggedValue],
-    index: usize,
-    field: &str,
-) -> Option<String> {
+fn nested_record_id(strings: &[TermiusTaggedValue], index: usize, field: &str) -> Option<String> {
     let start = record_start(strings, index);
     let end = record_end(strings, index, 80);
     for cursor in start..end.saturating_sub(2) {
-        if strings[cursor].as_str() == Some(field)
-            && strings[cursor + 1].as_str() == Some("id")
-        {
+        if strings[cursor].as_str() == Some(field) && strings[cursor + 1].as_str() == Some("id") {
             let value = strings[cursor + 2].to_field_value();
             let trimmed = value.trim();
             if !trimmed.is_empty() {
@@ -815,7 +813,9 @@ fn dedupe_latest_ssh_configs(configs: Vec<TermiusRawSshConfig>) -> Vec<TermiusRa
 }
 
 fn dedupe_latest_identities(identities: Vec<TermiusRawIdentity>) -> Vec<TermiusRawIdentity> {
-    dedupe_latest(identities, termius_identity_key, |item| item.updated_at.as_deref())
+    dedupe_latest(identities, termius_identity_key, |item| {
+        item.updated_at.as_deref()
+    })
 }
 
 fn dedupe_latest_ssh_keys(keys: Vec<TermiusRawSshKey>) -> Vec<TermiusRawSshKey> {
@@ -884,8 +884,10 @@ fn termius_group_key(group: &TermiusRawGroup) -> String {
 }
 
 fn build_termius_group_paths(groups: &[TermiusRawGroup]) -> HashMap<String, Vec<String>> {
-    let by_key: HashMap<String, &TermiusRawGroup> =
-        groups.iter().map(|group| (termius_group_key(group), group)).collect();
+    let by_key: HashMap<String, &TermiusRawGroup> = groups
+        .iter()
+        .map(|group| (termius_group_key(group), group))
+        .collect();
     let mut paths = HashMap::new();
     for group in groups {
         let key = termius_group_key(group);
@@ -907,12 +909,12 @@ fn build_termius_group_path(
     }
     let group = by_key.get(key)?;
     let label = normalize_optional_string(group.label.clone())?;
-    let mut path = if let Some(parent) = group.parent_id.as_deref().filter(|value| !value.is_empty())
-    {
-        build_termius_group_path(parent, by_key, visited).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let mut path =
+        if let Some(parent) = group.parent_id.as_deref().filter(|value| !value.is_empty()) {
+            build_termius_group_path(parent, by_key, visited).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
     path.push(label);
     Some(path)
 }
@@ -994,7 +996,10 @@ fn prepare_termius_passwords(
     for identity in identities {
         if let Some(password) = normalize_optional_string(identity.password.clone()) {
             let id = uuid::Uuid::new_v4().to_string();
-            ids.insert(format!("identity:{}", termius_identity_key(identity)), id.clone());
+            ids.insert(
+                format!("identity:{}", termius_identity_key(identity)),
+                id.clone(),
+            );
             for alias in termius_record_aliases(&identity.id, identity.local_id.as_deref()) {
                 ids.insert(format!("identity:{alias}"), id.clone());
             }
@@ -1052,8 +1057,7 @@ fn prepare_termius_connections(
             .identity_id
             .as_deref()
             .or_else(|| ssh_config.and_then(|config| config.identity_id.as_deref()));
-        let identity = identity_id
-            .and_then(|id| identities_by_key.get(id).copied());
+        let identity = identity_id.and_then(|id| identities_by_key.get(id).copied());
         let username = normalize_optional_string(host.username.clone())
             .or_else(|| identity.and_then(|item| normalize_optional_string(item.username.clone())))
             .unwrap_or_else(|| "root".to_string());
@@ -1147,7 +1151,8 @@ fn prepare_termius_auth(
     }
 
     let host_password_key = format!("host:{}", termius_host_key(host));
-    let identity_password_key = identity.map(|item| format!("identity:{}", termius_identity_key(item)));
+    let identity_password_key =
+        identity.map(|item| format!("identity:{}", termius_identity_key(item)));
     let password_id = password_ids
         .get(&host_password_key)
         .cloned()

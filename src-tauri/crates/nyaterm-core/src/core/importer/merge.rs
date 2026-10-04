@@ -1,7 +1,11 @@
 fn build_group_path(groups: &[Group], id: &str) -> Vec<String> {
     let mut segments = Vec::new();
     let mut current = id;
+    let mut visited = std::collections::HashSet::new();
     loop {
+        if !visited.insert(current) {
+            break;
+        }
         if let Some(g) = groups.iter().find(|g| g.id == current) {
             segments.push(g.name.clone());
             if let Some(ref pid) = g.parent_id {
@@ -65,10 +69,7 @@ fn ensure_group_path(
     Some(leaf_id)
 }
 
-fn import_legacy_sessions(
-    app: &tauri::AppHandle,
-    imported: Vec<ImportedSession>,
-) -> AppResult<usize> {
+fn import_legacy_sessions(app: &impl Sized, imported: Vec<ImportedSession>) -> AppResult<usize> {
     if imported.is_empty() {
         return Ok(0);
     }
@@ -134,7 +135,7 @@ fn import_legacy_sessions(
 }
 
 fn import_prepared_nyaterm_json(
-    app: &tauri::AppHandle,
+    app: &impl Sized,
     prepared: PreparedJsonImport,
 ) -> AppResult<usize> {
     if prepared.connections.is_empty() {
@@ -182,13 +183,18 @@ fn import_prepared_nyaterm_json(
 
     let mut passwords = config::load_passwords(app)?;
     passwords.passwords.extend(prepared.passwords);
-    config::save_passwords(app, &passwords)?;
 
     let mut keys = config::load_keys(app)?;
     keys.keys.extend(prepared.ssh_keys);
-    config::save_keys(app, &keys)?;
-
-    config::save_config(app, &cfg)?;
+    crate::storage::backup::import_connections(
+        &config::SessionsConfig {
+            connections: cfg.connections,
+            groups: cfg.groups,
+            custom_icons: cfg.custom_icons,
+        },
+        &passwords,
+        &keys,
+    )?;
     Ok(count)
 }
 
@@ -216,9 +222,9 @@ fn parse_json_import_content(content: &str) -> AppResult<PreparedJsonImport> {
 }
 
 fn is_electerm_bookmarks_json(value: &serde_json::Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|object| object.contains_key("bookmarkGroups") && object.contains_key("bookmarks"))
+    value.as_object().is_some_and(|object| {
+        object.contains_key("bookmarkGroups") && object.contains_key("bookmarks")
+    })
 }
 
 fn is_nyaterm_json_import(value: &serde_json::Value) -> bool {
@@ -234,16 +240,13 @@ fn is_nyaterm_json_import(value: &serde_json::Value) -> bool {
 // ── Tauri Command ───────────────────────────────────────────────────────────
 
 pub fn import_sessions(
-    app: tauri::AppHandle,
+    app: &impl Sized,
     file_path: String,
     windterm_master_password: Option<String>,
 ) -> AppResult<usize> {
     let path = Path::new(&file_path);
     if path.is_dir() {
         let count = import_legacy_sessions(&app, parse_finalshell(&file_path)?)?;
-        if count > 0 {
-            let _ = app.emit("connections-changed", ());
-        }
         return Ok(count);
     }
 
@@ -268,19 +271,14 @@ pub fn import_sessions(
         ));
     };
 
-    if count > 0 {
-        let _ = app.emit("connections-changed", ());
-    }
     Ok(count)
 }
 
+#[cfg(feature = "desktop-importer")]
 pub fn import_termius_sessions(
-    app: tauri::AppHandle,
+    app: &impl Sized,
     indexed_db_path: Option<String>,
 ) -> AppResult<usize> {
     let count = import_prepared_nyaterm_json(&app, parse_termius_indexed_db(indexed_db_path)?)?;
-    if count > 0 {
-        let _ = app.emit("connections-changed", ());
-    }
     Ok(count)
 }

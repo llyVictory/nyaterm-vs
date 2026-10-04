@@ -1,5 +1,7 @@
-import { backendURL, runtime, requireCapability } from "./runtime";
-import { csrfHeader } from "./http";
+import { downloadBlob } from "./browserArtifacts";
+import { createBrowserRequestId } from "./browserDiagnostics";
+import { BackendRequestError, csrfHeader } from "./http";
+import { backendURL, requireCapability, runtime } from "./runtime";
 
 export interface BrowserUploadResult {
   bytes: number;
@@ -12,43 +14,47 @@ export async function uploadBrowserFile(
   path: string,
   file: Blob,
 ): Promise<BrowserUploadResult> {
-  const url = backendURL(
-    `api/sessions/${encodeURIComponent(sessionId)}/upload`,
-  );
+  const url = backendURL(`api/sessions/${encodeURIComponent(sessionId)}/upload`);
   url.searchParams.set("path", path);
+  const requestId = createBrowserRequestId();
   const response = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
-    headers: { ...csrfHeader(), "Content-Type": "application/octet-stream" },
+    headers: {
+      ...csrfHeader(),
+      "X-Nyaterm-Request-Id": requestId,
+      "Content-Type": "application/octet-stream",
+    },
     body: file,
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? "Upload failed");
+  if (!response.ok)
+    throw new BackendRequestError(
+      result.error ?? "Upload failed",
+      response.status,
+      response.headers.get("X-Nyaterm-Request-Id") ?? requestId,
+    );
   return result as BrowserUploadResult;
 }
 
-export async function downloadBrowserFile(
-  sessionId: string,
-  path: string,
-): Promise<void> {
+export async function downloadBrowserFile(sessionId: string, path: string): Promise<void> {
   requireCapability("browserFiles");
-  const url = backendURL(
-    `api/sessions/${encodeURIComponent(sessionId)}/download`,
-  );
+  const url = backendURL(`api/sessions/${encodeURIComponent(sessionId)}/download`);
   url.searchParams.set("path", path);
-  const link = document.createElement("a");
-  const response = await fetch(url, { credentials: "same-origin" });
+  const requestId = createBrowserRequestId();
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    headers: { "X-Nyaterm-Request-Id": requestId },
+  });
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
-    throw new Error(result.error ?? "Download failed");
+    throw new BackendRequestError(
+      result.error ?? "Download failed",
+      response.status,
+      response.headers.get("X-Nyaterm-Request-Id") ?? requestId,
+    );
   }
-  const objectURL = URL.createObjectURL(await response.blob());
-  link.href = objectURL;
-  link.download = path.split("/").pop() ?? "download";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+  downloadBlob(path.split("/").pop() ?? "download", await response.blob());
 }
 export async function uploadBrowserFiles(
   sessionId: string,

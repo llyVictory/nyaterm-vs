@@ -1,4 +1,4 @@
-fn validate_portable_snapshot(snapshot: &PortableSnapshot) -> AppResult<()> {
+pub fn validate_portable_snapshot(snapshot: &PortableSnapshot) -> AppResult<()> {
     if snapshot.schema_version != PORTABLE_SNAPSHOT_SCHEMA_VERSION {
         return Err(AppError::Config(format!(
             "Unsupported portable snapshot version {}",
@@ -14,7 +14,7 @@ fn validate_portable_snapshot(snapshot: &PortableSnapshot) -> AppResult<()> {
     Ok(())
 }
 
-pub(crate) fn calculate_payload_hash(snapshot: &PortableSnapshot) -> AppResult<String> {
+pub fn calculate_payload_hash(snapshot: &PortableSnapshot) -> AppResult<String> {
     let payload_bytes = serde_json::to_vec(&SnapshotHashInput {
         settings: &snapshot.settings,
         sessions: &snapshot.sessions,
@@ -93,7 +93,9 @@ fn log_snapshot_hash_normalized(snapshot: &PortableSnapshot, source_payload_hash
     );
 }
 
-pub(crate) fn calculate_v3_raw_payload_hash(entities: &BTreeMap<String, String>) -> AppResult<String> {
+pub(crate) fn calculate_v3_raw_payload_hash(
+    entities: &BTreeMap<String, String>,
+) -> AppResult<String> {
     let settings = read_raw_entity(entities, "settings")?;
     let sessions = read_raw_entity(entities, "sessions")?;
     let keys = read_raw_entity(entities, "keys")?;
@@ -166,4 +168,3 @@ pub(crate) fn calculate_v3_raw_payload_hash(entities: &BTreeMap<String, String>)
     }
     Ok(hash)
 }
-

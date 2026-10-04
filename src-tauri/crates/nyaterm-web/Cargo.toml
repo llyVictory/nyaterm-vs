@@ -26,6 +26,11 @@ russh = { path = "../../vendor/russh/russh", default-features = false, features 
 russh-sftp = { path = "../../vendor/russh-sftp" }
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls"] }
 
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+time = { version = "0.3", features = ["formatting"] }
+zip = "8"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"

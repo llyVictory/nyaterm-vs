@@ -130,3 +130,11 @@ session/prompt/AI cancellation 隔离于登录 owner，跨 owner 的 session 返
 浏览器 SSH/Telnet 由 `BrowserTerminals` 持有每会话连接状态，初次握手和掉线恢复统一执行有时间预算的附着重试，复用 `get_session_info` 查询和原有终端事件，无新增重连协议。跨 WS/SSE 的关闭事件只投递一次。
 
 Web 上传使用 SFTP lstat 区分存在、目录、权限和连接错误，复用 owner 冲突提示。临时文件和传输许可由 RAII guard 持有直到异步清理结束，显式会话关闭等待清理后才断开 SSH；提示 future 被 HTTP 中断丢弃时仍会移除待响应记录。数据格式保持兼容，新增响应字段见部署文档。
+
+## 密码备份与诊断实现
+
+可移植快照的类型、编解码、旧版恢复和备份加密现位于 Core；桌面保留原导入导出入口。Web 使用共享格式、显式源/目标密钥转换及单个 redb 恢复事务，不切换全局主密码、不写入源部署密钥。连接解析也迁入 Core，Termius 仅通过桌面 feature 启用；Web WindTerm 解析器明确禁止本机资源读取。
+
+Web 的 `backups.rs` 提供有大小限制的上传/下载 API，`observability.rs` 提供 tracing、请求关联、动态设置、有界后台写入、轮转、上报二次脱敏及诊断 ZIP。浏览器文件传输位于 `configTransfer.ts` / `browserArtifacts.ts`；日志认证传输独立于 invoke/logger，避免递归。SSE/WebSocket 使用保存请求 span 的断连守卫，后台连接和阻塞文件任务也继承 span。
+
+`tests/backups.rs` 使用真实根路径与子路径 Web 进程，覆盖桌面→Web、不同部署密钥 Web→Web、桌面编解码读取 Web 备份、真实凭据解密、密码/损坏/事务失败回滚、诊断脱敏与请求 ID、重启后解密。Core 保留旧版解码及各来源解析测试；Web 日志测试覆盖轮转、保留上限、文件写入失败和仍打开文件的诊断读取。前端测试覆盖登录状态与重连、取消文件选择、重复提交、备份密码确认、有界认证日志队列和断网退避。实际执行结果以本次交付记录为准；容器/OpenSSH 场景仍需运行 Docker 验收。

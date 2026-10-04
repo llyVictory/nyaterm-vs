@@ -1,6 +1,6 @@
-use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
+use quick_xml::events::{BytesStart, Event};
 
 #[derive(Default)]
 struct SecureCrtKeyFrame {
@@ -105,7 +105,9 @@ fn securecrt_session_from_frame(
     frame: &SecureCrtKeyFrame,
     ancestors: &[SecureCrtKeyFrame],
 ) -> Option<ImportedSession> {
-    let sessions_index = ancestors.iter().position(|frame| frame.name == "Sessions")?;
+    let sessions_index = ancestors
+        .iter()
+        .position(|frame| frame.name == "Sessions")?;
     let protocol = frame
         .fields
         .get("Protocol Name")

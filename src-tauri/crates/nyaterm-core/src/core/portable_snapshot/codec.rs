@@ -2,7 +2,7 @@ pub fn decode_portable_snapshot(bytes: &[u8]) -> AppResult<PortableSnapshot> {
     Ok(decode_portable_snapshot_with_source_hash(bytes)?.snapshot)
 }
 
-pub(crate) fn decode_portable_snapshot_with_source_hash(
+pub fn decode_portable_snapshot_with_source_hash(
     bytes: &[u8],
 ) -> AppResult<DecodedPortableSnapshot> {
     let payload = catch_unwind(AssertUnwindSafe(|| -> AppResult<Vec<u8>> {
@@ -29,34 +29,38 @@ fn decode_portable_snapshot_redb_with_source_hash(
 }
 
 fn read_portable_snapshot_redb(bytes: &[u8]) -> AppResult<DecodedPortableSnapshot> {
-    catch_unwind(AssertUnwindSafe(|| -> AppResult<DecodedPortableSnapshot> {
-        let temp = TempRedbFile::new("portable-snapshot-decode");
-        fs::write(temp.path(), bytes)?;
-        let db = Database::open(temp.path()).map_err(storage_error)?;
-        let read = db.begin_read().map_err(storage_error)?;
-        let meta_table = read
-            .open_table(SNAPSHOT_META_TABLE)
-            .map_err(storage_error)?;
-        let meta_raw = meta_table
-            .get(SNAPSHOT_META_KEY)
-            .map_err(storage_error)?
-            .ok_or_else(|| AppError::Config("portable snapshot is missing metadata".to_string()))?
-            .value()
-            .to_string();
-        let meta: PortableSnapshotMeta = serde_json::from_str(&meta_raw)?;
+    catch_unwind(AssertUnwindSafe(
+        || -> AppResult<DecodedPortableSnapshot> {
+            let temp = TempRedbFile::new("portable-snapshot-decode");
+            fs::write(temp.path(), bytes)?;
+            let db = Database::open(temp.path()).map_err(storage_error)?;
+            let read = db.begin_read().map_err(storage_error)?;
+            let meta_table = read
+                .open_table(SNAPSHOT_META_TABLE)
+                .map_err(storage_error)?;
+            let meta_raw = meta_table
+                .get(SNAPSHOT_META_KEY)
+                .map_err(storage_error)?
+                .ok_or_else(|| {
+                    AppError::Config("portable snapshot is missing metadata".to_string())
+                })?
+                .value()
+                .to_string();
+            let meta: PortableSnapshotMeta = serde_json::from_str(&meta_raw)?;
 
-        if meta.schema_version == 2 {
-            decode_v2_snapshot(&read, meta)
-        } else if meta.schema_version == PORTABLE_SNAPSHOT_SCHEMA_VERSION {
-            let entities = read_string_table(&read, SNAPSHOT_ENTITIES_TABLE)?;
-            decode_v3_snapshot(meta, &entities)
-        } else {
-            Err(AppError::Config(format!(
-                "Unsupported portable snapshot version {}",
-                meta.schema_version
-            )))
-        }
-    }))
+            if meta.schema_version == 2 {
+                decode_v2_snapshot(&read, meta)
+            } else if meta.schema_version == PORTABLE_SNAPSHOT_SCHEMA_VERSION {
+                let entities = read_string_table(&read, SNAPSHOT_ENTITIES_TABLE)?;
+                decode_v3_snapshot(meta, &entities)
+            } else {
+                Err(AppError::Config(format!(
+                    "Unsupported portable snapshot version {}",
+                    meta.schema_version
+                )))
+            }
+        },
+    ))
     .unwrap_or_else(|_| {
         Err(AppError::Storage(
             "Portable snapshot redb payload is corrupt or incomplete".to_string(),
@@ -146,6 +150,12 @@ pub(crate) fn encode_v3_raw_snapshot_redb_for_test(
 }
 
 fn encode_compressed_snapshot_payload(redb_payload: &[u8]) -> AppResult<Vec<u8>> {
+    // Do not produce an archive the shared decoder cannot restore.
+    if redb_payload.len() as u64 > MAX_COMPRESSED_SNAPSHOT_PAYLOAD_BYTES {
+        return Err(AppError::Config(
+            "Snapshot exceeds the 50 MiB restore limit".into(),
+        ));
+    }
     let cursor = Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(cursor);
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);

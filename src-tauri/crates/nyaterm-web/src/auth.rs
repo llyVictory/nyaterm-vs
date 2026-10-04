@@ -42,6 +42,11 @@ pub async fn verify_unlock(state: &State, args: &serde_json::Value) -> Result<bo
     let mut attempts = state.login_attempts.lock().await;
     attempts.retain(|instant| instant.elapsed() < Duration::from_secs(60));
     if attempts.len() >= 20 {
+        tracing::warn!(
+            event = "auth.rate_limited",
+            reason = "attempt_budget",
+            "Web sign-in rate limited"
+        );
         return Err(WebError(
             StatusCode::TOO_MANY_REQUESTS,
             "Try again later".into(),
@@ -153,6 +158,11 @@ pub async fn sign_in(
     let mut attempts = state.login_attempts.lock().await;
     attempts.retain(|instant| instant.elapsed() < Duration::from_secs(60));
     if attempts.len() >= 20 {
+        tracing::warn!(
+            event = "auth.rate_limited",
+            reason = "attempt_budget",
+            "Web sign-in rate limited"
+        );
         return Err(WebError(
             StatusCode::TOO_MANY_REQUESTS,
             "Try again later".into(),
@@ -163,6 +173,11 @@ pub async fn sign_in(
     let valid = equal(&digest(&payload.password), &state.password_hash);
     payload.password.zeroize();
     if !valid {
+        tracing::warn!(
+            event = "auth.rejected",
+            reason = "invalid_credentials",
+            "Web sign-in rejected"
+        );
         return Err(WebError(
             StatusCode::UNAUTHORIZED,
             "Invalid credentials".into(),
@@ -191,6 +206,7 @@ pub async fn sign_in(
             cancel: state.shutdown.child_token(),
         }),
     );
+    tracing::info!(event = "auth.accepted", "Web sign-in accepted");
     Ok((
         [(header::SET_COOKIE, cookie(&state, &owner, 8 * 3600))],
         Json(json!({"csrf":csrf})),
@@ -215,6 +231,7 @@ pub async fn sign_out(
     axum::Extension(owner): axum::Extension<Owner>,
 ) -> Response {
     state.close_owner(&owner.0).await;
+    tracing::info!(event = "auth.signed_out", "Web administrator signed out");
     (
         [(header::SET_COOKIE, cookie(&state, "", 0))],
         Json(json!({})),

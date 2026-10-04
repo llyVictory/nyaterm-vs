@@ -1,21 +1,22 @@
-import { backendURL, requireCapability } from "./runtime";
+import { configureBrowserLogs, createBrowserRequestId } from "./browserDiagnostics";
 import { deliver } from "./events";
-import { BrowserTerminals } from "./terminal";
 import { uploadBrowserFile } from "./files";
-import { closeBrowserVnc, closeAllBrowserVnc, sendBrowserVnc } from "./vnc";
+import { backendURL, requireCapability } from "./runtime";
+import { BrowserTerminals } from "./terminal";
+import { closeAllBrowserVnc, closeBrowserVnc, sendBrowserVnc } from "./vnc";
 
 let csrf: string | undefined;
 let source: EventSource | undefined;
 let eventReady: Promise<void> | undefined;
 const terminals = new BrowserTerminals(
-  (id, signal) =>
-    request("api/commands/get_session_info", { sessionId: id }, "POST", signal),
+  (id, signal) => request("api/commands/get_session_info", { sessionId: id }, "POST", signal),
   (id) => request("api/commands/close_session", { sessionId: id }),
 );
 export class BackendRequestError extends Error {
   constructor(
     message: string,
     public status: number,
+    public requestId?: string,
   ) {
     super(message);
   }
@@ -28,6 +29,7 @@ export async function request<T>(
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
   signal?: AbortSignal,
+  requestId = createBrowserRequestId(),
 ): Promise<T> {
   const response = await fetch(backendURL(path), {
     method,
@@ -36,6 +38,7 @@ export async function request<T>(
     headers: {
       "Content-Type": "application/json",
       "X-Nyaterm-Request": "1",
+      "X-Nyaterm-Request-Id": requestId,
       ...(csrf ? { "X-Nyaterm-Csrf": csrf } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -45,6 +48,7 @@ export async function request<T>(
     throw new BackendRequestError(
       value.error ?? `Backend request failed (${response.status})`,
       response.status,
+      response.headers.get("X-Nyaterm-Request-Id") ?? requestId,
     );
   return value as T;
 }
@@ -54,6 +58,22 @@ export async function authenticate(password?: string): Promise<void> {
     password === undefined ? undefined : { password },
   );
   csrf = value.csrf;
+  configureBrowserLogs(async (entries, keepalive) => {
+    const response = await fetch(backendURL("api/logs/frontend"), {
+      method: "POST",
+      credentials: "same-origin",
+      keepalive,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Nyaterm-Request": "1",
+        "X-Nyaterm-Request-Id": createBrowserRequestId(),
+        ...csrfHeader(),
+      },
+      body: JSON.stringify({ entries }),
+    });
+    if (response.status === 401) configureBrowserLogs(undefined);
+    if (!response.ok) throw new BackendRequestError("Log upload failed", response.status);
+  });
 }
 export function startEvents(): Promise<void> {
   if (eventReady) return eventReady;
@@ -65,6 +85,7 @@ export function startEvents(): Promise<void> {
       reject(new Error("Backend event stream unavailable"));
       eventReady = undefined;
       source?.close();
+      source = undefined;
     }, 10_000);
     source.onmessage = ({ data }) => {
       const event = JSON.parse(data) as { event: string; payload: unknown };
@@ -93,11 +114,11 @@ export function startEvents(): Promise<void> {
 export async function httpInvoke<T>(
   command: string,
   args: Record<string, unknown> = {},
+  context?: { requestId?: string },
 ): Promise<T> {
   if (command === "get_default_local_shell") requireCapability("localShell");
   if (nativeCommands.test(command)) requireCapability("nativeFiles");
-  if (command === "read_clipboard_text")
-    return (await navigator.clipboard.readText()) as T;
+  if (command === "read_clipboard_text") return (await navigator.clipboard.readText()) as T;
   if (command === "write_clipboard_text") {
     await navigator.clipboard.writeText(String(args.text));
     return undefined as T;
@@ -109,8 +130,7 @@ export async function httpInvoke<T>(
     const item = items.find((entry) => entry.types.includes("image/png"));
     if (!item) return null as T;
     const image = await item.getType("image/png");
-    if (image.size > 10 * 1024 * 1024)
-      throw new Error("Clipboard image exceeds 10 MiB");
+    if (image.size > 10 * 1024 * 1024) throw new Error("Clipboard image exceeds 10 MiB");
     const sessionId = String(args.sessionId);
     const directory =
       typeof args.remoteDir === "string"
@@ -118,9 +138,7 @@ export async function httpInvoke<T>(
         : await request<string>("api/commands/get_home_dir", { sessionId });
     const path = `${directory.replace(/\/$/, "")}/nyaterm-clipboard-${crypto.randomUUID()}.png`;
     const result = await uploadBrowserFile(sessionId, path, image);
-    return (
-      result.status === "skipped" ? null : { remote_path: result.path }
-    ) as T;
+    return (result.status === "skipped" ? null : { remote_path: result.path }) as T;
   }
   if (command === "read_clipboard_file_paths") return [] as T;
   if (
@@ -140,6 +158,7 @@ export async function httpInvoke<T>(
     case "quit_application": {
       terminals.stopAll();
       await request("api/auth/logout", {});
+      configureBrowserLogs(undefined);
       source?.close();
       closeAllBrowserVnc();
       window.location.reload();
@@ -150,25 +169,28 @@ export async function httpInvoke<T>(
     case "create_telnet_session":
     case "create_vnc_session": {
       await startEvents();
-      const result = await request<{ session_id: string }>("api/sessions", {
-        ...args,
-        type:
-          command === "create_telnet_session"
-            ? "telnet"
-            : command === "create_vnc_session"
-              ? "vnc"
-              : "ssh",
-      });
+      const result = await request<{ session_id: string }>(
+        "api/sessions",
+        {
+          ...args,
+          type:
+            command === "create_telnet_session"
+              ? "telnet"
+              : command === "create_vnc_session"
+                ? "vnc"
+                : "ssh",
+        },
+        "POST",
+        undefined,
+        context?.requestId,
+      );
       return result.session_id as T;
     }
     case "attach_session":
       await terminals.attach(id);
       return undefined as T;
     case "write_to_session":
-      await terminals.send(
-        id,
-        JSON.stringify({ type: "input", data: args.data }),
-      );
+      await terminals.send(id, JSON.stringify({ type: "input", data: args.data }));
       return undefined as T;
     case "write_bytes_to_session":
       await terminals.send(id, new Uint8Array(args.data as number[]));
@@ -193,7 +215,13 @@ export async function httpInvoke<T>(
       break;
     }
   }
-  return request<T>(`api/commands/${encodeURIComponent(command)}`, args);
+  return request<T>(
+    `api/commands/${encodeURIComponent(command)}`,
+    args,
+    "POST",
+    undefined,
+    context?.requestId,
+  );
 }
 export function csrfHeader(): Record<string, string> {
   return csrf ? { "X-Nyaterm-Csrf": csrf } : {};

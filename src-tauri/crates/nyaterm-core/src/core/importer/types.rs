@@ -209,4 +209,3 @@ fn default_serial_stop_bits() -> String {
 fn default_serial_backspace_mode() -> String {
     "ctrl_h".to_string()
 }
-

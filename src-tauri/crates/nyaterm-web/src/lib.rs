@@ -1,10 +1,12 @@
 pub mod ai;
 pub mod auth;
+pub mod backups;
 pub mod commands;
 pub mod error;
 pub mod monitoring;
 pub mod network;
 pub mod notes;
+pub mod observability;
 pub mod otp;
 pub mod plugins;
 pub mod remote_exec;
@@ -39,7 +41,10 @@ async fn events(
 ) -> error::Result<Sse<impl futures_util::Stream<Item = std::result::Result<Event, Infallible>>>> {
     let login = state.login(&owner.0).await?;
     let mut receiver = login.events.subscribe();
+    tracing::info!(event = "sse.connected", "Web event stream connected");
+    let guard = observability::StreamLogGuard::new("sse.disconnected", None);
     let stream = async_stream::stream! {
+        let _guard = guard;
         yield Ok(Event::default().data(r#"{"event":"ready","payload":null}"#));
         loop{
             tokio::select!{
@@ -58,6 +63,20 @@ pub fn router(state: Arc<State>, dist: std::path::PathBuf) -> Router {
     let protected = Router::new()
         .route("/auth/session", get(auth::current))
         .route("/auth/logout", post(auth::sign_out))
+        .route("/backups/export", post(backups::export))
+        .route(
+            "/backups/import",
+            post(backups::import).layer(DefaultBodyLimit::max(50 * 1024 * 1024 + 16 * 1024)),
+        )
+        .route(
+            "/imports/connections",
+            post(backups::connections).layer(DefaultBodyLimit::max(10 * 1024 * 1024 + 16 * 1024)),
+        )
+        .route(
+            "/logs/frontend",
+            post(observability::frontend).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route("/diagnostics/export", get(observability::diagnostics))
         .route("/events", get(events))
         .route("/sessions", post(session::create_route))
         .route("/sessions/{id}/terminal", get(session::ws_route))
@@ -101,6 +120,7 @@ pub fn router(state: Arc<State>, dist: std::path::PathBuf) -> Router {
         .layer(SetResponseHeaderLayer::overriding(axum::http::header::CACHE_CONTROL,HeaderValue::from_static("no-store")))
         .layer(SetResponseHeaderLayer::overriding(axum::http::header::X_CONTENT_TYPE_OPTIONS,HeaderValue::from_static("nosniff")))
         .layer(SetResponseHeaderLayer::overriding(axum::http::header::REFERRER_POLICY,HeaderValue::from_static("same-origin")))
+        .layer(middleware::from_fn(observability::request_log))
         .with_state(state)
 }
 

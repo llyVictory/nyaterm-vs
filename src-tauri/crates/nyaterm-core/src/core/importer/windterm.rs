@@ -35,6 +35,15 @@ fn parse_windterm_content_with_crypto(
     crypto: Option<&WindtermCrypto>,
     source_path: Option<&Path>,
 ) -> AppResult<PreparedJsonImport> {
+    parse_windterm_content_impl(content, crypto, source_path, true)
+}
+
+fn parse_windterm_content_impl(
+    content: &str,
+    crypto: Option<&WindtermCrypto>,
+    source_path: Option<&Path>,
+    allow_local_files: bool,
+) -> AppResult<PreparedJsonImport> {
     let entries: Vec<serde_json::Value> = serde_json::from_str(&content)
         .map_err(|e| AppError::Config(format!("Invalid WindTerm JSON: {e}")))?;
 
@@ -118,6 +127,7 @@ fn parse_windterm_content_with_crypto(
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         let auth = prepare_windterm_auth(
+            allow_local_files,
             entry,
             auto_login.as_ref(),
             source_path,
@@ -252,17 +262,15 @@ fn parse_windterm_auto_login(
     let plaintext = String::from_utf8(plaintext).map_err(|_| {
         AppError::Config("Failed to decode decrypted WindTerm autoLogin text".to_string())
     })?;
-    let value: serde_json::Value = serde_json::from_str(&plaintext)
-        .map_err(|_| AppError::Config("Failed to parse decrypted WindTerm autoLogin JSON".to_string()))?;
+    let value: serde_json::Value = serde_json::from_str(&plaintext).map_err(|_| {
+        AppError::Config("Failed to parse decrypted WindTerm autoLogin JSON".to_string())
+    })?;
     value.as_object().cloned().map(Some).ok_or_else(|| {
         AppError::Config("WindTerm session.autoLogin must decode to a JSON object".to_string())
     })
 }
 
-fn decrypt_windterm_auto_login(
-    ciphertext: &[u8],
-    crypto: &WindtermCrypto,
-) -> AppResult<Vec<u8>> {
+fn decrypt_windterm_auto_login(ciphertext: &[u8], crypto: &WindtermCrypto) -> AppResult<Vec<u8>> {
     if ciphertext.is_empty() || ciphertext.len() % WINDTERM_AES_IV_LENGTH != 0 {
         return Err(AppError::Config(
             "Invalid WindTerm autoLogin ciphertext length".to_string(),
@@ -294,6 +302,7 @@ fn parse_windterm_group_path(entry: &serde_json::Value) -> Option<Vec<String>> {
 }
 
 fn prepare_windterm_auth(
+    allow_local_files: bool,
     entry: &serde_json::Value,
     auto_login: Option<&serde_json::Map<String, serde_json::Value>>,
     source_path: Option<&Path>,
@@ -328,7 +337,16 @@ fn prepare_windterm_auth(
         });
     }
 
-    if let Some(key_id) = import_windterm_key(entry, auto_login, source_path, session_name, ssh_keys, key_ids)? {
+    if allow_local_files
+        && let Some(key_id) = import_windterm_key(
+            entry,
+            auto_login,
+            source_path,
+            session_name,
+            ssh_keys,
+            key_ids,
+        )?
+    {
         return Ok(ConnectionAuth {
             mode: "key".to_string(),
             account_id: None,
@@ -386,17 +404,15 @@ fn import_windterm_key(
         return Ok(None);
     }
 
-    let Some((key_path, resolved_path, key_content)) =
-        key_paths.into_iter().find_map(|path| {
-            let resolved = resolve_windterm_key_path(path, source_path)?;
-            let content = std::fs::read_to_string(&resolved).ok()?;
-            if content.trim().is_empty() {
-                None
-            } else {
-                Some((path, resolved, content))
-            }
-        })
-    else {
+    let Some((key_path, resolved_path, key_content)) = key_paths.into_iter().find_map(|path| {
+        let resolved = resolve_windterm_key_path(path, source_path)?;
+        let content = std::fs::read_to_string(&resolved).ok()?;
+        if content.trim().is_empty() {
+            None
+        } else {
+            Some((path, resolved, content))
+        }
+    }) else {
         return Ok(None);
     };
 
@@ -410,6 +426,13 @@ fn import_windterm_key(
     let normalized_path = resolved_path.to_string_lossy().replace('/', "\\");
     let dedupe_key = (normalized_path.clone(), passphrase.clone());
     if let Some(id) = key_ids.get(&dedupe_key) {
+        return Ok(Some(id.clone()));
+    }
+    if passphrase.is_none()
+        && let Some((_, id)) = key_ids
+            .iter()
+            .find(|((path, _), _)| path == &normalized_path)
+    {
         return Ok(Some(id.clone()));
     }
 
@@ -457,7 +480,10 @@ fn resolve_windterm_key_path(path: &str, source_path: Option<&Path>) -> Option<s
             .replace("${HomeDir}", &home_str);
         if expanded == "~" {
             expanded = home_str.to_string();
-        } else if let Some(rest) = expanded.strip_prefix("~/").or_else(|| expanded.strip_prefix("~\\")) {
+        } else if let Some(rest) = expanded
+            .strip_prefix("~/")
+            .or_else(|| expanded.strip_prefix("~\\"))
+        {
             expanded = home.join(rest).to_string_lossy().to_string();
         }
     }

@@ -1,13 +1,21 @@
 fn parse_xshell(path: &str) -> AppResult<Vec<ImportedSession>> {
     let file = std::fs::File::open(path)
         .map_err(|e| AppError::Config(format!("Cannot open file: {e}")))?;
+    parse_xshell_reader(file)
+}
+
+fn parse_xshell_reader(file: impl Read + std::io::Seek) -> AppResult<Vec<ImportedSession>> {
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Config(format!("Invalid ZIP/XTS file: {e}")))?;
 
     let mut sessions = Vec::new();
 
+    let mut expanded_bytes = 0u64;
+    if archive.len() > 10_000 {
+        return Err(AppError::Config("Too many archive entries".into()));
+    }
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Config(format!("ZIP entry error: {e}")))?;
 
@@ -19,10 +27,18 @@ fn parse_xshell(path: &str) -> AppResult<Vec<ImportedSession>> {
         }
 
         let mut raw = Vec::new();
+        expanded_bytes = expanded_bytes.saturating_add(entry.size());
+        if expanded_bytes > 50 * 1024 * 1024 {
+            return Err(AppError::Config("Archive exceeds 50 MiB".into()));
+        }
         entry
+            .take(50 * 1024 * 1024 + 1)
             .read_to_end(&mut raw)
             .map_err(|e| AppError::Config(format!("Failed to read {entry_path}: {e}")))?;
 
+        if raw.len() > 50 * 1024 * 1024 {
+            return Err(AppError::Config("Archive exceeds 50 MiB".into()));
+        }
         let content = decode_bytes(&raw);
 
         if let Some(sess) = parse_xsh_content(&content, &entry_path) {

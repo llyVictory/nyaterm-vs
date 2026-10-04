@@ -210,7 +210,7 @@ pub async fn command(
                     .await?
                     .shutdown()
                     .await
-                    .map_err(|_| WebError::bad("Remote write failed"))?;
+                    .map_err(|error| WebError::io(&error, "Remote write failed"))?;
                 apply_mode(&sftp, path(args, "path")?, permissions).await?;
                 Value::Null
             }
@@ -326,7 +326,7 @@ pub async fn command(
                     .take(limit + 1)
                     .read_to_end(&mut bytes)
                     .await
-                    .map_err(|_| WebError::bad("Remote read failed"))?;
+                    .map_err(|error| WebError::io(&error, "Remote read failed"))?;
                 if bytes.len() as u64 > limit {
                     return Err(WebError::bad("Remote file exceeds preview limit"));
                 }
@@ -351,7 +351,7 @@ pub async fn command(
                     .take(limit + 1)
                     .read_to_end(&mut bytes)
                     .await
-                    .map_err(|_| WebError::bad("Remote read failed"))?;
+                    .map_err(|error| WebError::io(&error, "Remote read failed"))?;
                 if bytes.len() as u64 > limit {
                     return Err(WebError::bad("Remote file is too large"));
                 }
@@ -392,7 +392,7 @@ pub async fn command(
                             .take(4 * 1024 * 1024 + 1)
                             .read_to_end(&mut old)
                             .await
-                            .map_err(|_| WebError::bad("Remote read failed"))?;
+                            .map_err(|error| WebError::io(&error, "Remote read failed"))?;
                         hash_changed = files::content_hash(&old) != expected;
                     }
                     if changed || hash_changed {
@@ -406,10 +406,10 @@ pub async fn command(
                 let mut file = sftp.create(p).await?;
                 file.write_all(content.as_bytes())
                     .await
-                    .map_err(|_| WebError::bad("Remote write failed"))?;
+                    .map_err(|error| WebError::io(&error, "Remote write failed"))?;
                 file.shutdown()
                     .await
-                    .map_err(|_| WebError::bad("Remote write failed"))?;
+                    .map_err(|error| WebError::io(&error, "Remote write failed"))?;
                 let attrs = sftp.metadata(p).await?;
                 json!(files::WriteRemoteTextResult::saved(
                     attrs.mtime.unwrap_or(0) as u64,
@@ -604,7 +604,7 @@ async fn copy_entry(state: &Arc<State>, owner: &str, command: &str, args: &Value
                     let size = reader
                         .read(&mut buffer)
                         .await
-                        .map_err(|_| WebError::bad("Remote read failed"))?;
+                        .map_err(|error| WebError::io(&error, "Remote read failed"))?;
                     if size == 0 {
                         break;
                     }
@@ -615,13 +615,13 @@ async fn copy_entry(state: &Arc<State>, owner: &str, command: &str, args: &Value
                     writer
                         .write_all(&buffer[..size])
                         .await
-                        .map_err(|_| WebError::bad("Remote write failed"))?;
+                        .map_err(|error| WebError::io(&error, "Remote write failed"))?;
                     transfer.progress("progress").await;
                 }
                 writer
                     .shutdown()
                     .await
-                    .map_err(|_| WebError::bad("Remote write failed"))?;
+                    .map_err(|error| WebError::io(&error, "Remote write failed"))?;
                 if transfer.bytes != transfer.total {
                     return Err(WebError::bad("Source changed during copy"));
                 }
@@ -676,6 +676,7 @@ impl Transfer {
         self.state.event(&self.owner,"transfer-event",json!({"id":self.id,"session_id":self.session_id,"file_name":self.path.rsplit('/').next().unwrap_or("file"),"remote_path":self.path,"local_path":"","direction":self.direction,"kind":"file","bytes_transferred":self.bytes,"total_size":self.total,"size":self.total,"status":status})).await;
     }
     async fn finish(&mut self, status: &str) {
+        tracing::info!(event="file.transfer_finished", transfer_id=%self.id, bytes=self.bytes, "Web file transfer finished");
         self.progress(status).await;
         self.done = true;
     }
@@ -690,7 +691,7 @@ impl Drop for Transfer {
         let id = self.id.clone();
         let sid = self.session_id.clone();
         let done = self.done;
-        tokio::spawn(async move {
+        crate::observability::spawn(async move {
             // Session shutdown waits for permits, including asynchronous cleanup.
             let _permits = permits;
             if let Some(path) = temporary {
@@ -871,12 +872,12 @@ pub async fn upload(
             }
             file.write_all(&chunk)
                 .await
-                .map_err(|_| WebError::bad("SFTP write failed"))?;
+                .map_err(|error| WebError::io(&error, "SFTP write failed"))?;
             transfer.progress("progress").await;
         }
         file.shutdown()
             .await
-            .map_err(|_| WebError::bad("SFTP write failed"))?;
+            .map_err(|error| WebError::io(&error, "SFTP write failed"))?;
         if overwrite {
             sftp.rename_replace(&temporary, &transfer.path)
                 .await

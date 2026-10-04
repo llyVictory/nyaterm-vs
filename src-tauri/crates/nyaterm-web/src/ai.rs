@@ -238,7 +238,7 @@ async fn start(state: &Arc<State>, owner: &str, args: &Value) -> Result<Value> {
     let events = login.events.clone();
     let task_stream = stream_id.clone();
     let task_session = session_id.clone();
-    tokio::spawn(async move {
+    crate::observability::spawn(async move {
         let sink = stream::EventSink(move |id: &str, payload: AiStreamEventPayload| {
             let _ = events.send(Event {
                 event: format!("ai-stream-{id}"),

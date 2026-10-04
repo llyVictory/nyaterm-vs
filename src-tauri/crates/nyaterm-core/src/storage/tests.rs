@@ -20,6 +20,39 @@ fn test_storage(name: &str) -> (PathBuf, Storage) {
     let storage = Storage::open(&dir).expect("open storage");
     (dir, storage)
 }
+
+#[test]
+fn backup_transaction_rolls_back_entities_written_before_a_note_failure() {
+    use crate::core::portable_snapshot::*;
+    let (dir, storage) = test_storage("backup-rollback");
+    let sessions = SessionsConfig {
+        connections: vec![sample_connection("preserved", None, 0)],
+        ..Default::default()
+    };
+    storage.replace_sessions(&sessions).unwrap();
+    let settings = crate::config::AppSettings::default();
+    let mut snapshot: PortableSnapshot = serde_json::from_value(serde_json::json!({
+        "schema_version":PORTABLE_SNAPSHOT_SCHEMA_VERSION,"snapshot_kind":"backup",
+        "revision_id":"fixture","device_id":"fixture","created_at_ms":0,"payload_hash":"","app_version":"fixture",
+        "settings":PortableAppSettings::from_app_settings(&settings,&PortableSnapshotKind::Backup),
+        "sessions":{"connections":[]},
+        "notes":{"folders":[{"id":"cycle","name":"bad","parent_id":"cycle","sort_order":0,"created_at_ms":0,"updated_at_ms":0}],"notes":[]}
+    })).unwrap();
+    snapshot.payload_hash = calculate_payload_hash(&snapshot).unwrap();
+    assert!(storage.restore_backup(&snapshot, &settings).is_err());
+    assert_eq!(
+        storage.load_sessions().unwrap().connections[0].id,
+        "preserved"
+    );
+    drop(storage);
+    let reopened = Storage::open(&dir).unwrap();
+    assert_eq!(
+        reopened.load_sessions().unwrap().connections[0].id,
+        "preserved"
+    );
+    drop(reopened);
+    fs::remove_dir_all(dir).unwrap();
+}
 fn sample_group(id: &str, sort_order: i32) -> Group {
     Group {
         id: id.to_string(),

@@ -436,23 +436,8 @@ impl Storage {
     }
 
     pub fn replace_notes_snapshot(&self, snapshot: &NotesSnapshot) -> AppResult<()> {
-        validate_notes_snapshot(snapshot)?;
         let txn = self.db.begin_write().map_err(storage_error)?;
-        clear_prefix_in_txn(&txn, NOTE_FOLDERS_TABLE, NOTE_FOLDER_PREFIX)?;
-        clear_prefix_in_txn(&txn, NOTES_TABLE, NOTE_DOCUMENT_PREFIX)?;
-        clear_prefix_in_txn(&txn, NOTE_SUMMARIES_TABLE, NOTE_SUMMARY_PREFIX)?;
-        for folder in &snapshot.folders {
-            write_note_folder_in_txn(&txn, folder)?;
-        }
-        for note in &snapshot.notes {
-            write_note_in_txn(&txn, note)?;
-            write_note_summary_in_txn(&txn, &NoteSummary::from(note.clone()))?;
-        }
-        write_meta_u32(
-            &txn,
-            META_NOTE_SUMMARY_INDEX_VERSION,
-            NOTE_SUMMARY_INDEX_VERSION,
-        )?;
+        replace_notes_in_txn(&txn, snapshot)?;
         txn.commit().map_err(storage_error)?;
         Ok(())
     }
@@ -752,7 +737,7 @@ fn next_sort_order_for_parent(
         .saturating_add(1)
 }
 
-fn validate_notes_snapshot(snapshot: &NotesSnapshot) -> AppResult<()> {
+pub(crate) fn validate_notes_snapshot(snapshot: &NotesSnapshot) -> AppResult<()> {
     let mut folder_ids = HashSet::new();
     let mut note_ids = HashSet::new();
     for folder in &snapshot.folders {
@@ -1072,4 +1057,27 @@ mod tests {
             1
         );
     }
+}
+
+pub(super) fn replace_notes_in_txn(
+    txn: &redb::WriteTransaction,
+    snapshot: &NotesSnapshot,
+) -> AppResult<()> {
+    validate_notes_snapshot(snapshot)?;
+    clear_prefix_in_txn(txn, NOTE_FOLDERS_TABLE, NOTE_FOLDER_PREFIX)?;
+    clear_prefix_in_txn(txn, NOTES_TABLE, NOTE_DOCUMENT_PREFIX)?;
+    clear_prefix_in_txn(txn, NOTE_SUMMARIES_TABLE, NOTE_SUMMARY_PREFIX)?;
+    for folder in &snapshot.folders {
+        write_note_folder_in_txn(txn, folder)?;
+    }
+    for note in &snapshot.notes {
+        write_note_in_txn(txn, note)?;
+        write_note_summary_in_txn(txn, &NoteSummary::from(note.clone()))?;
+    }
+    write_meta_u32(
+        txn,
+        META_NOTE_SUMMARY_INDEX_VERSION,
+        NOTE_SUMMARY_INDEX_VERSION,
+    )?;
+    Ok(())
 }

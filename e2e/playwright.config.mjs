@@ -2,7 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
-  testMatch: "deployment.spec.mjs",
+  testMatch: process.env.NYATERM_E2E_FEATURES_ONLY
+    ? "web-features.spec.mjs"
+    : ["deployment.spec.mjs", "web-features.spec.mjs"],
   timeout: 90_000,
   expect: { timeout: 15_000 },
   workers: 1,

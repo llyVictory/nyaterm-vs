@@ -29,6 +29,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, mpsc};
+use tracing::Instrument;
 
 pub struct WebVnc {
     pub manager: Arc<VncSessionManager>,
@@ -62,11 +63,20 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
     let transport_state = state.clone();
     let transport_owner = owner.to_owned();
     let transport_cancel = cancel.clone();
+    let event_span = tracing::Span::current();
+    let transport_span = tracing::Span::current();
     let context = VncContext {
         events: Arc::new(move |_, event, payload| {
+            let _entered = event_span.enter();
             if event.starts_with("vnc-state-") {
                 if let Some(state) = payload["state"].as_str() {
                     *event_latest_state.lock().unwrap() = state.into();
+                    tracing::info!(
+                        event = "vnc.state_changed",
+                        session_id = event.trim_start_matches("vnc-state-"),
+                        reason = state,
+                        "VNC state changed"
+                    );
                 }
             }
             if let Some(id) = payload["requestId"].as_str() {
@@ -84,7 +94,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
             let state = event_state.clone();
             let owner = event_owner.clone();
             let event = event.to_owned();
-            tokio::spawn(async move {
+            crate::observability::spawn(async move {
                 state.event(&owner, &event, payload).await;
             });
             Ok(())
@@ -93,11 +103,15 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
             let state = transport_state.clone();
             let owner = transport_owner.clone();
             let cancel = transport_cancel.clone();
-            Box::pin(async move {
-                crate::network::open(state, owner, cancel, host, port, network)
-                    .await
-                    .map_err(|e| AppError::Channel(e.1))
-            })
+            let span = transport_span.clone();
+            Box::pin(
+                async move {
+                    crate::network::open(state, owner, cancel, host, port, network)
+                        .await
+                        .map_err(|e| AppError::Channel(e.1))
+                }
+                .instrument(span),
+            )
         }),
     };
     let web = Arc::new(WebVnc {
@@ -138,7 +152,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
         nyaterm_core::storage::mark_connection_used(id)?;
     }
     let id = session.id.clone();
-    tokio::spawn(async move {
+    crate::observability::spawn(async move {
         session.cancel.cancelled().await;
         let _ = web.manager.close(&web.context, &session.id).await;
         session::finish(&state, &session).await;
@@ -248,7 +262,20 @@ pub async fn ws_route(
                 session.attached.store(false, Ordering::Release);
             }
         })
-        .on_upgrade(move |socket| socket_loop(session, socket)))
+        .on_upgrade({
+            let span = tracing::Span::current();
+            let guard = crate::observability::StreamLogGuard::new(
+                "vnc.disconnected",
+                Some(session.id.clone()),
+            );
+            move |socket| {
+                async move {
+                let _guard = guard;
+                tracing::info!(event="vnc.attached", session_id=%session.id, "Web stream attached");
+                socket_loop(session, socket).await;
+            }.instrument(span)
+            }
+        }))
 }
 async fn socket_loop(session: Arc<session::WebSession>, mut socket: WebSocket) {
     let SessionProtocol::Vnc(web) = &session.protocol else {

@@ -1,5 +1,3 @@
-import { downloadDir } from "@/lib/backend/platform/path";
-import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -18,6 +16,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/context/ThemeContext";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
+import { downloadDir } from "@/lib/backend/platform/path";
+import { supports } from "@/lib/backend/runtime";
 import { getBuiltinRules, hexLuminance } from "@/lib/keywordHighlightPresets";
 import type { KeywordHighlightRule, SshKeepAliveMode } from "@/types/global";
 import { KeywordHighlightImportDialog } from "../dialog/terminal/KeywordHighlightImportDialog";
@@ -71,9 +72,7 @@ function PathPickerInput({
     <div className="space-y-3">
       <div className="min-w-0">
         <Label className="text-sm font-medium leading-5">{label}</Label>
-        {desc && (
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>
-        )}
+        {desc && <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>}
       </div>
       <div className="flex max-w-2xl flex-col gap-2 sm:flex-row">
         <Input
@@ -481,150 +480,152 @@ export function TerminalTab() {
         )}
       </SettingSection>
 
-      <SettingSection
-        title={t("settings.recordingSettings")}
-        desc={t("settings.recordingSettingsDesc")}
-        contentClassName="space-y-5"
-      >
-        <SettingRow
-          label={t("settings.recordingAutoStart")}
-          desc={t("settings.recordingAutoStartDesc")}
+      {supports("recording") && (
+        <SettingSection
+          title={t("settings.recordingSettings")}
+          desc={t("settings.recordingSettingsDesc")}
+          contentClassName="space-y-5"
         >
-          <SettingSwitch
-            checked={recording.auto_start}
-            onChange={(v) => updateRecording({ auto_start: v })}
-          />
-        </SettingRow>
+          <SettingRow
+            label={t("settings.recordingAutoStart")}
+            desc={t("settings.recordingAutoStartDesc")}
+          >
+            <SettingSwitch
+              checked={recording.auto_start}
+              onChange={(v) => updateRecording({ auto_start: v })}
+            />
+          </SettingRow>
 
-        <SettingSelect
-          label={t("settings.recordingDefaultMode")}
-          desc={t("settings.recordingDefaultModeDesc")}
-          value={recording.default_mode || "transcript"}
-          controlClassName="max-w-sm"
-          onValueChange={(v) => updateRecording({ default_mode: v as "transcript" | "raw" })}
-        >
-          <SelectItem value="transcript">{t("settings.recordingModeTranscript")}</SelectItem>
-          <SelectItem value="raw">{t("settings.recordingModeRaw")}</SelectItem>
-        </SettingSelect>
-
-        <PathPickerInput
-          label={t("settings.recordingPath")}
-          desc={t("settings.recordingPathDesc")}
-          value={recording.base_path}
-          placeholder={defaultDownloadDir}
-          onChange={(v) => updateRecording({ base_path: v })}
-        />
-
-        <SettingInput
-          label={t("settings.recordingPathTemplate")}
-          desc={t("settings.recordingPathTemplateDesc")}
-          value={recording.path_template}
-          controlClassName="max-w-2xl"
-          className="font-mono text-xs"
-          onChange={(event) => updateRecording({ path_template: event.target.value })}
-        />
-
-        <SettingRow
-          label={t("settings.recordingIncludeTimestamps")}
-          desc={t("settings.recordingIncludeTimestampsDesc")}
-        >
-          <SettingSwitch
-            checked={recording.include_timestamps}
-            onChange={(v) => updateRecording({ include_timestamps: v })}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label={t("settings.recordingIncludeIoLabels")}
-          desc={t("settings.recordingIncludeIoLabelsDesc")}
-        >
-          <SettingSwitch
-            checked={recording.include_io_labels}
-            onChange={(v) => updateRecording({ include_io_labels: v })}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label={t("settings.recordingIncludeMetadata")}
-          desc={t("settings.recordingIncludeMetadataDesc")}
-        >
-          <SettingSwitch
-            checked={recording.include_session_metadata}
-            onChange={(v) => updateRecording({ include_session_metadata: v })}
-          />
-        </SettingRow>
-
-        <SettingSelect
-          label={t("settings.recordingRotation")}
-          desc={t("settings.recordingRotationDesc")}
-          value={rotationValue}
-          controlClassName="max-w-sm"
-          onValueChange={(v) =>
-            updateRecording({
-              rotation:
-                v === "daily"
-                  ? { type: "daily" }
-                  : v === "size"
-                    ? { type: "size", max_bytes: 10 * 1024 * 1024 }
-                    : { type: "session" },
-            })
-          }
-        >
-          <SelectItem value="session">{t("settings.recordingRotationSession")}</SelectItem>
-          <SelectItem value="daily">{t("settings.recordingRotationDaily")}</SelectItem>
-          <SelectItem value="size">{t("settings.recordingRotationSize")}</SelectItem>
-        </SettingSelect>
-
-        {recording.rotation?.type === "size" && (
-          <SettingNumberInput
-            label={t("settings.recordingRotationSizeLimit")}
-            desc={t("settings.recordingRotationSizeLimitDesc")}
-            min={1}
-            max={10240}
-            value={Math.max(1, Math.round(recording.rotation.max_bytes / (1024 * 1024)))}
+          <SettingSelect
+            label={t("settings.recordingDefaultMode")}
+            desc={t("settings.recordingDefaultModeDesc")}
+            value={recording.default_mode || "transcript"}
             controlClassName="max-w-sm"
-            onChange={(v) =>
+            onValueChange={(v) => updateRecording({ default_mode: v as "transcript" | "raw" })}
+          >
+            <SelectItem value="transcript">{t("settings.recordingModeTranscript")}</SelectItem>
+            <SelectItem value="raw">{t("settings.recordingModeRaw")}</SelectItem>
+          </SettingSelect>
+
+          <PathPickerInput
+            label={t("settings.recordingPath")}
+            desc={t("settings.recordingPathDesc")}
+            value={recording.base_path}
+            placeholder={defaultDownloadDir}
+            onChange={(v) => updateRecording({ base_path: v })}
+          />
+
+          <SettingInput
+            label={t("settings.recordingPathTemplate")}
+            desc={t("settings.recordingPathTemplateDesc")}
+            value={recording.path_template}
+            controlClassName="max-w-2xl"
+            className="font-mono text-xs"
+            onChange={(event) => updateRecording({ path_template: event.target.value })}
+          />
+
+          <SettingRow
+            label={t("settings.recordingIncludeTimestamps")}
+            desc={t("settings.recordingIncludeTimestampsDesc")}
+          >
+            <SettingSwitch
+              checked={recording.include_timestamps}
+              onChange={(v) => updateRecording({ include_timestamps: v })}
+            />
+          </SettingRow>
+
+          <SettingRow
+            label={t("settings.recordingIncludeIoLabels")}
+            desc={t("settings.recordingIncludeIoLabelsDesc")}
+          >
+            <SettingSwitch
+              checked={recording.include_io_labels}
+              onChange={(v) => updateRecording({ include_io_labels: v })}
+            />
+          </SettingRow>
+
+          <SettingRow
+            label={t("settings.recordingIncludeMetadata")}
+            desc={t("settings.recordingIncludeMetadataDesc")}
+          >
+            <SettingSwitch
+              checked={recording.include_session_metadata}
+              onChange={(v) => updateRecording({ include_session_metadata: v })}
+            />
+          </SettingRow>
+
+          <SettingSelect
+            label={t("settings.recordingRotation")}
+            desc={t("settings.recordingRotationDesc")}
+            value={rotationValue}
+            controlClassName="max-w-sm"
+            onValueChange={(v) =>
               updateRecording({
-                rotation: { type: "size", max_bytes: Math.max(1, v) * 1024 * 1024 },
+                rotation:
+                  v === "daily"
+                    ? { type: "daily" }
+                    : v === "size"
+                      ? { type: "size", max_bytes: 10 * 1024 * 1024 }
+                      : { type: "session" },
               })
             }
+          >
+            <SelectItem value="session">{t("settings.recordingRotationSession")}</SelectItem>
+            <SelectItem value="daily">{t("settings.recordingRotationDaily")}</SelectItem>
+            <SelectItem value="size">{t("settings.recordingRotationSize")}</SelectItem>
+          </SettingSelect>
+
+          {recording.rotation?.type === "size" && (
+            <SettingNumberInput
+              label={t("settings.recordingRotationSizeLimit")}
+              desc={t("settings.recordingRotationSizeLimitDesc")}
+              min={1}
+              max={10240}
+              value={Math.max(1, Math.round(recording.rotation.max_bytes / (1024 * 1024)))}
+              controlClassName="max-w-sm"
+              onChange={(v) =>
+                updateRecording({
+                  rotation: { type: "size", max_bytes: Math.max(1, v) * 1024 * 1024 },
+                })
+              }
+            />
+          )}
+
+          <SettingSelect
+            label={t("settings.recordingExistingFileBehavior")}
+            desc={t("settings.recordingExistingFileBehaviorDesc")}
+            value={recording.existing_file_behavior || "unique"}
+            controlClassName="max-w-sm"
+            onValueChange={(v) =>
+              updateRecording({ existing_file_behavior: v as "unique" | "append" | "overwrite" })
+            }
+          >
+            <SelectItem value="unique">{t("settings.recordingExistingUnique")}</SelectItem>
+            <SelectItem value="append">{t("settings.recordingExistingAppend")}</SelectItem>
+            <SelectItem value="overwrite">{t("settings.recordingExistingOverwrite")}</SelectItem>
+          </SettingSelect>
+
+          <SettingNumberInput
+            label={t("settings.recordingMemoryLimit")}
+            desc={t("settings.recordingMemoryLimitDesc")}
+            min={1}
+            max={100}
+            value={recordingMemoryLimitMiB}
+            controlClassName="max-w-sm"
+            onChange={(v) => updateRecording({ memory_limit_bytes: Math.max(1, v) * 1024 * 1024 })}
           />
-        )}
 
-        <SettingSelect
-          label={t("settings.recordingExistingFileBehavior")}
-          desc={t("settings.recordingExistingFileBehaviorDesc")}
-          value={recording.existing_file_behavior || "unique"}
-          controlClassName="max-w-sm"
-          onValueChange={(v) =>
-            updateRecording({ existing_file_behavior: v as "unique" | "append" | "overwrite" })
-          }
-        >
-          <SelectItem value="unique">{t("settings.recordingExistingUnique")}</SelectItem>
-          <SelectItem value="append">{t("settings.recordingExistingAppend")}</SelectItem>
-          <SelectItem value="overwrite">{t("settings.recordingExistingOverwrite")}</SelectItem>
-        </SettingSelect>
-
-        <SettingNumberInput
-          label={t("settings.recordingMemoryLimit")}
-          desc={t("settings.recordingMemoryLimitDesc")}
-          min={1}
-          max={100}
-          value={recordingMemoryLimitMiB}
-          controlClassName="max-w-sm"
-          onChange={(v) => updateRecording({ memory_limit_bytes: Math.max(1, v) * 1024 * 1024 })}
-        />
-
-        <SettingRow
-          label={t("settings.recordingIncludeBinaryTransfers")}
-          desc={t("settings.recordingIncludeBinaryTransfersDesc")}
-        >
-          <SettingSwitch
-            checked={recording.include_binary_transfer_payloads}
-            onChange={(v) => updateRecording({ include_binary_transfer_payloads: v })}
-          />
-        </SettingRow>
-      </SettingSection>
+          <SettingRow
+            label={t("settings.recordingIncludeBinaryTransfers")}
+            desc={t("settings.recordingIncludeBinaryTransfersDesc")}
+          >
+            <SettingSwitch
+              checked={recording.include_binary_transfer_payloads}
+              onChange={(v) => updateRecording({ include_binary_transfer_payloads: v })}
+            />
+          </SettingRow>
+        </SettingSection>
+      )}
 
       <SettingSection contentClassName="space-y-4">
         <SettingRow label={t("settings.actionLinks")} desc={t("settings.actionLinksDesc")}>

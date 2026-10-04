@@ -121,7 +121,7 @@ Web 当前不支持本地 Shell、Serial、RDP、ProxyCommand、SSH agent/X11/�
 
 刷新页面时，按工作区 pane ID 重新附着当前登录的有效会话；旧连接租期结束后，保存的连接按原有工作区恢复流程重新创建。SFTP 仅对 SSH 会话提供。浏览器剪贴板需要 HTTPS 和浏览器权限，未授权时显示提示，画面和键鼠仍可使用。网络面板可管理代理及分组，Web 子窗口使用同源 iframe。单镜像部署，无需 noVNC、Guacamole 或额外服务。
 
-测试与架构见 [web-architecture.md](web-architecture.md)。当前环境未安装 Docker CLI；镜像实构建及浏览器手工验收尚未执行，仍需在部署环境完成。更新后请重新构建镜像并重建容器，旧镜像不会自动获得协议支持。
+测试与架构见 [web-architecture.md](web-architecture.md)。当前环境未安装 Docker CLI；镜像构建、容器内日志和 OpenSSH 部署验收仍需在具备 Docker 的环境执行。更新后请重新构建镜像并重建容器，旧镜像不会自动获得协议支持。
 
 ## Web Beta 能力矩阵与验收
 
@@ -141,4 +141,53 @@ Web 当前不支持本地 Shell、Serial、RDP、ProxyCommand、SSH agent/X11/�
 
 SSH/Telnet 初次附着及断线恢复的每轮预算为 25 秒，单次握手最多 5 秒；退避依次 1、2、4 秒，之后不超过 5 秒。握手失败会查询当前会话；401/404 停止恢复，其余临时失败继续到预算结束。显式关闭、注销、服务端关闭均取消恢复。注销从 File 菜单进入。
 
-本轮检查结果、只读 CI 和真实 Docker/OpenSSH/Playwright 验收命令见 [Web Beta 合并准备](web-merge-readiness.md)。本机尚未执行实际 Docker/Chromium，不能以接口 fixture 测试代替部署验收。
+本轮检查结果、只读 CI 和真实 Docker/OpenSSH/Playwright 验收命令见 [Web Beta 合并准备](web-merge-readiness.md)。Docker/OpenSSH 验收需要 Docker CLI；本机还可运行下述独立 Chromium 验收，但它不代替容器和反向代理验收。
+
+## 密码备份与文件导入
+
+File 菜单的导出在浏览器中设置并确认本次备份密码，下载密码保护的 `.nya` 文件；导入选择文件、输入该文件的原备份密码，并确认覆盖实例配置。取消选择不会报错，执行期间不能重复提交。备份密码与 Web 登录密码、部署加密密钥相互独立，仅在本次请求中使用。
+
+`.nya` 延续桌面已有格式和旧版解码能力。Web 导出将凭据包装到独立的备份密钥中；Web 导入解开源密钥，把凭据重新加密到目标实例。可以在使用不同部署密钥的 Web 实例之间迁移，不需要复制或替换目标 `NYATERM_WEB_ENCRYPTION_KEY`。桌面导出的备份密码是导出时的桌面主密码；当前桌面导入入口也使用桌面主密码解密文件，因此导入 Web 备份前需将桌面主密码设为该备份密码。
+
+导入先校验密码、完整性、数据关系和凭据，再用单个 redb 事务恢复；失败保留原配置。备份中的 Serial、本地 Shell 等桌面配置会保留，Web 能力检查控制使用。导入成功后刷新连接、设置、快捷命令、历史和笔记。运行中的会话仍使用已建立的连接。
+
+连接导入支持 Xshell、MobaXterm、SecureCRT、WindTerm、Electerm、NyaTerm JSON 的单文件导出。服务端只解析上传内容，不读取上传内容指定的服务器路径。WindTerm 如果依赖外部配置或私钥，需先在桌面完整导入再迁移 `.nya`；FinalShell 目录、Termius 本机数据库和自动扫描 `~/.ssh/config` 仅桌面支持。Xshell、MobaXterm、SecureCRT 的导出通常不包含密码，导入后会提示补充凭据。主题、快捷命令、关键词规则和私钥的可见文件入口使用浏览器选择与下载。
+
+| API                            | 正文与结果                                                | 上限                         |
+| ------------------------------ | --------------------------------------------------------- | ---------------------------- |
+| `POST api/backups/export`      | JSON `{ "password": "…" }`；返回 `.nya` 二进制            | 输出 50 MiB                  |
+| `POST api/backups/import`      | multipart `file`、`password`；成功返回 `status=completed` | 文件 50 MiB，解压 50 MiB     |
+| `POST api/imports/connections` | multipart `file`、`source`；返回 `imported`、`warnings`   | 文件 10 MiB，归档展开 50 MiB |
+
+上述接口要求当前登录、正确的 Origin 和 CSRF；`source` 只接受 `xshell`、`mobaxterm`、`securecrt`、`windterm`、`electerm`、`nyaterm_json`，不接受服务器文件路径。
+
+## 部署日志与诊断
+
+服务默认输出 JSON 日志到 stdout，可用 `docker logs --tail 200 nyaterm-web` 或 `docker compose logs --tail 200 nyaterm` 查看。同时写入数据目录的 `logs/` 子目录。日志按 UTC 日期或 10 MiB 轮转，总量不超过 100 MiB；诊断设置中的级别和保留天数保存后立即生效，保留天数为 1–30 天。文件写入失败时继续 stdout 日志并保持业务运行，正常停机刷新日志。
+
+Compose 使用 Docker `json-file` 日志驱动，单文件 10 MiB、最多 3 个。单独 `docker run` 时也可添加 `--log-opt max-size=10m --log-opt max-file=3`。Docker stdout 日志与应用数据目录日志分别轮转。
+
+每个 API 响应包含 `X-Nyaterm-Request-Id`；JSON 错误也带 `request_id`。前端 invoke 的请求 ID 传入服务端，日志记录路由模板、操作、状态码、耗时和相关会话 ID。异步连接任务延续请求关联。底层错误先记录类别、错误码、固定原因及原始错误指纹，再返回通用错误。终端帧和命令正文不会逐条记录。
+
+浏览器未登录时仅保留有界内存队列，登录后批量上传现有 logger、未捕获异常和 Promise rejection。每批最多 50 条、256 KiB，服务端每个登录每分钟最多接受 120 批；断网上报最多重试两次（1 秒、2 秒退避），丢弃数量合并到后续批次，不递归记录上报失败。`POST api/logs/frontend` 和 `GET api/diagnostics/export` 要求登录；POST 同时校验 Origin 与 CSRF。
+
+在 Web 设置的诊断区下载 ZIP 包，包含最多 20 MiB 的近期脱敏日志，以及版本、系统、架构和能力清单。任意错误文本和不可信文本以指纹记录；密码、Cookie、CSRF、私钥、命令正文、终端内容不会写入诊断包，数据库和备份也不会收录。Web 隐藏打开本地日志目录入口。本次不提供页面日志查看器。
+
+## 本机浏览器验收
+
+安装 Chromium 后，以本机编译的 Web 服务和真实 dist 执行登录、主题/窄屏截图、备份往返、诊断下载及会话恢复：
+
+```sh
+pnpm exec playwright install chromium
+pnpm build:web
+cargo build --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked
+node scripts/web-local-e2e.mjs
+```
+
+子路径验收先用 `NYATERM_WEB_BASE_PATH=/nyaterm/` 重新构建前端，再设置 `NYATERM_LOCAL_E2E_BASE_PATH=/nyaterm/` 执行同一脚本。测试使用临时数据目录和随机秘密，退出后清理服务进程。截图保存在 `artifacts/web-local-e2e/`。
+
+本轮本机验证（2026-10-04）：Core 413 项测试通过；Web Rust 单元及集成测试通过；相关 Vitest、桌面 `cargo check --locked`、Web 根路径/子路径构建、lint、四语言键检查和能力审计通过。lint 保留 `CommandSuggestions.tsx` 原有的一项依赖提示，构建保留原有资源体积提示。
+
+真实 Chromium 已分别通过根路径和 `/nyaterm/` 的登录错误、限流/断网/SSE 故障注入、会话恢复、密码备份往返、主题与快捷命令文件往返、诊断下载；已检查四语言、浅深主题及 360px 截图。迁移测试使用真实 Web 进程和独立部署密钥，验证密码、私钥和 OTP 解密、损坏/错误密码/超限拒绝、事务回滚及重启后读取，并检查日志脱敏、请求关联、上报频率和级别即时生效。
+
+本机没有 Docker CLI，因此没有执行镜像构建、容器内轮转或 Docker/OpenSSH/反向代理验收；使用 `pnpm test:web:e2e` 在具备 Docker 的环境继续验证。桌面 `.nya` 兼容验证使用共享编解码和原桌面快照流程，未执行桌面 UI 导入验收。

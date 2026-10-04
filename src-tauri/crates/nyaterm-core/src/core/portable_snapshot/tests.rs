@@ -2,12 +2,12 @@
 #[allow(deprecated)]
 mod tests {
     use super::{
-        PORTABLE_SNAPSHOT_SCHEMA_VERSION, PortableAppSettings, PortableSnapshot,
-        PortableSnapshotKind, PortableUiSettings, SNAPSHOT_ZIP_PAYLOAD_NAME,
+        AgentEndpointTargetPlatform, PORTABLE_SNAPSHOT_SCHEMA_VERSION, PortableAppSettings,
+        PortableSnapshot, PortableSnapshotKind, PortableUiSettings, SNAPSHOT_ZIP_PAYLOAD_NAME,
         calculate_payload_hash, calculate_v3_raw_payload_hash, encode_portable_snapshot,
         encode_portable_snapshot_redb, encode_v3_raw_snapshot_redb_for_test,
         normalize_backup_sessions_for_platform, preserve_device_local_sessions,
-        strip_device_local_sessions, sync_settings_payload_changed, AgentEndpointTargetPlatform,
+        strip_device_local_sessions, sync_settings_payload_changed,
     };
     use crate::config::{self, ActivityBarLayout, AppSettings};
     use crate::error::AppError;
@@ -40,11 +40,13 @@ mod tests {
         }))
         .expect("sessions");
 
-        assert!(normalize_backup_sessions_for_platform(
-            &mut sessions,
-            AgentEndpointTargetPlatform::Unix
-        )
-        .expect("normalize backup sessions"));
+        assert!(
+            normalize_backup_sessions_for_platform(
+                &mut sessions,
+                AgentEndpointTargetPlatform::Unix
+            )
+            .expect("normalize backup sessions")
+        );
 
         let config::ConnectionType::Ssh {
             auth_agent_endpoint,
@@ -90,11 +92,13 @@ mod tests {
         }))
         .expect("sessions");
 
-        assert!(normalize_backup_sessions_for_platform(
-            &mut sessions,
-            AgentEndpointTargetPlatform::Windows
-        )
-        .expect("normalize backup sessions"));
+        assert!(
+            normalize_backup_sessions_for_platform(
+                &mut sessions,
+                AgentEndpointTargetPlatform::Windows
+            )
+            .expect("normalize backup sessions")
+        );
 
         let config::ConnectionType::Ssh {
             auth_agent_endpoint,
@@ -106,7 +110,10 @@ mod tests {
         };
         assert!(auth_agent_endpoint.is_none());
         let forwarding = agent_forwarding_config.as_ref().expect("forwarding config");
-        assert_eq!(forwarding.sources.external_agent_endpoints, vec![config::SshAgentEndpoint::Pageant]);
+        assert_eq!(
+            forwarding.sources.external_agent_endpoints,
+            vec![config::SshAgentEndpoint::Pageant]
+        );
         assert!(forwarding.enabled);
     }
 
@@ -134,11 +141,13 @@ mod tests {
         }))
         .expect("sessions");
 
-        assert!(normalize_backup_sessions_for_platform(
-            &mut sessions,
-            AgentEndpointTargetPlatform::Windows
-        )
-        .is_err());
+        assert!(
+            normalize_backup_sessions_for_platform(
+                &mut sessions,
+                AgentEndpointTargetPlatform::Windows
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -519,7 +528,10 @@ mod tests {
         else {
             panic!("expected SSH connection");
         };
-        assert_eq!(auth_agent_endpoint, &Some(config::SshAgentEndpoint::Pageant));
+        assert_eq!(
+            auth_agent_endpoint,
+            &Some(config::SshAgentEndpoint::Pageant)
+        );
         assert!(legacy_agent_forwarding.is_none());
         assert_eq!(
             agent_forwarding_config,
@@ -760,7 +772,8 @@ mod tests {
             Some("2026-08-03T12:00:00.000Z")
         );
         assert_eq!(
-            asset.accelerators
+            asset
+                .accelerators
                 .as_ref()
                 .and_then(|items| items.first())
                 .map(|item| &item.r#type),
@@ -1090,8 +1103,7 @@ mod tests {
         snapshot.payload_hash = calculate_payload_hash(&snapshot).expect("current snapshot hash");
 
         let mut entities = snapshot_entities(&snapshot);
-        let mut legacy_sessions =
-            serde_json::to_value(&snapshot.sessions).expect("sessions json");
+        let mut legacy_sessions = serde_json::to_value(&snapshot.sessions).expect("sessions json");
         let connection = legacy_sessions["connections"][0]
             .as_object_mut()
             .expect("connection object");
@@ -1122,9 +1134,11 @@ mod tests {
         );
         let normalized_sessions =
             serde_json::to_value(&decoded.snapshot.sessions).expect("normalized sessions");
-        assert!(normalized_sessions["connections"][0]["asset"]
-            .get("tags")
-            .is_none());
+        assert!(
+            normalized_sessions["connections"][0]["asset"]
+                .get("tags")
+                .is_none()
+        );
     }
 
     #[test]
@@ -1219,5 +1233,4 @@ mod tests {
             "compressed snapshot should be smaller than legacy redb"
         );
     }
-
 }

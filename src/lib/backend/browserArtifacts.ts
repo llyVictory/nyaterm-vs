@@ -3,10 +3,29 @@ export function pickBrowserFile(accept: string): Promise<File | null> {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = accept;
-  return new Promise((resolve) => {
-    input.onchange = () => resolve(input.files?.[0] ?? null);
-    input.oncancel = () => resolve(null);
-    input.click();
+  input.hidden = true;
+  document.body.append(input);
+  return new Promise((resolve, reject) => {
+    let focusTimer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (file: File | null) => {
+      if (focusTimer) clearTimeout(focusTimer);
+      window.removeEventListener("focus", onFocus);
+      input.remove();
+      resolve(file);
+    };
+    const onFocus = () => {
+      focusTimer = setTimeout(() => finish(input.files?.[0] ?? null), 400);
+    };
+    if (!("oncancel" in input)) window.addEventListener("focus", onFocus, { once: true });
+    input.onchange = () => finish(input.files?.[0] ?? null);
+    input.oncancel = () => finish(null);
+    try {
+      input.click();
+    } catch (error) {
+      window.removeEventListener("focus", onFocus);
+      input.remove();
+      reject(error);
+    }
   });
 }
 
@@ -20,9 +39,12 @@ export function downloadBlob(name: string, blob: Blob): void {
   link.href = url;
   link.download = name;
   document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
 }
 
 export async function readBrowserJson<T>(file: File): Promise<T> {

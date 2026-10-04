@@ -53,7 +53,7 @@ fn read_string_table(
     Ok(values)
 }
 
-fn current_time_ms() -> u64 {
+pub fn current_time_ms() -> u64 {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

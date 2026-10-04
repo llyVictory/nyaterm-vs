@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod backup;
 mod credentials;
 mod history;
 mod known_hosts;

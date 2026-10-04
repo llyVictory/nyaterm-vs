@@ -6,10 +6,11 @@ rust-version = "1.94"
 
 [features]
 test-support = []
+desktop-importer = ["dep:keyring", "dep:crypto_secretbox", "dep:rusty-leveldb"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 thiserror = "2"
 redb = "4.1.0"
 aes-gcm = "0.10"
@@ -45,6 +46,16 @@ strip-ansi-escapes = "0.2"
 vnc-rs = { path = "../../vendor/vnc-rs" }
 tokio-socks = "0.5.2"
 async-http-proxy = { version = "1.2.5", features = ["runtime-tokio", "basic-auth"] }
+
+
+aes = "0.8"
+cbc = "0.1"
+pbkdf2 = "0.12"
+sha3 = "0.10"
+quick-xml = "0.40"
+crypto_secretbox = { version = "0.1", optional = true }
+rusty-leveldb = { version = "4.0", optional = true }
+keyring = { version = "3.6", optional = true, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 [dev-dependencies]
 tempfile = "3"

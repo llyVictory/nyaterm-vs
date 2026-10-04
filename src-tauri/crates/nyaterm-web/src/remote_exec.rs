@@ -10,7 +10,7 @@ struct ChannelGuard(Option<russh::Channel<russh::client::Msg>>);
 impl Drop for ChannelGuard {
     fn drop(&mut self) {
         if let Some(channel) = self.0.take() {
-            tokio::spawn(async move {
+            crate::observability::spawn(async move {
                 let _ = tokio::time::timeout(Duration::from_secs(2), channel.close()).await;
             });
         }

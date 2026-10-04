@@ -31,6 +31,7 @@ use std::{
 };
 use tokio::sync::{Mutex, OwnedMutexGuard, mpsc};
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 pub struct Handler {
     state: Arc<State>,
@@ -447,13 +448,14 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
     )
     .await?;
     let id = session.id.clone();
-    tokio::spawn(async move {
+    crate::observability::spawn(async move {
         let result = tokio::select! {
             _ = session.cancel.cancelled() => Err(WebError::bad("Session creation cancelled")),
             result = tokio::time::timeout(Duration::from_secs(120), connect(&state,&session,target)) => result.unwrap_or(Err(WebError::bad("SSH connection timed out"))),
         };
         match result {
             Ok(channel) => {
+                tracing::info!(event="session.connected", session_id=%session.id, "SSH session connected");
                 session.ready.store(true, Ordering::Release);
                 state
                     .event(&session.owner, "sessions-changed", Value::Null)
@@ -461,6 +463,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
                 terminal::run(channel, commands, sender, session.cancel.clone()).await;
             }
             Err(error) => {
+                tracing::warn!(event="session.connect_failed", session_id=%session.id, reason=crate::observability::error_reason(&error.1), "SSH connection failed");
                 state
                     .event(
                         &session.owner,
@@ -476,6 +479,7 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
     Ok(id)
 }
 pub(crate) async fn finish(state: &State, session: &WebSession) {
+    tracing::info!(event="session.closed", session_id=%session.id, "Web session closed");
     session.cancel.cancel();
     // Let cancelled transfers remove their temporary files while SSH is still alive.
     let _transfers = tokio::time::timeout(
@@ -694,7 +698,15 @@ pub async fn ws_route(
         .max_message_size(64 * 1024)
         .max_frame_size(64 * 1024)
         .max_write_buffer_size(256 * 1024)
-        .on_upgrade(move |socket| socket_loop(session, receiver, socket)))
+         .on_upgrade({
+            let span = tracing::Span::current();
+            let guard = crate::observability::StreamLogGuard::new("terminal.disconnected", Some(session.id.clone()));
+            move |socket| async move {
+                let _guard = guard;
+                tracing::info!(event="terminal.attached", session_id=%session.id, "Web stream attached");
+                socket_loop(session, receiver, socket).await;
+            }.instrument(span)
+        }))
 }
 struct Attachment(Arc<WebSession>);
 impl Drop for Attachment {
