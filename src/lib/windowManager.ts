@@ -1,5 +1,6 @@
 import { emit, listen } from "@/lib/backend/api";
 import { WebviewWindow } from "@/lib/backend/platform/webviewWindow";
+import { runtime } from "@/lib/backend/runtime";
 import {
   availableMonitors,
   getCurrentWindow,
@@ -740,20 +741,23 @@ async function openChildWindowInternal(opts: ChildWindowOptions) {
   );
   const listenerReadyMs = Math.round(performance.now() - startedAt);
   try {
-    await invoke("open_child_window", {
-      options: {
-        label: opts.label,
-        title: opts.title,
-        url: appendChildWindowReadyToken(opts.url, readyToken),
-        kind,
-        parentLabel: opts.parentLabel ?? ownerMainWindowLabel,
-        width: opts.width ?? 720,
-        height: opts.height ?? 560,
-        resizable: opts.resizable ?? true,
-        alwaysOnTop: needsAlwaysOnTop(opts.label),
-        stateKey: opts.stateKey,
-      },
-    });
+    const options = {
+      label: opts.label,
+      title: opts.title,
+      url: appendChildWindowReadyToken(opts.url, readyToken),
+      kind,
+      parentLabel: opts.parentLabel ?? ownerMainWindowLabel,
+      width: opts.width ?? 720,
+      height: opts.height ?? 560,
+      resizable: opts.resizable ?? true,
+      alwaysOnTop: needsAlwaysOnTop(opts.label),
+      stateKey: opts.stateKey,
+    };
+    if (runtime === "web") {
+      new WebviewWindow(opts.label, { ...options, visible: false });
+    } else {
+      await invoke("open_child_window", { options });
+    }
     const invokeMs = Math.round(performance.now() - startedAt);
 
     const win = await WebviewWindow.getByLabel(opts.label);

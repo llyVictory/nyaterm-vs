@@ -50,6 +50,7 @@ const browserWindow = {
   show: noop,
   hide: noop,
   setEnabled: noop,
+  setFocusable: noop,
   setAlwaysOnTop: noop,
   setShadow: noop,
   setDecorations: noop,

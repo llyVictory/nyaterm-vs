@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+vi.mock("@/i18n", () => ({ default: { t: (key: string) => key } }));
 class FakeSocket {
   static OPEN = 1;
   static instances: FakeSocket[] = [];
@@ -148,6 +149,100 @@ describe("browser backend boundary", () => {
     expect(await WebviewWindow.getByLabel("settings")).toBe(child);
     await child.close();
     expect(document.querySelector("iframe")).toBeNull();
+  });
+  it("opens settings through the window manager, waits for readiness, reuses and closes the dialog", async () => {
+    vi.spyOn(window, "focus").mockImplementation(() => {});
+    const { openSettings } = await import("../windowManager");
+    const { browserEmit, browserListen } = await import("./events");
+    const { CHILD_WINDOW_LIFECYCLE_EVENT } =
+      await import("../childWindowProtocol");
+    const command = vi.fn();
+    const stop = await browserListen("settings-open-tab", command);
+    const opening = openSettings("appearance");
+    await waitFor(() => expect(document.querySelector("iframe")).toBeTruthy());
+    const frame = document.querySelector("iframe")!;
+    const url = new URL(frame.src);
+    expect(url.pathname).toBe("/nyaterm/index.html");
+    expect(url.searchParams.get("webWindowLabel")).toBe("settings");
+    expect(frame.parentElement?.style.display).toBe("none");
+    const identity = {
+      label: "settings",
+      token: url.searchParams.get("readyToken")!,
+    };
+    expect(identity.token).toBeTruthy();
+    await browserEmit(CHILD_WINDOW_LIFECYCLE_EVENT, {
+      ...identity,
+      phase: "shell-ready",
+    });
+    const child = await opening;
+    expect(await child.isVisible()).toBe(true);
+    expect(command).not.toHaveBeenCalled();
+    await browserEmit(CHILD_WINDOW_LIFECYCLE_EVENT, {
+      ...identity,
+      phase: "command-ready",
+      command: "settings-open-tab",
+    });
+    expect(command).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: { tab: "appearance", targetWindowLabel: "main" },
+      }),
+    );
+    expect(await openSettings("general")).toBe(child);
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+    await child.close();
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    stop();
+  });
+  it("removes a browser child when bootstrap fails before readiness", async () => {
+    vi.spyOn(window, "focus").mockImplementation(() => {});
+    const { openChildWindow } = await import("../windowManager");
+    const { browserEmit } = await import("./events");
+    const { CHILD_WINDOW_LIFECYCLE_EVENT } =
+      await import("../childWindowProtocol");
+    const opening = openChildWindow({
+      label: "new-session",
+      title: "New session",
+      url: "index.html?window=new-session&owner=main",
+    });
+    const failure = expect(opening).rejects.toThrow(
+      "Child window did not finish rendering",
+    );
+    await waitFor(() => expect(document.querySelector("iframe")).toBeTruthy());
+    const url = new URL(document.querySelector("iframe")!.src);
+    await browserEmit(CHILD_WINDOW_LIFECYCLE_EVENT, {
+      label: "new-session",
+      token: url.searchParams.get("readyToken"),
+      phase: "load-failed",
+      stage: "bootstrap-import",
+    });
+    await failure;
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("keeps browser logs in the console without sending unsupported persistence requests", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { logger } = await import("../logger");
+    for (let index = 0; index < 60; index += 1) {
+      logger.info({
+        domain: "app.lifecycle",
+        event: "test.entry",
+        message: "Browser log",
+      });
+    }
+    logger.error({
+      domain: "ui.error",
+      event: "test.error",
+      message: "Browser error",
+    });
+    await logger.flush();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(info).toHaveBeenCalledTimes(60);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    info.mockRestore();
+    error.mockRestore();
   });
   it("shows the login gate and mounts the existing UI only after authentication", async () => {
     fetchMock.mockResolvedValueOnce(

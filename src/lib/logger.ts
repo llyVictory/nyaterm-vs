@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@/lib/backend/api";
+import { runtime } from "@/lib/backend/runtime";
 import type { DiagnosticsLogLevel } from "@/types/global";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -339,6 +340,7 @@ function emit(level: LogLevel, payload: LogPayload): void {
 
   const entry = normalizePayload(level, payload);
   writeConsole(entry);
+  if (runtime === "web") return;
   queue.push(entry);
   enforceQueueLimit();
 
@@ -373,4 +375,4 @@ export const logger = {
   createRequestId,
 };
 
-registerLifecycleFlush();
+if (runtime === "desktop") registerLifecycleFlush();

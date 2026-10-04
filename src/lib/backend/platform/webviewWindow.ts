@@ -44,7 +44,7 @@ class BrowserWindow {
       position: "fixed",
       inset: "0",
       zIndex: "10000",
-      display: "flex",
+      display: options.visible === false ? "none" : "flex",
       alignItems: "center",
       justifyContent: "center",
       background: "rgba(0,0,0,.5)",
@@ -96,6 +96,10 @@ class BrowserWindow {
   async setFocus() {
     this.frame.focus();
   }
+  async setTitle(title: string) {
+    this.frame.title = title;
+  }
+  async setFocusable() {}
   async isVisible() {
     return this.overlay.isConnected && this.overlay.style.display !== "none";
   }
