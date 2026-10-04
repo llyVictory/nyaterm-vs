@@ -71,6 +71,8 @@ try {
     const image = `${id}-${name}`;
     docker([
       "build",
+      "-f",
+      "deploy/web/Dockerfile",
       "--build-arg",
       `NYATERM_WEB_BASE_PATH=${basePath}`,
       "-t",

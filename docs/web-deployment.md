@@ -49,8 +49,10 @@ pnpm web:serve
 
 ## Docker
 
+部署文件集中在 [deploy/web/](../deploy/web/README.md)。以下 Docker 和 Compose 命令均在仓库根目录执行；构建上下文仍是仓库根目录，使用根目录的 `.dockerignore`。
+
 ```sh
-docker build -t nyaterm-web .
+docker build -f deploy/web/Dockerfile -t nyaterm-web .
 docker volume create nyaterm-data
 docker run -d --name nyaterm-web --init \
   -p 127.0.0.1:8080:8080 \
@@ -66,20 +68,22 @@ docker run -d --name nyaterm-web --init \
 
 容器使用 UID / GID `10001:10001`。绑定目录时，确保该用户可以读取秘密文件和写入数据目录；新 named volume 会继承镜像中 `/data` 的所有权。默认端口映射仅暴露本机。如需远程访问，使用下面的 HTTPS 反向代理配置。
 
-仓库还提供 `docker-compose.yml`，它通过外部环境变量注入密码和密钥：
+仓库还提供 `deploy/web/docker-compose.yml`，它通过外部环境变量注入密码和密钥：
 
 ```sh
-docker compose -f docker-compose.yml up --build -d
+docker compose -f deploy/web/docker-compose.yml up --build -d
 ```
 
-提前在当前 shell 或受限 `.env` 中设置两个必填秘密。`.env*` 已排除在 Git 和 Docker build context 外。生产环境优先将 Compose 改为 `secrets` 挂载和 `_FILE` 变量，避免把秘密写入镜像。Dockerfile 使用 Node、Rust、Debian 三阶段构建，最终镜像只含 dist、服务程序和运行依赖。
+提前在当前 shell 或仓库根目录的受限 `.env` 中设置两个必填秘密。使用外部环境文件时，在 Compose 命令中显式添加 `--env-file /absolute/private/nyaterm.env`。`.env*` 已排除在 Git 和 Docker build context 外。生产环境优先将 Compose 改为 `secrets` 挂载和 `_FILE` 变量，避免把秘密写入镜像。Dockerfile 使用 Node、Rust、Debian 三阶段构建，最终镜像只含 dist、服务程序和运行依赖。
+
+Compose 默认项目名显式设为 `nyaterm`，与原先在名为 `nyaterm` 的仓库根目录运行的默认项目名一致，数据卷仍为 `nyaterm_nyaterm-data`。如果旧部署使用其他仓库目录名、`-p` 或 `COMPOSE_PROJECT_NAME`，迁移后须通过 `-p <原项目名>` 或 `COMPOSE_PROJECT_NAME` 沿用原值，确保继续使用原数据卷和镜像；原登录密码和加密密钥也须保持一致。
 
 ## HTTPS 和子路径
 
 例如部署到 `https://terminal.example.com/nyaterm/`：
 
 ```sh
-docker build --build-arg NYATERM_WEB_BASE_PATH=/nyaterm/ -t nyaterm-web .
+docker build -f deploy/web/Dockerfile --build-arg NYATERM_WEB_BASE_PATH=/nyaterm/ -t nyaterm-web .
 ```
 
 运行时设置 `NYATERM_WEB_PUBLIC_URL=https://terminal.example.com/nyaterm/`。前端和后端必须使用相同的 origin 和路径；后端会校验原始 Host / Origin，不使用转发头放宽校验。代理应保留完整路径，不能剥掉 `/nyaterm`。
@@ -165,7 +169,7 @@ File 菜单的导出在浏览器中设置并确认本次备份密码，下载密
 
 ## 部署日志与诊断
 
-服务默认输出 JSON 日志到 stdout，可用 `docker logs --tail 200 nyaterm-web` 或 `docker compose logs --tail 200 nyaterm` 查看。同时写入数据目录的 `logs/` 子目录。日志按 UTC 日期或 10 MiB 轮转，总量不超过 100 MiB；诊断设置中的级别和保留天数保存后立即生效，保留天数为 1–30 天。文件写入失败时继续 stdout 日志并保持业务运行，正常停机刷新日志。
+服务默认输出 JSON 日志到 stdout，可用 `docker logs --tail 200 nyaterm-web` 或 `docker compose -f deploy/web/docker-compose.yml logs --tail 200 nyaterm` 查看。同时写入数据目录的 `logs/` 子目录。日志按 UTC 日期或 10 MiB 轮转，总量不超过 100 MiB；诊断设置中的级别和保留天数保存后立即生效，保留天数为 1–30 天。文件写入失败时继续 stdout 日志并保持业务运行，正常停机刷新日志。
 
 Compose 使用 Docker `json-file` 日志驱动，单文件 10 MiB、最多 3 个。单独 `docker run` 时也可添加 `--log-opt max-size=10m --log-opt max-file=3`。Docker stdout 日志与应用数据目录日志分别轮转。
 

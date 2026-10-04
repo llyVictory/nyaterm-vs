@@ -322,6 +322,10 @@ AUR package: [`nyaterm-bin`](https://aur.archlinux.org/packages/nyaterm-bin)
 > `nyaterm-bin` is a community-maintained binary AUR package. If the AUR package has not yet caught up with the latest release, download the official package from [Releases](https://github.com/nyakang/nyaterm/releases).
 
 
+## Web / Docker Deployment
+
+The Web Beta serves the browser interface and API from a single container for one trusted administrator. See [deploy/web/](./deploy/web/README.md) for build and Compose commands, and the [deployment guide](./docs/web-deployment.md) for configuration and supported capabilities.
+
 ## Prerequisites for Development
 
 - Node.js 18+
@@ -351,6 +355,7 @@ pnpm tauri dev
 │   ├── src/core/           # SSH, SFTP, PTY, Telnet, Serial, AI, backup logic
 │   ├── src/config/         # Persistent config models
 │   └── crates/otp/         # Local OTP implementation
+├── deploy/web/             # Web Dockerfile, Compose, and deployment entry point
 ├── docs-site/              # Docusaurus documentation site
 ├── public/                 # Static assets
 └── scripts/                # Checks, version sync, and demo helper scripts

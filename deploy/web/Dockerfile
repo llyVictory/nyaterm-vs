@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# Build from the repository root: docker build -f deploy/web/Dockerfile -t nyaterm-web .
 FROM node:24-bookworm-slim AS frontend
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@11.10.0 --activate

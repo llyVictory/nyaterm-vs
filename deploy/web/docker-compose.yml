@@ -1,7 +1,10 @@
+name: nyaterm
+
 services:
   nyaterm:
     build:
-      context: .
+      context: ../..
+      dockerfile: deploy/web/Dockerfile
       args:
         NYATERM_WEB_BASE_PATH: ${NYATERM_WEB_BASE_PATH:-/}
     ports:
