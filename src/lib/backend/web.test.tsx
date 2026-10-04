@@ -8,6 +8,7 @@ vi.mock("@/i18n", () => ({ default: { t: (key: string) => key } }));
 class FakeSocket {
   static OPEN = 1;
   static instances: FakeSocket[] = [];
+  static failedOpenings = 0;
   readyState = 1;
   bufferedAmount = 0;
   binaryType = "";
@@ -18,7 +19,13 @@ class FakeSocket {
   sent: unknown[] = [];
   constructor(public url: URL) {
     FakeSocket.instances.push(this);
-    queueMicrotask(() => this.onopen?.());
+    if (FakeSocket.failedOpenings > 0) {
+      FakeSocket.failedOpenings--;
+      queueMicrotask(() => {
+        this.onerror?.();
+        this.close();
+      });
+    } else queueMicrotask(() => this.onopen?.());
   }
   send(value: unknown) {
     this.sent.push(value);
@@ -48,6 +55,7 @@ beforeEach(() => {
   vi.stubGlobal("BroadcastChannel", undefined);
   vi.stubGlobal("fetch", fetchMock);
   FakeSocket.instances = [];
+  FakeSocket.failedOpenings = 0;
   fetchMock
     .mockReset()
     .mockImplementation(
@@ -130,6 +138,9 @@ describe("browser backend boundary", () => {
     const { deliver } = await import("./events");
     await expect(httpInvoke("create_local_session")).rejects.toThrow(
       "Capability unavailable",
+    );
+    await expect(httpInvoke("get_default_local_shell")).rejects.toThrow(
+      "Capability unavailable in Web mode: localShell",
     );
     expect(fetchMock).not.toHaveBeenCalled();
     deliver("terminal-output-absent", { data: "", bytes: 2 * 1024 * 1024 });
@@ -273,4 +284,140 @@ describe("browser backend boundary", () => {
       await screen.findByText("Existing NyaTerm application"),
     ).toBeTruthy();
   });
+});
+
+describe("Web Telnet and VNC", () => {
+  it("restores VNC frames and input after a failed reconnect handshake", async () => {
+    const { subscribeBrowserVnc, sendBrowserVnc } = await import("./vnc");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const frame = vi.fn();
+    const onError = vi.fn();
+    const stop = await subscribeBrowserVnc("retry", frame, onError);
+    try {
+      FakeSocket.failedOpenings = 1;
+      FakeSocket.instances[0].close();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(onError).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1000);
+      const recovered = FakeSocket.instances[2];
+      const bytes = new ArrayBuffer(44);
+      recovered.onmessage?.({ data: bytes });
+      expect(frame).toHaveBeenCalledWith(bytes);
+      await sendBrowserVnc("retry", { type: "input", events: [] });
+      expect(recovered.sent).toEqual([
+        JSON.stringify({ type: "input", events: [] }),
+      ]);
+      stop();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(FakeSocket.instances).toHaveLength(3);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+  it("enables the supported protocol and proxy capabilities only", async () => {
+    const { supports } = await import("./runtime");
+    for (const name of ["ssh", "telnet", "vnc", "networkProxy"] as const)
+      expect(supports(name)).toBe(true);
+    for (const name of ["remoteDesktop", "localShell", "serial"] as const)
+      expect(supports(name)).toBe(false);
+  });
+  it("maps Telnet and VNC creation and loads real proxy configuration", async () => {
+    const { httpInvoke } = await import("./http");
+    await httpInvoke("create_telnet_session", {
+      host: "telnet.test",
+      port: 23,
+    });
+    expect(
+      JSON.parse(
+        fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1].body,
+      ),
+    ).toEqual({ host: "telnet.test", port: 23, type: "telnet" });
+    await httpInvoke("create_vnc_session", { connectionId: "vnc-saved" });
+    expect(
+      JSON.parse(
+        fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1].body,
+      ),
+    ).toEqual({ connectionId: "vnc-saved", type: "vnc" });
+    await httpInvoke("get_proxies");
+    expect(
+      fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[0].pathname,
+    ).toBe("/nyaterm/api/commands/get_proxies");
+  });
+  it("replays VNC messages and keeps a replacement safe from stale cleanup", async () => {
+    const { subscribeBrowserVnc, sendBrowserVnc, closeAllBrowserVnc } =
+      await import("./vnc");
+    const { browserListen } = await import("./events");
+    const oldController = new AbortController();
+    const old = subscribeBrowserVnc(
+      "vnc",
+      vi.fn(),
+      vi.fn(),
+      oldController.signal,
+    ).catch(() => {});
+    const frame = vi.fn();
+    const current = subscribeBrowserVnc("vnc", frame, vi.fn());
+    await old;
+    const stop = await current;
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!;
+    const state = vi.fn();
+    const unlisten = await browserListen("vnc-state-vnc", state);
+    const bytes = new ArrayBuffer(44);
+    socket.onmessage?.({ data: bytes });
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "event",
+        event: "vnc-state-vnc",
+        payload: { state: "active" },
+      }),
+    });
+    expect(frame).toHaveBeenCalledWith(bytes);
+    expect(state).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: { state: "active" } }),
+    );
+    oldController.abort();
+    await sendBrowserVnc("vnc", { type: "input", events: [] });
+    expect(socket.sent).toContain(
+      JSON.stringify({ type: "input", events: [] }),
+    );
+    expect(socket.url.search).toBe("");
+    stop();
+    expect(socket.readyState).toBe(3);
+    unlisten();
+    closeAllBrowserVnc();
+  });
+  it("cancels a VNC attachment before its socket opens", async () => {
+    const { subscribeBrowserVnc } = await import("./vnc");
+    const controller = new AbortController();
+    const result = subscribeBrowserVnc(
+      "cancelled",
+      vi.fn(),
+      vi.fn(),
+      controller.signal,
+    );
+    controller.abort();
+    await expect(result).rejects.toThrow();
+    expect(FakeSocket.instances[0].readyState).toBe(3);
+  });
+});
+
+it("delivers Web connection failures to the existing terminal error listener", async () => {
+  const { httpInvoke } = await import("./http");
+  const { browserListen } = await import("./events");
+  await httpInvoke("attach_session", { sessionId: "failure" });
+  const socket = FakeSocket.instances[0];
+  const failed = vi.fn();
+  const unlisten = await browserListen("session-error-failure", failed);
+  socket.onmessage?.({
+    data: JSON.stringify({
+      type: "error",
+      error: "Proxy credentials could not be decrypted",
+    }),
+  });
+  expect(failed).toHaveBeenCalledWith(
+    expect.objectContaining({
+      payload: "Proxy credentials could not be decrypted",
+    }),
+  );
+  unlisten();
 });

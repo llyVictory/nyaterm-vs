@@ -80,6 +80,7 @@ impl client::Handler for Handler {
     }
 }
 pub struct WebSession {
+    pub protocol: SessionProtocol,
     pub id: String,
     pub owner: String,
     pub name: String,
@@ -88,6 +89,7 @@ pub struct WebSession {
     pub username: String,
     pub connection_id: Option<String>,
     pub request_id: Option<String>,
+    pub workspace_pane_id: Option<String>,
     pub cancel: CancellationToken,
     pub handle: Mutex<Option<client::Handle<Handler>>>,
     pub input: mpsc::Sender<Command>,
@@ -98,16 +100,106 @@ pub struct WebSession {
     pub transfers: Arc<tokio::sync::Semaphore>,
     pub sftp: config::SftpSettings,
 }
+pub enum SessionProtocol {
+    Ssh,
+    Telnet,
+    Vnc(Arc<crate::vnc::WebVnc>),
+}
 impl WebSession {
     pub fn info(&self) -> Value {
-        json!({"id":self.id,"name":self.name,"session_type":"SSH","host":self.host,"port":self.port,"username":self.username,"connection_id":self.connection_id,"owner_window_label":"main","terminal_available":true,"shell_available":true,"sftp_available":self.sftp.enabled && self.ready.load(Ordering::Acquire),"runtime_mode":"standard","dynamic_title_enabled":false,"dynamic_title_integration_active":false})
+        let kind = match self.protocol {
+            SessionProtocol::Ssh => "SSH",
+            SessionProtocol::Telnet => "Telnet",
+            SessionProtocol::Vnc(_) => "VNC",
+        };
+        let terminal = !matches!(self.protocol, SessionProtocol::Vnc(_));
+        let sftp = matches!(self.protocol, SessionProtocol::Ssh)
+            && self.sftp.enabled
+            && self.ready.load(Ordering::Acquire);
+        let connected = match &self.protocol {
+            SessionProtocol::Vnc(web) => *web.state.lock().unwrap() == "active",
+            _ => self.ready.load(Ordering::Acquire),
+        } && !self.cancel.is_cancelled();
+        json!({"id":self.id,"name":self.name,"session_type":kind,"host":self.host,"port":self.port,"username":self.username,"connection_id":self.connection_id,"owner_window_label":"main","workspace_pane_id":self.workspace_pane_id,"attached":self.attached.load(Ordering::Acquire),"ready":self.ready.load(Ordering::Acquire),"connected":connected,"terminal_available":terminal,"shell_available":terminal,"sftp_available":sftp,"remote_file_browser_enabled":sftp,"remote_stats_enabled":false,"injection_active":false,"runtime_mode":"standard","ssh_runtime_mode":"standard","dynamic_title_enabled":false,"dynamic_title_integration_active":false})
     }
 }
 
-struct Target {
-    host: String,
-    port: u16,
-    username: String,
+pub(crate) struct SessionMetadata {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub name: String,
+    pub connection_id: Option<String>,
+    pub sftp: Option<config::SftpSettings>,
+}
+pub(crate) async fn register(
+    state: &Arc<State>,
+    owner: &str,
+    args: &Value,
+    protocol: SessionProtocol,
+    metadata: SessionMetadata,
+    cancel: CancellationToken,
+) -> Result<(
+    Arc<WebSession>,
+    mpsc::Receiver<Command>,
+    mpsc::Sender<Output>,
+)> {
+    state.login(owner).await?;
+    crate::network::validate_target(&metadata.host, metadata.port)?;
+    let (input, commands) = mpsc::channel(128);
+    let (sender, output) = mpsc::channel(terminal::OUTPUT_CAPACITY);
+    let session = Arc::new(WebSession {
+        protocol,
+        id: uuid::Uuid::new_v4().to_string(),
+        owner: owner.into(),
+        name: metadata.name,
+        host: metadata.host,
+        port: metadata.port,
+        username: metadata.username,
+        connection_id: metadata.connection_id,
+        request_id: args["createRequestId"].as_str().map(String::from),
+        workspace_pane_id: args["recordingScopeId"].as_str().map(String::from),
+        cancel,
+        handle: Mutex::new(None),
+        input,
+        output: Arc::new(Mutex::new(output)),
+        attached: AtomicBool::new(false),
+        detached_at: StdMutex::new(Instant::now()),
+        ready: AtomicBool::new(false),
+        transfers: Arc::new(tokio::sync::Semaphore::new(4)),
+        sftp: metadata.sftp.unwrap_or(config::SftpSettings {
+            enabled: false,
+            ..Default::default()
+        }),
+    });
+    let mut registry = state.sessions.lock().await;
+    if registry.len() >= 128 || registry.values().filter(|s| s.owner == owner).count() >= 16 {
+        return Err(WebError::bad("Too many sessions"));
+    }
+    registry.insert(session.id.clone(), session.clone());
+    Ok((session, commands, sender))
+}
+pub(crate) fn connection(args: &Value, kind: &str) -> Result<(config::SavedConnection, bool)> {
+    if let Some(id) = args["connectionId"].as_str() {
+        return Ok((config::load_connection_by_id(&(), id)?, true));
+    }
+    let mut value = if args["config"].is_object() {
+        args["config"].clone()
+    } else {
+        args.clone()
+    };
+    value["type"] = json!(kind);
+    value["id"] = json!("");
+    if !value["name"].is_string() {
+        value["name"] = json!(kind);
+    }
+    Ok((serde_json::from_value(value)?, false))
+}
+
+pub(crate) struct Target {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) username: String,
     name: String,
     mode: String,
     secret: Option<zeroize::Zeroizing<String>>,
@@ -115,6 +207,7 @@ struct Target {
     passphrase: Option<zeroize::Zeroizing<String>>,
     preferences: Option<config::SshAlgorithmPreferences>,
     connection_id: Option<String>,
+    pub(crate) network: Option<config::ConnectionNetwork>,
     terminal_type: config::SshTerminalType,
     sftp: config::SftpSettings,
 }
@@ -140,7 +233,13 @@ fn validate_sftp(settings: &config::SftpSettings) -> Result<()> {
     }
     Ok(())
 }
-fn target(args: &Value) -> Result<Target> {
+pub(crate) fn target(args: &Value) -> Result<Target> {
+    target_for(args, false)
+}
+pub(crate) fn jump_target(id: &str) -> Result<Target> {
+    target_for(&json!({"connectionId": id}), true)
+}
+fn target_for(args: &Value, transport_only: bool) -> Result<Target> {
     if let Some(id) = args["connectionId"].as_str() {
         let conn = config::load_connection_by_id(&(), id)?;
         let config::ConnectionType::Ssh {
@@ -155,26 +254,23 @@ fn target(args: &Value) -> Result<Target> {
         else {
             return Err(WebError::unsupported());
         };
-        if *x11_forwarding || agent_forwarding_config.as_ref().is_some_and(|c| c.enabled) {
+        if !transport_only
+            && (*x11_forwarding || agent_forwarding_config.as_ref().is_some_and(|c| c.enabled))
+        {
             return Err(WebError::unsupported());
         }
-        require_utf8(encoding)?;
-        validate_sftp(&conn.sftp)?;
-        if conn.post_login.as_ref().is_some_and(|p| p.enabled)
-            || conn.ssh_profile != config::SshProfile::Standard
+        if !transport_only {
+            require_utf8(encoding)?;
+            validate_sftp(&conn.sftp)?;
+        }
+        if !transport_only
+            && (conn.post_login.as_ref().is_some_and(|p| p.enabled)
+                || conn.ssh_profile != config::SshProfile::Standard)
         {
             return Err(WebError::unsupported());
         }
         let terminal_type =
             config::resolve_ssh_terminal_type(&conn.ssh_profile, conn.terminal_type.as_ref());
-        // Unsupported network paths must not silently become direct connections.
-        if conn
-            .network
-            .as_ref()
-            .is_some_and(|n| n.proxy_id.is_some() || n.proxy_jump_id.is_some())
-        {
-            return Err(WebError::unsupported());
-        }
         let account = conn
             .auth
             .as_ref()
@@ -219,6 +315,7 @@ fn target(args: &Value) -> Result<Target> {
             key,
             passphrase: passphrase.map(zeroize::Zeroizing::new),
             preferences: conn.ssh_algorithms,
+            network: conn.network.clone(),
             connection_id: Some(id.into()),
             terminal_type,
             sftp: conn.sftp,
@@ -285,6 +382,11 @@ fn target(args: &Value) -> Result<Target> {
                 .filter(|v| !v.is_null())
                 .map(|v| serde_json::from_value(v.clone()))
                 .transpose()?,
+            network: value
+                .get("network")
+                .filter(|v| !v.is_null())
+                .map(|v| serde_json::from_value(v.clone()))
+                .transpose()?,
             connection_id: None,
             terminal_type,
             sftp,
@@ -292,6 +394,12 @@ fn target(args: &Value) -> Result<Target> {
     }
 }
 pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<String> {
+    match args["type"].as_str().unwrap_or("ssh") {
+        "telnet" => return crate::telnet::create(state, owner, args).await,
+        "vnc" => return crate::vnc::create(state, owner, args).await,
+        "ssh" => {}
+        _ => return Err(WebError::unsupported()),
+    }
     if args["startupCommand"].as_object().is_some()
         || args["runtimeMode"]
             .as_str()
@@ -318,34 +426,24 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
         return Err(WebError::bad("Invalid SSH target"));
     }
     let login = state.login(owner).await?;
-    let (input, commands) = mpsc::channel(128);
-    let (sender, output) = mpsc::channel(terminal::OUTPUT_CAPACITY);
-    let id = uuid::Uuid::new_v4().to_string();
-    let session = Arc::new(WebSession {
-        id: id.clone(),
-        owner: owner.into(),
-        name: target.name.clone(),
+    let metadata = SessionMetadata {
         host: target.host.clone(),
         port: target.port,
         username: target.username.clone(),
+        name: target.name.clone(),
         connection_id: target.connection_id.clone(),
-        request_id: args["createRequestId"].as_str().map(String::from),
-        cancel: login.cancel.child_token(),
-        handle: Mutex::new(None),
-        input,
-        output: Arc::new(Mutex::new(output)),
-        attached: AtomicBool::new(false),
-        detached_at: StdMutex::new(Instant::now()),
-        ready: AtomicBool::new(false),
-        transfers: Arc::new(tokio::sync::Semaphore::new(4)),
-        sftp: target.sftp.clone(),
-    });
-    let mut registry = state.sessions.lock().await;
-    if registry.len() >= 128 || registry.values().filter(|s| s.owner == owner).count() >= 16 {
-        return Err(WebError::bad("Too many sessions"));
-    }
-    registry.insert(id.clone(), session.clone());
-    drop(registry);
+        sftp: Some(target.sftp.clone()),
+    };
+    let (session, commands, sender) = register(
+        &state,
+        owner,
+        &args,
+        SessionProtocol::Ssh,
+        metadata,
+        login.cancel.child_token(),
+    )
+    .await?;
+    let id = session.id.clone();
     tokio::spawn(async move {
         let result = tokio::select! {
             _ = session.cancel.cancelled() => Err(WebError::bad("Session creation cancelled")),
@@ -359,47 +457,85 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
                     .await;
                 terminal::run(channel, commands, sender, session.cancel.clone()).await;
             }
-            Err(_) => {
+            Err(error) => {
                 state
                     .event(
                         &session.owner,
                         &format!("connection-error-{}", session.id),
-                        json!("SSH connection failed or authentication was cancelled"),
+                        json!(error.1),
                     )
                     .await;
-                let _ = sender.try_send(Output::Error);
+                let _ = sender.try_send(Output::Failure(error.1));
             }
         }
-        session.cancel.cancel();
-        if let Some(handle) = session.handle.lock().await.take() {
-            let _ = tokio::time::timeout(
-                Duration::from_secs(2),
-                handle.disconnect(russh::Disconnect::ByApplication, "", ""),
-            )
-            .await;
-        }
-        state.sessions.lock().await.remove(&session.id);
-        // Attached terminals receive ordered closure on the WS after final bytes.
-        if !session.attached.load(Ordering::Acquire) {
-            state
-                .event(
-                    &session.owner,
-                    &format!("session-closed-{}", session.id),
-                    Value::Null,
-                )
-                .await;
-        }
-        state
-            .event(&session.owner, "sessions-changed", Value::Null)
-            .await;
+        finish(&state, &session).await;
     });
     Ok(id)
+}
+pub(crate) async fn finish(state: &State, session: &WebSession) {
+    session.cancel.cancel();
+    if let Some(handle) = session.handle.lock().await.take() {
+        let _ = tokio::time::timeout(
+            Duration::from_secs(2),
+            handle.disconnect(russh::Disconnect::ByApplication, "", ""),
+        )
+        .await;
+    }
+    state.sessions.lock().await.remove(&session.id);
+    if !session.attached.load(Ordering::Acquire) {
+        state
+            .event(
+                &session.owner,
+                &format!("session-closed-{}", session.id),
+                Value::Null,
+            )
+            .await;
+    }
+    state
+        .event(&session.owner, "sessions-changed", Value::Null)
+        .await;
 }
 async fn connect(
     state: &Arc<State>,
     session: &Arc<WebSession>,
-    mut target: Target,
+    target: Target,
 ) -> Result<russh::Channel<client::Msg>> {
+    let stream = crate::network::open(
+        state.clone(),
+        session.owner.clone(),
+        session.cancel.clone(),
+        target.host.clone(),
+        target.port,
+        target.network.clone(),
+    )
+    .await?;
+    let terminal = target.terminal_type.as_str().to_owned();
+    let connection_id = target.connection_id.clone();
+    let mut handle = authenticate(
+        state,
+        &session.owner,
+        &session.cancel,
+        target,
+        stream.stream,
+    )
+    .await?;
+    let channel = protocol::open_shell_with_terminal(&mut handle, 80, 24, &terminal).await?;
+    *session.handle.lock().await = Some(handle);
+    if let Some(id) = connection_id {
+        storage::mark_connection_used(&id)?;
+    }
+    Ok(channel)
+}
+pub(crate) async fn authenticate(
+    state: &Arc<State>,
+    owner: &str,
+    cancel: &CancellationToken,
+    mut target: Target,
+    stream: nyaterm_core::network::BoxedTransportStream,
+) -> Result<client::Handle<Handler>> {
+    if !matches!(target.mode.as_str(), "none" | "password" | "key") {
+        return Err(WebError::bad("Unsupported SSH authentication mode"));
+    }
     let client_config = client::Config {
         preferred: algorithms::resolve_preferred_algorithms(target.preferences.as_ref())?,
         keepalive_interval: Some(Duration::from_secs(30)),
@@ -408,16 +544,12 @@ async fn connect(
     };
     let handler = Handler {
         state: state.clone(),
-        owner: session.owner.clone(),
+        owner: owner.into(),
         host: target.host.clone(),
         port: target.port,
-        cancel: session.cancel.clone(),
+        cancel: cancel.clone(),
     };
-    let handle =
-        protocol::connect(Arc::new(client_config), &target.host, target.port, handler).await?;
-    let mut locked = session.handle.lock().await;
-    *locked = Some(handle);
-    let handle = locked.as_mut().unwrap();
+    let mut handle = client::connect_stream(Arc::new(client_config), stream, handler).await?;
     let mut authenticated = false;
     if target.mode == "none" {
         authenticated = handle.authenticate_none(&target.username).await?.success();
@@ -434,7 +566,7 @@ async fn connect(
             target.passphrase.as_deref().map(|p| p.as_str()),
         );
         if decoded.is_err() && target.passphrase.is_none() {
-            let response=state.prompt(&session.owner,"ssh-auth-request",json!({"connectionId":target.connection_id,"connectionName":target.name,"host":target.host,"port":target.port,"username":target.username,"reason":"key_passphrase_required","promptKind":"passphrase","availableMethods":["publickey"],"currentAuthMode":"key","attempt":1,"canSave":false}),&session.cancel).await?;
+            let response=state.prompt(owner,"ssh-auth-request",json!({"connectionId":target.connection_id,"connectionName":target.name,"host":target.host,"port":target.port,"username":target.username,"reason":"key_passphrase_required","promptKind":"passphrase","availableMethods":["publickey"],"currentAuthMode":"key","attempt":1,"canSave":false}),cancel).await?;
             target.passphrase = response["secret"]
                 .as_str()
                 .map(|s| zeroize::Zeroizing::new(s.into()));
@@ -456,10 +588,10 @@ async fn connect(
     if !authenticated && target.mode != "key" {
         for attempt in 1..=3 {
             if target.secret.is_none() {
-                let response = state.prompt(&session.owner,"ssh-auth-request",json!({
+                let response = state.prompt(owner,"ssh-auth-request",json!({
                     "connectionId":target.connection_id,"connectionName":target.name,"host":target.host,"port":target.port,"username":target.username,
                     "reason":if attempt == 1 {"missing_password"} else {"password_rejected"},"promptKind":"password","availableMethods":["password"],"currentAuthMode":"password","attempt":attempt,"canSave":false,"accountId":null,
-                }),&session.cancel).await?;
+                }),cancel).await?;
                 target.secret = response["secret"]
                     .as_str()
                     .map(|s| zeroize::Zeroizing::new(s.into()));
@@ -467,7 +599,7 @@ async fn connect(
             let Some(secret) = &target.secret else {
                 return Err(WebError::bad("SSH authentication cancelled"));
             };
-            let result = protocol::password(handle, &target.username, secret).await?;
+            let result = protocol::password(&mut handle, &target.username, secret).await?;
             if result.success() {
                 authenticated = true;
                 break;
@@ -477,7 +609,8 @@ async fn connect(
             } = result
             {
                 if remaining_methods.contains(&russh::MethodKind::KeyboardInteractive) {
-                    authenticated = keyboard_auth(state, session, handle, &target).await?;
+                    authenticated =
+                        keyboard_auth(state, owner, cancel, &mut handle, &target).await?;
                     break;
                 }
             }
@@ -485,21 +618,17 @@ async fn connect(
         }
     }
     if !authenticated && target.mode == "key" {
-        authenticated = keyboard_auth(state, session, handle, &target).await?;
+        authenticated = keyboard_auth(state, owner, cancel, &mut handle, &target).await?;
     }
     if !authenticated {
         return Err(WebError::bad("SSH authentication failed"));
     }
-    let channel =
-        protocol::open_shell_with_terminal(handle, 80, 24, target.terminal_type.as_str()).await?;
-    if let Some(id) = &target.connection_id {
-        storage::mark_connection_used(id)?;
-    }
-    Ok(channel)
+    Ok(handle)
 }
 async fn keyboard_auth(
     state: &Arc<State>,
-    session: &Arc<WebSession>,
+    owner: &str,
+    cancel: &CancellationToken,
     handle: &mut client::Handle<Handler>,
     target: &Target,
 ) -> Result<bool> {
@@ -516,7 +645,7 @@ async fn keyboard_auth(
                 if prompts.len() > 16 {
                     return Err(WebError::bad("Too many authentication prompts"));
                 }
-                let response=state.prompt(&session.owner,"otp-request",json!({"connectionName":target.name,"name":name,"instructions":instructions,"round":round,"prompts":prompts.iter().map(|p|json!({"prompt":p.prompt,"echo":p.echo})).collect::<Vec<_>>(),"otpEntryId":null}),&session.cancel).await?;
+                let response=state.prompt(owner,"otp-request",json!({"connectionName":target.name,"name":name,"instructions":instructions,"round":round,"prompts":prompts.iter().map(|p|json!({"prompt":p.prompt,"echo":p.echo})).collect::<Vec<_>>(),"otpEntryId":null}),cancel).await?;
                 let responses: Vec<String> = serde_json::from_value(response)?;
                 if responses.len() != prompts.len() {
                     return Err(WebError::bad("Invalid authentication response"));
@@ -543,6 +672,9 @@ pub async fn ws_route(
     upgrade: WebSocketUpgrade,
 ) -> Result<Response> {
     let session = state.session(&owner.0, &id).await?;
+    if matches!(session.protocol, SessionProtocol::Vnc(_)) {
+        return Err(WebError::bad("This session has no terminal"));
+    }
     let receiver = session.output.clone().try_lock_owned().map_err(|_| {
         WebError(
             axum::http::StatusCode::CONFLICT,
@@ -578,7 +710,8 @@ async fn socket_loop(
                 let final_frame = !matches!(&next, Some(Output::Data(_)));
                 let message = match next {
                     Some(Output::Data(data)) => Message::Binary(data.into()),
-                    Some(Output::Error) => Message::Text(json!({"type":"error","error":"SSH connection failed"}).to_string().into()),
+                    Some(Output::Error) => Message::Text(json!({"type":"error","error":if matches!(session.protocol, SessionProtocol::Telnet) { "Telnet connection failed" } else { "SSH connection failed" }}).to_string().into()),
+                    Some(Output::Failure(error)) => Message::Text(json!({"type":"error","error":error}).to_string().into()),
                     _ => Message::Text(json!({"type":"closed"}).to_string().into()),
                 };
                 if !matches!(tokio::time::timeout(Duration::from_secs(10),socket.send(message)).await,Ok(Ok(()))) { session.cancel.cancel(); break; }
@@ -598,7 +731,7 @@ async fn socket_loop(
                     let Some(command) = command else { break; };
                     if session.input.try_send(command).is_err() { break; }
                 },
-                Some(Ok(Message::Binary(bytes))) => { last_peer=Instant::now(); if session.input.try_send(Command::Input(bytes.to_vec())).is_err() { break; } },
+                Some(Ok(Message::Binary(bytes))) => { last_peer=Instant::now(); if session.input.try_send(Command::RawInput(bytes.to_vec())).is_err() { break; } },
                 Some(Ok(Message::Pong(_))) => last_peer=Instant::now(),
                 Some(Ok(Message::Ping(data))) => { if !matches!(tokio::time::timeout(Duration::from_secs(2),socket.send(Message::Pong(data))).await,Ok(Ok(()))) { break; } },
                 _ => break,
@@ -609,4 +742,17 @@ async fn socket_loop(
             }
         }
     }
+    // Complete the WebSocket close handshake before dropping the TCP stream.
+    // Dropping with an unread pong/input can reset the connection on Windows,
+    // discarding the last terminal output even though send() already succeeded.
+    let _ = tokio::time::timeout(Duration::from_secs(2), async {
+        if socket.send(Message::Close(None)).await.is_ok() {
+            while let Some(Ok(message)) = socket.recv().await {
+                if matches!(message, Message::Close(_)) {
+                    break;
+                }
+            }
+        }
+    })
+    .await;
 }

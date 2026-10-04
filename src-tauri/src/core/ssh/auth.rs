@@ -686,22 +686,7 @@ fn resolve_proxy(
         return Ok(None);
     };
 
-    let proxy_cfg = crate::config::load_proxy_by_id(app, proxy_id)?
-        .ok_or_else(|| AppError::Config(format!("Proxy '{}' not found", proxy_id)))?;
-    let password = proxy_cfg
-        .password
-        .as_ref()
-        .and_then(|ciphertext| crate::utils::crypto::decrypt(ciphertext).ok());
-
-    Ok(Some(crate::config::ProxySettings {
-        enabled: true,
-        protocol: proxy_cfg.protocol,
-        host: proxy_cfg.host,
-        port: proxy_cfg.port,
-        command: proxy_cfg.command,
-        username: proxy_cfg.username,
-        password,
-    }))
+    Ok(Some(nyaterm_core::network::resolve_proxy(app, proxy_id)?))
 }
 
 pub(super) async fn authenticate_handle(

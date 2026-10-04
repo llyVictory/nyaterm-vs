@@ -7,3 +7,9 @@ pub mod services;
 pub mod ssh;
 pub mod storage;
 pub mod utils;
+
+pub mod network;
+pub mod remote_desktop_frame;
+pub mod telnet;
+pub mod terminal_encoding;
+pub mod vnc;

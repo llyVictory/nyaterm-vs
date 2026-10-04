@@ -1,3 +1,4 @@
+import { runtime } from "@/lib/backend/runtime";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionButton, ActionFooter } from "@/components/ui/action-footer";
@@ -81,6 +82,7 @@ export function ProxyFormContent({
   }, [proxy]);
 
   const handleSubmit = async () => {
+    if (runtime === "web" && form.protocol === "proxycommand") { setError(t("web.proxyCommandUnavailable")); return; }
     if (!form.name.trim()) {
       setError(t("network.proxyNameRequired"));
       return;
@@ -138,7 +140,7 @@ export function ProxyFormContent({
                 <SelectContent>
                   <SelectItem value="socks5">SOCKS5</SelectItem>
                   <SelectItem value="http">HTTP</SelectItem>
-                  <SelectItem value="proxycommand">ProxyCommand</SelectItem>
+                  {runtime === "desktop" && <SelectItem value="proxycommand">ProxyCommand</SelectItem>}
                 </SelectContent>
               </Select>
             </div>

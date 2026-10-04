@@ -15,6 +15,7 @@ COPY src-tauri/crates/nyaterm-core src-tauri/crates/nyaterm-core
 COPY src-tauri/crates/nyaterm-web src-tauri/crates/nyaterm-web
 COPY src-tauri/vendor/russh src-tauri/vendor/russh
 COPY src-tauri/vendor/russh-sftp src-tauri/vendor/russh-sftp
+COPY src-tauri/vendor/vnc-rs src-tauri/vendor/vnc-rs
 RUN cargo build --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --release --locked
 
 FROM debian:bookworm-slim AS runtime

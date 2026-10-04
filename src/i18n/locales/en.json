@@ -3170,7 +3170,10 @@
     "updateNow": "Update Now"
   },
   "web": {
+    "clipboardUnavailable": "Clipboard access is unavailable. Use HTTPS and allow clipboard access in your browser.",
     "password": "Server password",
+    "proxyCommandUnavailable": "ProxyCommand is only available in the desktop app.",
+    "sessionTypesHint": "Web mode supports SSH, Telnet, and VNC. Use the desktop app for local terminals, serial, and RDP.",
     "signIn": "Sign in",
     "signInFailed": "Unable to sign in. Check your password and server connection."
   },

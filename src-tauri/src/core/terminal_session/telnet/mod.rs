@@ -21,25 +21,10 @@ use crate::observability::{StructuredLog, StructuredLogLevel, log_event, log_rat
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::sync::{Mutex as TokioMutex, mpsc, oneshot};
 
-const IAC: u8 = 255;
-const WILL: u8 = 251;
-const WONT: u8 = 252;
-const DO: u8 = 253;
-const DONT: u8 = 254;
-const SB: u8 = 250;
-const SE: u8 = 240;
+pub use nyaterm_core::telnet::*;
 
-const OPT_ECHO: u8 = 1;
-const OPT_SUPPRESS_GO_AHEAD: u8 = 3;
-const OPT_NAWS: u8 = 31;
-
-include!("types.rs");
-include!("negotiation.rs");
-include!("line_editor.rs");
-include!("auto_login.rs");
 include!("tests.rs");
 include!("manager.rs");
 include!("session.rs");

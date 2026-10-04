@@ -3162,7 +3162,10 @@
     "updateNow": "지금 업데이트"
   },
   "web": {
+    "clipboardUnavailable": "클립보드에 접근할 수 없습니다. HTTPS를 사용하고 브라우저의 클립보드 접근을 허용하세요.",
     "password": "서버 비밀번호",
+    "proxyCommandUnavailable": "ProxyCommand는 데스크톱 앱에서만 사용할 수 있습니다.",
+    "sessionTypesHint": "웹 모드는 SSH, Telnet 및 VNC를 지원합니다. 로컬 터미널, 직렬 포트 및 RDP는 데스크톱 앱을 사용하세요.",
     "signIn": "로그인",
     "signInFailed": "로그인하지 못했습니다. 비밀번호와 서버 연결을 확인하세요."
   },

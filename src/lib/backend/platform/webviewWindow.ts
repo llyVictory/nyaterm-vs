@@ -30,6 +30,7 @@ class BrowserWindow {
       !new Set([
         "settings",
         "new-session",
+        "proxy",
         "quick-command",
         "file-editor",
         "file-preview",

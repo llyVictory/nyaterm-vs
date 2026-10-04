@@ -14,6 +14,7 @@ const {
   sshFormMock,
   telnetFormMock,
   translateMock,
+  supportsMock,
 } = vi.hoisted(() => ({
   closeMock: vi.fn(),
   emitMock: vi.fn(),
@@ -24,6 +25,7 @@ const {
   serialFormMock: vi.fn(),
   sshFormMock: vi.fn(),
   telnetFormMock: vi.fn(),
+  supportsMock: vi.fn(() => true),
   translateMock: (key: string, fallback?: unknown) =>
     typeof fallback === "string" ? fallback : key,
 }));
@@ -43,6 +45,10 @@ vi.mock("@/context/AppContext", () => ({
 }));
 
 vi.mock("@/lib/invoke", () => ({ invoke: invokeMock }));
+vi.mock("@/lib/backend/runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/backend/runtime")>()),
+  supports: supportsMock,
+}));
 vi.mock("@tauri-apps/api/event", () => ({ emit: emitMock }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ close: closeMock }),
@@ -268,6 +274,8 @@ const vncConnection: SavedConnection = {
 
 describe("NewSessionPage", () => {
   beforeEach(() => {
+    supportsMock.mockReset();
+    supportsMock.mockReturnValue(true);
     window.history.replaceState({}, "", `/?edit=${rdpConnection.id}`);
     closeMock.mockReset();
     closeMock.mockResolvedValue(undefined);
@@ -326,6 +334,31 @@ describe("NewSessionPage", () => {
         expect.objectContaining({ shellPath: "/bin/zsh" }),
       );
     });
+  });
+
+  it("skips local shell discovery in Web mode and explains unavailable session types", async () => {
+    window.history.replaceState({}, "", "/");
+    supportsMock.mockImplementation((capability?: string) => ["ssh", "telnet", "vnc", "networkProxy"].includes(capability ?? ""));
+    render(<NewSessionPage />);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_saved_connections"));
+    expect(invokeMock).not.toHaveBeenCalledWith("get_default_local_shell");
+    expect(screen.getByText("web.sessionTypesHint")).toBeTruthy();
+    const sshTab = screen.getByRole("tab", { name: "SSH" });
+    expect((sshTab as HTMLButtonElement).disabled).toBe(false);
+    for (const name of ["dialog.localTerminal", "dialog.serial", "RDP"]) {
+      const tab = screen.getByRole("tab", { name });
+      expect((tab as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+    }
+    expect(sshTab.getAttribute("aria-selected")).toBe("true");
+    for (const name of ["Telnet", "VNC"]) {
+      const tab = screen.getByRole("tab", { name });
+      expect((tab as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+      await waitFor(() => expect(tab.getAttribute("aria-selected")).toBe("true"));
+    }
+    expect(invokeMock).not.toHaveBeenCalledWith("list_serial_ports");
   });
 
   it("restores an RDP jump host and keeps it when saving without changes", async () => {

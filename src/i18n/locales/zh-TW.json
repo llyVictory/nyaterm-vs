@@ -3163,7 +3163,10 @@
     "updateNow": "立即更新"
   },
   "web": {
+    "clipboardUnavailable": "無法存取剪貼簿。請使用 HTTPS 並允許瀏覽器存取剪貼簿。",
     "password": "伺服器密碼",
+    "proxyCommandUnavailable": "ProxyCommand 僅適用於桌面版。",
+    "sessionTypesHint": "Web 模式支援 SSH、Telnet 和 VNC。本機終端、序列埠和 RDP 請使用桌面版。",
     "signIn": "登入",
     "signInFailed": "登入失敗，請檢查密碼與伺服器連線。"
   },

@@ -1,4 +1,4 @@
-fn negotiate_response(command: u8, option: u8, send_naws: bool, send_sga: bool) -> Vec<u8> {
+pub fn negotiate_response(command: u8, option: u8, send_naws: bool, send_sga: bool) -> Vec<u8> {
     match command {
         WILL => {
             if option == OPT_ECHO || (send_sga && option == OPT_SUPPRESS_GO_AHEAD) {
@@ -8,7 +8,7 @@ fn negotiate_response(command: u8, option: u8, send_naws: bool, send_sga: bool) 
             }
         }
         DO => {
-            if send_naws && option == OPT_NAWS {
+            if (send_naws && option == OPT_NAWS) || (send_sga && option == OPT_SUPPRESS_GO_AHEAD) {
                 vec![IAC, WILL, option]
             } else {
                 vec![IAC, WONT, option]
@@ -21,21 +21,56 @@ fn negotiate_response(command: u8, option: u8, send_naws: bool, send_sga: bool) 
 }
 
 /// Build a NAWS (Negotiate About Window Size) subnegotiation sequence.
-fn build_naws(cols: u16, rows: u16) -> Vec<u8> {
-    vec![
-        IAC,
-        SB,
-        OPT_NAWS,
-        (cols >> 8) as u8,
-        (cols & 0xff) as u8,
-        (rows >> 8) as u8,
-        (rows & 0xff) as u8,
-        IAC,
-        SE,
-    ]
+pub fn build_naws(cols: u16, rows: u16) -> Vec<u8> {
+    let mut result = vec![IAC, SB, OPT_NAWS];
+    result.extend(escape_telnet_application_data(
+        &[(cols >> 8) as u8, cols as u8, (rows >> 8) as u8, rows as u8],
+        false,
+    ));
+    result.extend([IAC, SE]);
+    result
 }
 
-fn maybe_build_naws(cols: u16, rows: u16, config: &TelnetSessionConfig) -> Option<Vec<u8>> {
+/// Negotiation may span arbitrary TCP reads, including escaped IAC bytes.
+#[derive(Default)]
+pub struct TelnetDecoder {
+    state: u8,
+    command: u8,
+}
+impl TelnetDecoder {
+    pub fn decode(&mut self, data: &[u8], on_negotiate: &mut impl FnMut(u8, u8)) -> Vec<u8> {
+        let mut visible = Vec::with_capacity(data.len());
+        for &byte in data {
+            match self.state {
+                0 if byte == IAC => self.state = 1,
+                0 => visible.push(byte),
+                1 => match byte {
+                    IAC => {
+                        visible.push(IAC);
+                        self.state = 0;
+                    }
+                    WILL | WONT | DO | DONT => {
+                        self.command = byte;
+                        self.state = 2;
+                    }
+                    SB => self.state = 3,
+                    _ => self.state = 0,
+                },
+                2 => {
+                    on_negotiate(self.command, byte);
+                    self.state = 0;
+                }
+                3 if byte == IAC => self.state = 4,
+                3 => {}
+                4 => self.state = if byte == SE { 0 } else { 3 },
+                _ => unreachable!(),
+            }
+        }
+        visible
+    }
+}
+
+pub fn maybe_build_naws(cols: u16, rows: u16, config: &TelnetSessionConfig) -> Option<Vec<u8>> {
     if config.raw_tcp_cli || !config.send_naws {
         None
     } else {
@@ -43,7 +78,7 @@ fn maybe_build_naws(cols: u16, rows: u16, config: &TelnetSessionConfig) -> Optio
     }
 }
 
-fn unescape_iac_iac(data: &[u8]) -> Vec<u8> {
+pub fn unescape_iac_iac(data: &[u8]) -> Vec<u8> {
     let mut visible = Vec::with_capacity(data.len());
     let mut i = 0;
     while i < data.len() {
@@ -58,7 +93,7 @@ fn unescape_iac_iac(data: &[u8]) -> Vec<u8> {
     visible
 }
 
-fn escape_telnet_application_data(data: &[u8], raw_tcp_cli: bool) -> Vec<u8> {
+pub fn escape_telnet_application_data(data: &[u8], raw_tcp_cli: bool) -> Vec<u8> {
     if raw_tcp_cli {
         return data.to_vec();
     }
@@ -75,7 +110,7 @@ fn escape_telnet_application_data(data: &[u8], raw_tcp_cli: bool) -> Vec<u8> {
 
 /// Strip IAC sequences from raw data, returning only user-visible bytes.
 /// Calls `on_negotiate` for each IAC command/option pair encountered.
-fn strip_telnet_commands(data: &[u8], on_negotiate: &mut impl FnMut(u8, u8)) -> Vec<u8> {
+pub fn strip_telnet_commands(data: &[u8], on_negotiate: &mut impl FnMut(u8, u8)) -> Vec<u8> {
     let mut visible = Vec::with_capacity(data.len());
     let mut i = 0;
     while i < data.len() {
@@ -117,7 +152,7 @@ fn strip_telnet_commands(data: &[u8], on_negotiate: &mut impl FnMut(u8, u8)) -> 
     visible
 }
 
-fn normalize_enter_bytes(data: &[u8], enter_mode: TelnetEnterMode) -> Vec<u8> {
+pub fn normalize_enter_bytes(data: &[u8], enter_mode: TelnetEnterMode) -> Vec<u8> {
     let replacement: &[u8] = match enter_mode {
         TelnetEnterMode::Crlf => b"\r\n",
         TelnetEnterMode::Cr => b"\r",
@@ -134,7 +169,7 @@ fn normalize_enter_bytes(data: &[u8], enter_mode: TelnetEnterMode) -> Vec<u8> {
     normalized
 }
 
-fn enter_bytes(enter_mode: TelnetEnterMode) -> &'static [u8] {
+pub fn enter_bytes(enter_mode: TelnetEnterMode) -> &'static [u8] {
     match enter_mode {
         TelnetEnterMode::Crlf => b"\r\n",
         TelnetEnterMode::Cr => b"\r",
@@ -142,7 +177,7 @@ fn enter_bytes(enter_mode: TelnetEnterMode) -> &'static [u8] {
     }
 }
 
-fn split_write_chunks(data: &[u8], force_character_at_a_time: bool) -> Vec<Vec<u8>> {
+pub fn split_write_chunks(data: &[u8], force_character_at_a_time: bool) -> Vec<Vec<u8>> {
     if !force_character_at_a_time {
         return vec![data.to_vec()];
     }

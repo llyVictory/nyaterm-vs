@@ -1,5 +1,8 @@
 export type Capability =
   | "ssh"
+  | "telnet"
+  | "vnc"
+  | "networkProxy"
   | "sftp"
   | "ai"
   | "settings"
@@ -32,6 +35,9 @@ export const runtime =
     : "web";
 const webCapabilities = new Set<Capability>([
   "ssh",
+  "telnet",
+  "vnc",
+  "networkProxy",
   "sftp",
   "ai",
   "settings",
@@ -61,6 +67,7 @@ const webPanels = new Set([
   "aiAssistant",
   "settings",
   "plugins",
+  "network",
 ]);
 export function supportsPanel(id: string): boolean {
   return runtime === "desktop" || webPanels.has(id);

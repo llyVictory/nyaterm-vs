@@ -97,6 +97,10 @@ export type ConnectionTypeTag =
 
 /** Metadata for a connected or disconnected session. */
 export interface SessionInfo {
+  /** Web session lease associated with a persisted workspace pane. */
+  workspace_pane_id?: string;
+  ready?: boolean;
+  attached?: boolean;
   id: string;
   name: string;
   session_type: WorkspaceSessionType;

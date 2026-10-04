@@ -27,8 +27,23 @@ pub async fn create_telnet_session(
         client_timestamp: None,
     });
     let session_id = uuid::Uuid::new_v4().to_string();
-    let addr = format!("{}:{}", host, port);
-    let stream = match await_telnet_connection(TcpStream::connect(&addr), cancel_rx).await {
+    let stream = match await_telnet_connection(
+        async {
+            crate::core::network::open_tcp_transport(
+                &app,
+                &host,
+                port,
+                config.network.as_ref(),
+                owner_window_label.clone(),
+            )
+            .await
+            .map(|opened| opened.stream)
+            .map_err(std::io::Error::other)
+        },
+        cancel_rx,
+    )
+    .await
+    {
         Ok(stream) => stream,
         Err(AppError::Cancelled(message)) => {
             log_event(StructuredLog {

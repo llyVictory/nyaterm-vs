@@ -23,6 +23,7 @@ impl TelnetEnterMode {
 
 #[derive(Debug, Clone)]
 pub struct TelnetSessionConfig {
+    pub network: Option<crate::config::ConnectionNetwork>,
     pub host: String,
     pub port: u16,
     pub name: String,
@@ -43,6 +44,7 @@ pub struct TelnetSessionConfig {
 impl Default for TelnetSessionConfig {
     fn default() -> Self {
         Self {
+            network: None,
             host: String::new(),
             port: 23,
             name: "Telnet".to_string(),
@@ -67,4 +69,3 @@ pub struct TelnetStartupCommand {
     pub command: String,
     pub delay_ms: u64,
 }
-

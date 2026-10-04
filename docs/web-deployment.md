@@ -115,8 +115,10 @@ location /nyaterm/ {
 
 停服后备份整个数据目录，并单独备份加密密钥与登录密码。密钥丢失将无法解密凭据。不要让多个进程同时写同一个 redb volume，也不要把桌面用户数据目录直接作为服务器 volume。保存的私人密钥、密码和 AI provider 密钥使用原有 AES-GCM 存储。AI 历史和连接元数据属于实例共享数据，未作为整个数据库加密。
 
-支持保存/临时 SSH、密码/私钥与手工交互认证、主机指纹确认、终端输入/输出/resize、SFTP 浏览与单文件流式上传/下载、文本编辑、基础 AI Ask 和设置持久化。插件部分提供兼容性及权限检查框架，当前没有浏览器插件安装/执行器。
+支持保存/临时 SSH、Telnet 和 VNC，密码/私钥与手工交互认证、主机指纹确认、终端输入/输出/resize、SFTP 浏览与单文件流式上传/下载、文本编辑、基础 AI Ask 和设置持久化。Telnet 支持原有字符编码、自动登录、本地回显、行编辑、NAWS 和 raw TCP；VNC 支持现有认证与服务器密钥确认、缩放、共享连接、只读、文本剪贴板和重连。三种协议均支持 SOCKS5、HTTP CONNECT 及代理认证、SSH 跳板（最多 8 层，使用跳板自身网络配置）。代理失败不回退到直连。插件部分提供兼容性及权限检查框架，当前没有浏览器插件安装/执行器。
 
-Web 当前不支持本地 Shell、Serial、Telnet、RDP/VNC、代理/跳板、SSH agent/X11/证书登录、启动命令、非标准 SSH profile、非 UTF-8 终端/文件名、SFTP compatibility mode、CWD 自动跟踪、远程监控、录制、SCP/Zmodem、本地文件 watcher、传输暂停/重试、同步备份和 AI Agent/MCP/本地附件。系统托盘、原生窗口、OS credential manager、系统全局快捷键、桌面通知、自动更新也不提供。浏览器文件、剪贴板、链接和 iframe 页面代替相应原生入口，仍受浏览器权限约束。
+Web 当前不支持本地 Shell、Serial、RDP、ProxyCommand、SSH agent/X11/证书登录、SSH 启动命令、非标准 SSH profile、非 UTF-8 SSH 终端/文件名、SFTP compatibility mode、CWD 自动跟踪、远程监控、录制、SCP/Zmodem、本地文件 watcher、传输暂停/重试、同步备份和 AI Agent/MCP/本地附件。系统托盘、原生窗口、OS credential manager、系统全局快捷键、桌面通知、自动更新也不提供。浏览器文件、剪贴板、链接和 iframe 页面代替相应原生入口，仍受浏览器权限约束。
 
-测试与架构见 [web-architecture.md](web-architecture.md)。当前环境没有 Docker 和浏览器，因此镜像实构建和浏览器视觉验收仍需在部署环境执行。
+刷新页面时，按工作区 pane ID 重新附着当前登录的有效会话；旧连接租期结束后，保存的连接按原有工作区恢复流程重新创建。SFTP 仅对 SSH 会话提供。浏览器剪贴板需要 HTTPS 和浏览器权限，未授权时显示提示，画面和键鼠仍可使用。网络面板可管理代理及分组，Web 子窗口使用同源 iframe。单镜像部署，无需 noVNC、Guacamole 或额外服务。
+
+测试与架构见 [web-architecture.md](web-architecture.md)。当前环境未安装 Docker CLI；镜像实构建及浏览器手工验收尚未执行，仍需在部署环境完成。更新后请重新构建镜像并重建容器，旧镜像不会自动获得协议支持。

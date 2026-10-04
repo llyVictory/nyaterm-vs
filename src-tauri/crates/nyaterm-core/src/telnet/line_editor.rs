@@ -1,4 +1,4 @@
-fn local_echo_text(data: &[u8]) -> String {
+pub fn local_echo_text(data: &[u8]) -> String {
     let mut visible = Vec::with_capacity(data.len());
     let mut i = 0;
     while i < data.len() {
@@ -41,23 +41,22 @@ fn local_echo_text(data: &[u8]) -> String {
 }
 
 #[derive(Debug, Default)]
-struct TelnetLineEditor {
+pub struct TelnetLineEditor {
     buffer: String,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct TelnetLineEditResult {
-    display: String,
-    writes: Vec<Vec<u8>>,
+pub struct TelnetLineEditResult {
+    pub display: String,
+    pub writes: Vec<Vec<u8>>,
 }
 
 impl TelnetLineEditor {
-    #[cfg(test)]
-    fn buffer(&self) -> &str {
+    pub fn buffer(&self) -> &str {
         &self.buffer
     }
 
-    fn process(&mut self, data: &[u8], enter_mode: TelnetEnterMode) -> TelnetLineEditResult {
+    pub fn process(&mut self, data: &[u8], enter_mode: TelnetEnterMode) -> TelnetLineEditResult {
         let input = String::from_utf8_lossy(data);
         let mut result = TelnetLineEditResult::default();
         let mut chars = input.char_indices().peekable();
@@ -116,7 +115,7 @@ impl TelnetLineEditor {
     }
 }
 
-fn consume_escape_sequence_end(
+pub fn consume_escape_sequence_end(
     start: usize,
     chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
 ) -> usize {

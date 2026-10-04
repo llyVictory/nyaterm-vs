@@ -1117,53 +1117,12 @@ pub(super) async fn connect_with_proxy(
             "Opening SSH transport via proxy"
         );
 
-        let proxy_addr = format!("{}:{}", proxy.host, proxy.port);
         match proxy.protocol.as_str() {
-            "socks5" => {
-                let stream = match (&proxy.username, &proxy.password) {
-                    (Some(user), Some(pass)) => {
-                        tokio_socks::tcp::Socks5Stream::connect_with_password(
-                            proxy_addr.as_str(),
-                            target,
-                            user,
-                            pass,
-                        )
-                        .await
-                    }
-                    _ => tokio_socks::tcp::Socks5Stream::connect(proxy_addr.as_str(), target).await,
-                }
-                .map_err(|error| {
-                    AppError::Auth(format!("SOCKS5 proxy connection failed: {}", error))
-                })?;
-                client::connect_stream(ssh_config, stream.into_inner(), handler).await
-            }
-            "http" => {
-                let mut stream =
-                    tokio::net::TcpStream::connect(&proxy_addr)
-                        .await
-                        .map_err(|error| {
-                            AppError::Auth(format!("HTTP proxy connection failed: {}", error))
-                        })?;
-
-                match (&proxy.username, &proxy.password) {
-                    (Some(user), Some(pass)) => {
-                        async_http_proxy::http_connect_tokio_with_basic_auth(
-                            &mut stream,
-                            &config.host,
-                            config.port,
-                            user,
-                            pass,
-                        )
-                        .await
-                    }
-                    _ => {
-                        async_http_proxy::http_connect_tokio(&mut stream, &config.host, config.port)
-                            .await
-                    }
-                }
-                .map_err(|error| AppError::Auth(format!("HTTP proxy tunnel failed: {}", error)))?;
-
-                client::connect_stream(ssh_config, stream, handler).await
+            "socks5" | "http" => {
+                let transport =
+                    nyaterm_core::network::open_proxy_transport(proxy, &config.host, config.port)
+                        .await?;
+                client::connect_stream(ssh_config, transport.stream, handler).await
             }
             "proxycommand" => {
                 let stream = open_proxy_command_stream(
@@ -1175,8 +1134,10 @@ pub(super) async fn connect_with_proxy(
                 .await?;
                 client::connect_stream(ssh_config, stream, handler).await
             }
-            _ => {
-                nyaterm_core::ssh::protocol::connect(ssh_config, target.0, target.1, handler).await
+            other => {
+                return Err(AppError::Config(format!(
+                    "Unsupported proxy protocol '{other}'"
+                )));
             }
         }
     } else {

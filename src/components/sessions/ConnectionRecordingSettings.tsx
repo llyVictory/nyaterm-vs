@@ -1,3 +1,4 @@
+import { supports } from "@/lib/backend/runtime";
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,6 +29,7 @@ export function ConnectionRecordingSettings({
   onModeChange,
 }: ConnectionRecordingSettingsProps) {
   const { t } = useTranslation();
+  if (!supports("recording")) return null;
 
   return (
     <div className="border-t pt-3">

@@ -65,7 +65,7 @@ pub async fn route(
         "save_connection" => {
             let _guard=state.mutation.lock().await;
             let connection:config::SavedConnection=argument(&args,"connection")?;
-            if !matches!(connection.config,config::ConnectionType::Ssh { .. }) { return Err(WebError::unsupported()); }
+            if !matches!(connection.config,config::ConnectionType::Ssh { .. } | config::ConnectionType::Telnet { .. } | config::ConnectionType::Vnc { .. }) { return Err(WebError::unsupported()); }
             let id=services::save_connection(&(),connection)?;
             state.broadcast("connections-changed",Value::Null).await;json!(id)
         },
@@ -75,6 +75,41 @@ pub async fn route(
             state.broadcast("connections-changed",Value::Null).await;Value::Null
         },
         "get_groups" => json!(config::load_config(&())?.groups),
+        "get_proxies" => json!(config::load_proxies(&())?.into_iter().map(|mut proxy| { proxy.password=None; proxy }).collect::<Vec<_>>()),
+        "get_proxy_groups" => json!(config::load_proxy_groups(&())?),
+        "get_proxy_password" => {
+            let proxy=config::load_proxy_by_id(&(), text(&args,"proxyId")?)?.ok_or(WebError::bad("Proxy not found"))?;
+            json!(crypto::decrypt_optional(&proxy.password)?)
+        },
+        "save_proxy" => {
+            let _guard=state.mutation.lock().await;
+            let mut proxy:config::ProxyConfig=argument(&args,"proxy")?;
+            if !matches!(proxy.protocol.as_str(), "socks5" | "http") { return Err(WebError::bad("Web supports SOCKS5 and HTTP CONNECT proxies only")); }
+            crate::network::validate_target(&proxy.host, proxy.port)?;
+            if proxy.id.is_empty() { proxy.id=uuid::Uuid::new_v4().to_string(); }
+            let mut proxies=config::load_proxies(&())?;
+            proxy.password=match proxy.password.as_deref() { Some("")=>None,Some(secret)=>Some(crypto::encrypt(secret)?),None=>proxies.iter().find(|p|p.id==proxy.id).and_then(|p|p.password.clone()) };
+            let id=proxy.id.clone();proxies.retain(|p|p.id!=id);proxies.push(proxy);config::save_proxies(&(),&proxies)?;
+            state.broadcast("proxy-saved",Value::Null).await;json!(id)
+        },
+        "delete_proxy" => {
+            let _guard=state.mutation.lock().await;let mut proxies=config::load_proxies(&())?;proxies.retain(|p|Some(p.id.as_str())!=args["proxyId"].as_str());config::save_proxies(&(),&proxies)?;
+            state.broadcast("proxy-saved",Value::Null).await;Value::Null
+        },
+        "set_proxy_group" => {
+            let _guard=state.mutation.lock().await;let mut proxies=config::load_proxies(&())?;
+            let proxy=proxies.iter_mut().find(|p|Some(p.id.as_str())==args["proxyId"].as_str()).ok_or(WebError::bad("Proxy not found"))?;
+            proxy.group_id=args["groupId"].as_str().map(String::from);config::save_proxies(&(),&proxies)?;state.broadcast("proxy-saved",Value::Null).await;Value::Null
+        },
+        "save_proxy_group" => {
+            let _guard=state.mutation.lock().await;let mut group:config::ProxyGroup=argument(&args,"group")?;
+            if group.id.is_empty() { group.id=uuid::Uuid::new_v4().to_string(); }let id=group.id.clone();let mut groups=config::load_proxy_groups(&())?;groups.retain(|g|g.id!=id);groups.push(group);config::save_proxy_groups(&(),&groups)?;state.broadcast("proxy-saved",Value::Null).await;json!(id)
+        },
+        "delete_proxy_group" => {
+            let _guard=state.mutation.lock().await;let id=text(&args,"groupId")?;
+            let mut groups=config::load_proxy_groups(&())?;groups.retain(|g|g.id!=id);config::save_proxy_groups(&(),&groups)?;
+            let mut proxies=config::load_proxies(&())?;proxies.retain(|p|p.group_id.as_deref()!=Some(id));config::save_proxies(&(),&proxies)?;state.broadcast("proxy-saved",Value::Null).await;Value::Null
+        },
         "get_connection_custom_icons" => json!(config::load_config(&())?.custom_icons),
         "get_supported_ssh_algorithms" => json!(nyaterm_core::ssh::algorithms::get_supported_ssh_algorithms()),
         "save_group" => {
@@ -130,6 +165,7 @@ pub async fn route(
         },
         "close_session" => { state.session(&owner.0,text(&args,"sessionId")?).await?.cancel.cancel();Value::Null },
         "cancel_session_creation" => { let id=text(&args,"createRequestId")?;for session in state.sessions.lock().await.values().filter(|s|s.owner==owner.0&&s.request_id.as_deref()==Some(id)){session.cancel.cancel();}Value::Null },
+        "vnc_input_batch" | "vnc_set_clipboard_text" | "vnc_reconnect" | "close_vnc_session" | "respond_vnc_server_key" => crate::vnc::command(&state,&owner.0,&command,&args).await?,
         "list_sessions" | "get_sessions" => json!(state.sessions.lock().await.values().filter(|s|s.owner==owner.0).map(|s|s.info()).collect::<Vec<_>>()),
         "get_session_info" => state.session(&owner.0,text(&args,"sessionId")?).await?.info(),
         "try_get_terminal_cwd" | "get_session_cwd" => { state.session(&owner.0,text(&args,"sessionId")?).await?;Value::Null },

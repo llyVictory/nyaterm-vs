@@ -3168,7 +3168,10 @@
     "updateNow": "立即更新"
   },
   "web": {
+    "clipboardUnavailable": "无法访问剪贴板。请使用 HTTPS 并允许浏览器访问剪贴板。",
     "password": "服务端密码",
+    "proxyCommandUnavailable": "ProxyCommand 仅适用于桌面版。",
+    "sessionTypesHint": "Web 模式支持 SSH、Telnet 和 VNC。本地终端、串口和 RDP 请使用桌面版。",
     "signIn": "登录",
     "signInFailed": "登录失败，请检查密码与服务端连接。"
   },

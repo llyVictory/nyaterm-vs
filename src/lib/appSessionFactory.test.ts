@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setOwnerMainWindowLabel } from "./windowManager";
 import type { SavedConnection, TerminalSessionPane } from "@/types/global";
-import { createSessionForConnection, createSessionForPane } from "./appSessionFactory";
+import { createTemporarySession, createSessionForConnection, createSessionForPane } from "./appSessionFactory";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
@@ -84,13 +84,24 @@ describe("VNC owner window routing", () => {
       expect(invokeMock).toHaveBeenNthCalledWith(1, "create_vnc_session", {
         connectionId: "pi",
         createRequestId: "create-request",
+        recordingScopeId: undefined,
         ownerWindowLabel: owner,
       });
       expect(invokeMock).toHaveBeenNthCalledWith(2, "create_vnc_session", {
         connectionId: "pi",
         createRequestId: "recreate-request",
+        recordingScopeId: "pane",
         ownerWindowLabel: owner,
       });
     },
   );
+});
+
+
+it("retains the temporary Telnet route and encoding when connecting and reconnecting", async () => {
+  const temporary = { protocol: "telnet" as const, name: "temporary", host: "host", port: 23, network: { proxy_id: "proxy", proxy_jump_id: "jump" }, encoding: "GBK" };
+  await createTemporarySession(temporary, "temporary-create");
+  await createSessionForPane({ id: "pane-telnet", type: "Telnet", temporaryConfig: temporary }, "temporary-reconnect");
+  expect(invokeMock).toHaveBeenCalledWith("create_telnet_session", expect.objectContaining({ network: temporary.network, encoding: "GBK", createRequestId: "temporary-create" }));
+  expect(invokeMock).toHaveBeenCalledWith("create_telnet_session", expect.objectContaining({ network: temporary.network, encoding: "GBK", createRequestId: "temporary-reconnect", recordingScopeId: "pane-telnet" }));
 });

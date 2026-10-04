@@ -2,10 +2,13 @@ pub mod ai;
 pub mod auth;
 pub mod commands;
 pub mod error;
+pub mod network;
 pub mod plugins;
 pub mod session;
 pub mod sftp;
 pub mod state;
+pub mod telnet;
+pub mod vnc;
 
 use crate::{auth::Owner, state::State};
 use axum::{
@@ -53,6 +56,7 @@ pub fn router(state: Arc<State>, dist: std::path::PathBuf) -> Router {
         .route("/events", get(events))
         .route("/sessions", post(session::create_route))
         .route("/sessions/{id}/terminal", get(session::ws_route))
+        .route("/sessions/{id}/vnc", get(vnc::ws_route))
         .route("/sessions/{id}/download", get(sftp::download))
         .route(
             "/sessions/{id}/upload",

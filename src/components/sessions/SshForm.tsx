@@ -1179,12 +1179,12 @@ export function SshForm({
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-3 space-y-3">
           <Tabs
-            defaultValue={supports("nativeFiles") ? "network" : "two-factor"}
+            defaultValue={supports("networkProxy") ? "network" : "two-factor"}
             className="w-full"
           >
             <TabsList className="grid h-8 w-full grid-cols-3 pointer-events-auto">
               <TabsTrigger
-                disabled={!supports("nativeFiles")}
+                disabled={!supports("networkProxy")}
                 value="network"
                 className="text-xs"
               >

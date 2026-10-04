@@ -1,4 +1,6 @@
-import { Channel } from "@tauri-apps/api/core";
+import { subscribeVncFrames } from "@/lib/vncFrames";
+import { runtime } from "@/lib/backend/runtime";
+import { useTranslation } from "react-i18next";
 import { listen } from "@/lib/backend/api";
 import { Eye, Monitor, Power, RotateCcw, ShieldAlert } from "lucide-react";
 import {
@@ -103,6 +105,8 @@ function VncPaneHost({
   onDisconnectedCloseRequested,
   onConnectionError,
 }: VncPaneHostProps) {
+  const { t } = useTranslation();
+  const [clipboardUnavailable, setClipboardUnavailable] = useState(false);
   const surfaceRef = useRef<RemoteDesktopSurfaceHandle | null>(null);
   const imeRef = useRef<HTMLTextAreaElement | null>(null);
   const pressedKeysRef = useRef(new Set<number>());
@@ -152,18 +156,24 @@ function VncPaneHost({
   }, [pane.sessionId]);
 
   useEffect(() => {
-    const channel = new Channel<ArrayBuffer>((frame) => {
+    let disposed = false;
+    const controller = new AbortController();
+    let unsubscribe: (() => void) | undefined;
+    const onFrame = (frame: ArrayBuffer) => {
+      if (disposed) return;
       const patch = decodeRemoteDesktopFramePatch(frame);
       setDesktopSize({ width: patch.desktopWidth, height: patch.desktopHeight });
       surfaceRef.current?.drawFrame(patch);
-    });
+    };
 
     if (!pane.connecting && !pane.connectError) {
-      void invoke("vnc_attach_frame_channel", {
-        sessionId: pane.sessionId,
-        frameChannel: channel,
-      }).catch(() => {});
+      void subscribeVncFrames(pane.sessionId, onFrame, (error) => {
+        if (!disposed) setMessage(error.message);
+      }, controller.signal).then((stop) => { if (disposed) stop(); else unsubscribe = stop; }).catch((error: Error) => {
+        if (!disposed) { setState("failed"); setMessage(error.message); }
+      });
     }
+    return () => { disposed = true; controller.abort(); unsubscribe?.(); };
   }, [pane.connectError, pane.connecting, pane.sessionId]);
 
   useEffect(() => {
@@ -184,7 +194,7 @@ function VncPaneHost({
     const unlisten = listen<VncClipboardPayload>(`vnc-clipboard-${pane.sessionId}`, (event) => {
       const text = event.payload.text;
       lastRemoteReceivedRef.current = text;
-      void writeClipboardText(text).catch(() => {});
+      void writeClipboardText(text).catch(() => { if (runtime === "web") setClipboardUnavailable(true); });
     });
     return () => {
       void unlisten.then((dispose) => dispose());
@@ -212,7 +222,7 @@ function VncPaneHost({
           );
         }
       } catch {
-        /* clipboard access can be denied while the pane remains usable */
+        if (runtime === "web") setClipboardUnavailable(true);
       } finally {
         polling = false;
       }
@@ -381,6 +391,7 @@ function VncPaneHost({
         }}
       >
         <div className="absolute left-2 top-2 flex items-center gap-1 rounded border border-white/15 bg-black/65 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+          {clipboardUnavailable && <output>{t("web.clipboardUnavailable")}</output>}
           <Monitor className="h-3.5 w-3.5" />
           <span className="max-w-40 truncate">{pane.name}</span>
           {desktopSize.width > 0 && desktopSize.height > 0 ? (

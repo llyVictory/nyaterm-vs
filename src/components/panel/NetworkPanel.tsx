@@ -1,3 +1,4 @@
+import { runtime } from "@/lib/backend/runtime";
 import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import {
@@ -564,7 +565,7 @@ export default function NetworkPanel() {
   const { t } = useTranslation();
   const { appSettings, savedConnections, savedGroups, updateUi } = useApp();
   const activeTab: NetworkTab =
-    appSettings.ui.network_panel_active_tab === "proxy" ? "proxy" : "tunnel";
+    runtime === "web" || appSettings.ui.network_panel_active_tab === "proxy" ? "proxy" : "tunnel";
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
   const [proxies, setProxies] = useState<ProxyConfig[]>([]);
@@ -643,6 +644,7 @@ export default function NetworkPanel() {
   }, []);
 
   const loadTunnelGroups = useCallback(async () => {
+    if (runtime === "web") return;
     try {
       const next = await invoke<NetworkGroup[]>("get_tunnel_groups");
       setTunnelGroups(next);
@@ -654,13 +656,14 @@ export default function NetworkPanel() {
   const loadProxies = useCallback(async () => {
     try {
       const next = await invoke<ProxyConfig[]>("get_proxies");
-      setProxies(next);
+      setProxies(runtime === "web" ? next.filter((proxy) => proxy.protocol !== "proxycommand") : next);
     } catch (error) {
       toast.error(String(error));
     }
   }, []);
 
   const loadTunnels = useCallback(async () => {
+    if (runtime === "web") return;
     try {
       const next = await invoke<TunnelConfig[]>("get_tunnels");
       setTunnels(next);
@@ -670,6 +673,7 @@ export default function NetworkPanel() {
   }, []);
 
   const loadTunnelRuntimeStates = useCallback(async () => {
+    if (runtime === "web") return;
     try {
       const next = await invoke<TunnelRuntimeState[]>("get_tunnel_runtime_states");
       setTunnelRuntimeStates(Object.fromEntries(next.map((state) => [state.tunnelId, state])));
@@ -850,10 +854,10 @@ export default function NetworkPanel() {
           }}
           className="w-full"
         >
-          <TabsList className="grid h-8 w-full grid-cols-2">
-            <TabsTrigger value="tunnel" className="text-xs">
+          <TabsList className={`grid h-8 w-full ${runtime === "web" ? "grid-cols-1" : "grid-cols-2"}`}>
+            {runtime === "desktop" && <TabsTrigger value="tunnel" className="text-xs">
               {t("network.tunnels")}
-            </TabsTrigger>
+            </TabsTrigger>}
             <TabsTrigger value="proxy" className="text-xs">
               {t("network.proxy")}
             </TabsTrigger>

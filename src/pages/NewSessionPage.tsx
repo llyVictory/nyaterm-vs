@@ -303,18 +303,20 @@ export default function NewSessionPage() {
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("transcript");
 
   useEffect(() => {
-    invoke<string>("get_default_local_shell")
-      .then((value) => {
-        const resolvedShell = value.trim();
-        if (!resolvedShell) return;
-        setDefaultLocalShell(resolvedShell);
-        if (!editId) {
-          setShellPath((current) =>
-            current === FALLBACK_LOCAL_SHELL ? resolvedShell : current,
-          );
-        }
-      })
-      .catch(() => undefined);
+    if (supports("localShell")) {
+      invoke<string>("get_default_local_shell")
+        .then((value) => {
+          const resolvedShell = value.trim();
+          if (!resolvedShell) return;
+          setDefaultLocalShell(resolvedShell);
+          if (!editId) {
+            setShellPath((current) =>
+              current === FALLBACK_LOCAL_SHELL ? resolvedShell : current,
+            );
+          }
+        })
+        .catch(() => undefined);
+    }
     invoke<Group[]>("get_groups")
       .then(setGroups)
       .catch((e) => setError(getErrorMessage(e)));
@@ -393,6 +395,8 @@ export default function NewSessionPage() {
           setSftpSettings(normalizeSftpSettings(found.sftp));
           setRemoteDynamicTabTitle(found.dynamic_tab_title ?? false);
         } else if (found.type === "telnet") {
+          setProxyId(found.network?.proxy_id || "");
+          setJumpHostId(found.network?.proxy_jump_id || "");
           setHost(found.host || "");
           setTelnetPort(found.port || 23);
           setUsername(found.username || "");
@@ -993,7 +997,7 @@ export default function NewSessionPage() {
                   ? "vnc"
                   : "serial";
       const network =
-        currentTab === "ssh" || currentTab === "rdp" || currentTab === "vnc"
+        currentTab === "ssh" || currentTab === "telnet" || currentTab === "rdp" || currentTab === "vnc"
           ? (() => {
               const nextNetwork: NonNullable<SavedConnection["network"]> = {};
               if (proxyId) {
@@ -1145,6 +1149,7 @@ export default function NewSessionPage() {
               port: telnetPort,
               username: normalizedUsername,
               auth,
+              network,
               backspace_mode: telnetBackspaceMode,
               raw_tcp_cli: telnetRawTcpCli,
               enter_mode: telnetEnterMode,
@@ -1289,7 +1294,7 @@ export default function NewSessionPage() {
               {t("dialog.localTerminal")}
             </TabsTrigger>
             <TabsTrigger
-              disabled={!supports("localShell")}
+              disabled={!supports("telnet")}
               value="telnet"
               className="text-xs"
             >
@@ -1310,13 +1315,18 @@ export default function NewSessionPage() {
               RDP
             </TabsTrigger>
             <TabsTrigger
-              disabled={!supports("remoteDesktop")}
+              disabled={!supports("vnc")}
               value="vnc"
               className="text-xs"
             >
               VNC
             </TabsTrigger>
           </TabsList>
+          {!supports("localShell") && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("web.sessionTypesHint")}
+            </p>
+          )}
         </div>
 
         <div className="flex-1 min-h-0 w-full space-y-3 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20">
@@ -1732,6 +1742,7 @@ export default function NewSessionPage() {
 
           <TabsContent value="telnet" className="space-y-3 m-0 border-0 outline-none w-full">
             <TelnetForm
+              network={{ proxyId, setProxyId, proxies, jumpHostId, setJumpHostId, jumpHostOptions }}
               host={host}
               setHost={setHost}
               port={telnetPort}

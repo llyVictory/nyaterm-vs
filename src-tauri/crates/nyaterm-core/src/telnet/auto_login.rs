@@ -89,7 +89,9 @@ impl TelnetAutoLogin {
         if !config.enabled {
             return None;
         }
-        if credentials.username.trim().is_empty() && credentials.password.as_deref().is_none_or(str::is_empty) {
+        if credentials.username.trim().is_empty()
+            && credentials.password.as_deref().is_none_or(str::is_empty)
+        {
             return None;
         }
 
@@ -117,9 +119,8 @@ impl TelnetAutoLogin {
             return Vec::new();
         }
 
-        if now.duration_since(self.started_at) > Duration::from_millis(self.config.timeout_ms) {
-            self.disabled = true;
-            return vec![TelnetAutoLoginAction::Disable];
+        if let Some(action) = self.tick(now) {
+            return vec![action];
         }
 
         self.push_tail(text);
@@ -161,7 +162,11 @@ impl TelnetAutoLogin {
         }
 
         if !self.sent_password
-            && self.credentials.password.as_deref().is_some_and(|value| !value.is_empty())
+            && self
+                .credentials
+                .password
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
             && self.matches_password_prompt(&prompts)
         {
             self.sent_password = true;
@@ -185,6 +190,18 @@ impl TelnetAutoLogin {
         }
         self.disabled = true;
         Some(TelnetAutoLoginAction::Disable)
+    }
+
+    pub fn tick(&mut self, now: Instant) -> Option<TelnetAutoLoginAction> {
+        if !self.disabled
+            && !self.completed
+            && now.duration_since(self.started_at) > Duration::from_millis(self.config.timeout_ms)
+        {
+            self.disabled = true;
+            Some(TelnetAutoLoginAction::Disable)
+        } else {
+            None
+        }
     }
 
     fn push_tail(&mut self, text: &str) {
@@ -227,13 +244,16 @@ impl TelnetAutoLogin {
 
     fn matches_failure(&self, text: &str, last_line: &str) -> bool {
         self.failure_regex.as_ref().map_or_else(
-            || default_failure_regex().is_match(text) || default_failure_regex().is_match(last_line),
+            || {
+                default_failure_regex().is_match(text)
+                    || default_failure_regex().is_match(last_line)
+            },
             |regex| regex.is_match(text) || regex.is_match(last_line),
         )
     }
 }
 
-fn compile_optional_regex(pattern: Option<&str>) -> Option<Regex> {
+pub fn compile_optional_regex(pattern: Option<&str>) -> Option<Regex> {
     let trimmed = pattern?.trim();
     if trimmed.is_empty() {
         return None;
@@ -241,13 +261,13 @@ fn compile_optional_regex(pattern: Option<&str>) -> Option<Regex> {
     Regex::new(trimmed).ok()
 }
 
-fn line_bytes(value: &str, enter_mode: TelnetEnterMode) -> Vec<u8> {
+pub fn line_bytes(value: &str, enter_mode: TelnetEnterMode) -> Vec<u8> {
     let mut data = value.as_bytes().to_vec();
     data.push(b'\r');
     normalize_enter_bytes(&data, enter_mode)
 }
 
-fn last_chars(value: &str, max_chars: usize) -> String {
+pub fn last_chars(value: &str, max_chars: usize) -> String {
     let len = value.chars().count();
     if len <= max_chars {
         return value.to_string();
@@ -255,7 +275,7 @@ fn last_chars(value: &str, max_chars: usize) -> String {
     value.chars().skip(len - max_chars).collect()
 }
 
-fn last_non_empty_line(value: &str) -> String {
+pub fn last_non_empty_line(value: &str) -> String {
     value
         .lines()
         .rev()
@@ -265,7 +285,7 @@ fn last_non_empty_line(value: &str) -> String {
         .to_string()
 }
 
-fn prompt_candidates(window: &str, current_input: &str) -> Vec<String> {
+pub fn prompt_candidates(window: &str, current_input: &str) -> Vec<String> {
     let mut prompts = Vec::new();
     for source in [window, current_input] {
         for line in source.lines() {
@@ -277,13 +297,13 @@ fn prompt_candidates(window: &str, current_input: &str) -> Vec<String> {
     prompts
 }
 
-fn push_prompt_candidate(prompts: &mut Vec<String>, prompt: &str) {
+pub fn push_prompt_candidate(prompts: &mut Vec<String>, prompt: &str) {
     if !prompt.is_empty() && !prompts.iter().any(|existing| existing == prompt) {
         prompts.push(prompt.to_string());
     }
 }
 
-fn push_prompt_suffix_candidates(prompts: &mut Vec<String>, prompt: &str) {
+pub fn push_prompt_suffix_candidates(prompts: &mut Vec<String>, prompt: &str) {
     const KEYWORDS: &[&str] = &[
         "user name",
         "username",
@@ -321,7 +341,7 @@ fn push_prompt_suffix_candidates(prompts: &mut Vec<String>, prompt: &str) {
     }
 }
 
-fn default_username_regex() -> &'static Regex {
+pub fn default_username_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
@@ -331,14 +351,13 @@ fn default_username_regex() -> &'static Regex {
     })
 }
 
-fn last_login_regex() -> &'static Regex {
+pub fn last_login_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:last|previous)\s+login\b").expect("last login regex")
-    })
+    REGEX
+        .get_or_init(|| Regex::new(r"(?i)\b(?:last|previous)\s+login\b").expect("last login regex"))
 }
 
-fn default_password_regex() -> &'static Regex {
+pub fn default_password_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
@@ -348,7 +367,7 @@ fn default_password_regex() -> &'static Regex {
     })
 }
 
-fn default_wake_regex() -> &'static Regex {
+pub fn default_wake_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r"(?i)(press\s+(?:return|<enter>|\[enter\]|enter|any\s+key))")
@@ -356,15 +375,17 @@ fn default_wake_regex() -> &'static Regex {
     })
 }
 
-fn default_success_regex() -> &'static Regex {
+pub fn default_success_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| Regex::new(r"[$#>]\s*$").expect("default success prompt regex"))
 }
 
-fn default_failure_regex() -> &'static Regex {
+pub fn default_failure_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        Regex::new(r"(?i)(login\s+incorrect|authentication\s+failed|access\s+denied|密码错误|认证失败)")
-            .expect("default failure prompt regex")
+        Regex::new(
+            r"(?i)(login\s+incorrect|authentication\s+failed|access\s+denied|密码错误|认证失败)",
+        )
+        .expect("default failure prompt regex")
     })
 }

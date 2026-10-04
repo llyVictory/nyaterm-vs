@@ -2061,7 +2061,7 @@ function App() {
       toast.info(t("tabCtx.reconnecting"));
 
       try {
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_reconnecting_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2095,7 +2095,7 @@ function App() {
           return;
         }
         const errorMessage = getErrorMessage(error);
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_disconnected_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2161,7 +2161,7 @@ function App() {
       toast.info(t("tabCtx.reconnecting"));
 
       try {
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_reconnecting_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2195,7 +2195,7 @@ function App() {
           return;
         }
         const errorMessage = getErrorMessage(error);
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_disconnected_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2344,7 +2344,7 @@ function App() {
       }
 
       try {
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_reconnecting_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2377,7 +2377,7 @@ function App() {
           return;
         }
         const errorMessage = getErrorMessage(error);
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_disconnected_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});

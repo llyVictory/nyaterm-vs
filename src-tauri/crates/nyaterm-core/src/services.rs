@@ -242,11 +242,12 @@ pub fn validate_proxy_jump_config(
     if !matches!(
         connection.config,
         config::ConnectionType::Ssh { .. }
+            | config::ConnectionType::Telnet { .. }
             | config::ConnectionType::Rdp { .. }
             | config::ConnectionType::Vnc { .. }
     ) {
         return Err(AppError::Config(
-            "ProxyJump is only supported for SSH, RDP, and VNC connections".to_string(),
+            "ProxyJump is only supported for SSH, Telnet, RDP, and VNC connections".to_string(),
         ));
     }
 
@@ -255,6 +256,9 @@ pub fn validate_proxy_jump_config(
     let mut current_jump_id = proxy_jump_id;
 
     loop {
+        if visited.len() > 8 {
+            return Err(AppError::Config("SSH jump chain exceeds 8 hops".into()));
+        }
         if !visited.insert(current_jump_id) {
             if connection.id == current_jump_id {
                 return Err(AppError::Config(

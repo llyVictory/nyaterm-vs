@@ -1,3 +1,4 @@
+import { runtime } from "@/lib/backend/runtime";
 import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import {
@@ -56,6 +57,7 @@ import type {
   Group,
   PaneSplitDirection,
   SavedConnection,
+  SessionInfo,
   SessionPane,
   SessionType,
   SyncGroup,
@@ -1115,7 +1117,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pendingLockedStartupRestoreTabsRef = useRef<Tab[] | null>(null);
 
   const restoreSessionsForTabs = useCallback(
-    (tabsToRestore: Tab[]) => {
+    async (tabsToRestore: Tab[]) => {
+      const reusable = runtime === "web" ? await invoke<SessionInfo[]>("list_sessions").catch(() => []) : [];
       const tasks: Promise<unknown>[] = [];
       tabsToRestore.forEach((tab) => {
         const panes = collectSessionPanes(tab.root);
@@ -1124,6 +1127,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (!hasPane(tab.id, pane.id)) return;
 
           const cid = pane.connectionId;
+          const live = reusable.find((session) => session.ready !== false && session.workspace_pane_id === pane.id && session.session_type === pane.type && (session.connection_id ?? undefined) === cid);
+          if (live) {
+            tasks.push((async () => {
+              // Wait for the previous page's socket to release its attachment.
+              for (let attempt = 0; live.attached && attempt < 120; attempt++) {
+                await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+                const info = await invoke<SessionInfo>("get_session_info", { sessionId: live.id });
+                live.attached = info.attached;
+              }
+              await handleRestoredSessionCreated(tab.id, pane.id, live.id, cid);
+            })().catch((error) => handleRestoredSessionFailed(tab.id, pane.id, pane.type, cid, error)));
+            return;
+          }
           switch (pane.type) {
             case "SSH":
               if (!cid) {
@@ -1190,6 +1206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ownerWindowLabel: getOwnerMainWindowLabel(),
                 connectionId: cid,
                 createRequestId: pane.createRequestId,
+                recordingScopeId: pane.id,
               })
                 .then((sessionId) => handleRestoredSessionCreated(tab.id, pane.id, sessionId, cid))
                 .catch((e) =>

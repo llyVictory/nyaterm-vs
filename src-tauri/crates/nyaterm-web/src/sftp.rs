@@ -36,7 +36,7 @@ pub fn supports(command: &str) -> bool {
     )
 }
 pub async fn open(session: &WebSession) -> Result<russh_sftp::client::SftpSession> {
-    if !session.sftp.enabled {
+    if !matches!(session.protocol, crate::session::SessionProtocol::Ssh) || !session.sftp.enabled {
         return Err(WebError::unsupported());
     }
     if !session.ready.load(std::sync::atomic::Ordering::Acquire) {

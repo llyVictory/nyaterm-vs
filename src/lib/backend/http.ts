@@ -1,5 +1,6 @@
 import { backendURL, requireCapability } from "./runtime";
 import { deliver } from "./events";
+import { closeBrowserVnc, closeAllBrowserVnc, sendBrowserVnc } from "./vnc";
 
 let csrf: string | undefined;
 let source: EventSource | undefined;
@@ -9,7 +10,7 @@ const sockets = new Map<
   { socket: WebSocket; ready: Promise<void>; closed: boolean }
 >();
 const nativeCommands =
-  /^(create_local_session|create_serial_session|create_telnet_session|create_rdp_session|create_vnc_session|.*zmodem.*|.*serial_modem.*|.*local_file.*|.*watcher.*|open_local.*|install_plugin|import_plugin)$/;
+  /^(create_local_session|create_serial_session|create_rdp_session|.*zmodem.*|.*serial_modem.*|.*local_file.*|.*watcher.*|open_local.*|install_plugin|import_plugin)$/;
 
 export async function request<T>(
   path: string,
@@ -56,6 +57,12 @@ export function startEvents(): Promise<void> {
       if (event.event === "ready") {
         clearTimeout(timer);
         resolve();
+      } else if (event.event.startsWith("connection-error-")) {
+        const payload = event.payload as { error?: string } | string;
+        deliver(
+          event.event.replace("connection-error-", "session-error-"),
+          typeof payload === "string" ? payload : payload.error,
+        );
       } else deliver(event.event, event.payload);
     };
     source.addEventListener("expired", () => window.location.reload());
@@ -98,8 +105,7 @@ async function attach(id: string): Promise<void> {
       }
     } else {
       const event = JSON.parse(data);
-      if (event.type === "error")
-        deliver(`connection-error-${id}`, event.error);
+      if (event.type === "error") deliver(`session-error-${id}`, event.error);
       if (event.type === "closed" || event.type === "error") {
         state.closed = true;
         deliver(`session-closed-${id}`, null);
@@ -144,6 +150,7 @@ export async function httpInvoke<T>(
   command: string,
   args: Record<string, unknown> = {},
 ): Promise<T> {
+  if (command === "get_default_local_shell") requireCapability("localShell");
   if (nativeCommands.test(command)) requireCapability("nativeFiles");
   if (command === "read_clipboard_text")
     return (await navigator.clipboard.readText()) as T;
@@ -160,7 +167,6 @@ export async function httpInvoke<T>(
   if (
     [
       "claim_external_open_requests",
-      "get_proxies",
       "get_tunnels",
       "get_otp_entries",
       "get_local_shells",
@@ -179,16 +185,24 @@ export async function httpInvoke<T>(
         active.socket.close();
       }
       sockets.clear();
+      closeAllBrowserVnc();
       window.location.reload();
       return undefined as T;
     }
     case "create_ssh_session":
-    case "create_temporary_ssh_session": {
+    case "create_temporary_ssh_session":
+    case "create_telnet_session":
+    case "create_vnc_session": {
       await startEvents();
-      const result = await request<{ session_id: string }>(
-        "api/sessions",
-        args,
-      );
+      const result = await request<{ session_id: string }>("api/sessions", {
+        ...args,
+        type:
+          command === "create_telnet_session"
+            ? "telnet"
+            : command === "create_vnc_session"
+              ? "vnc"
+              : "ssh",
+      });
       return result.session_id as T;
     }
     case "attach_session":
@@ -209,6 +223,15 @@ export async function httpInvoke<T>(
         JSON.stringify({ type: "resize", cols: args.cols, rows: args.rows }),
       );
       return undefined as T;
+    case "vnc_input_batch":
+      await sendBrowserVnc(id, { type: "input", events: args.events });
+      return undefined as T;
+    case "vnc_set_clipboard_text":
+      await sendBrowserVnc(id, { type: "clipboard", text: args.text });
+      return undefined as T;
+    case "close_vnc_session":
+      closeBrowserVnc(id);
+      break;
     case "close_session": {
       const active = sockets.get(id);
       if (active) {

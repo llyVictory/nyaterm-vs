@@ -4,6 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 pub enum Command {
     Input(Vec<u8>),
+    RawInput(Vec<u8>),
     Resize(u32, u32),
     Close,
 }
@@ -11,6 +12,7 @@ pub enum Output {
     Data(Vec<u8>),
     Closed,
     Error,
+    Failure(String),
 }
 pub const CHUNK_BYTES: usize = 64 * 1024;
 pub const OUTPUT_CAPACITY: usize = 32;
@@ -38,7 +40,7 @@ pub async fn run(
         loop {
             tokio::select! {
                 command = input.recv() => match command {
-                    Some(Command::Input(data)) => write(&channel, &data).await?,
+                    Some(Command::Input(data) | Command::RawInput(data)) => write(&channel, &data).await?,
                     Some(Command::Resize(cols, rows)) => resize(&channel, cols, rows).await?,
                     Some(Command::Close) | None => break,
                 },

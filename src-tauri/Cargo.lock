@@ -5008,8 +5008,10 @@ name = "nyaterm-core"
 version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
+ "async-http-proxy",
  "base64 0.22.1",
  "dirs",
+ "encoding_rs",
  "font-kit",
  "futures-util",
  "genai",
@@ -5026,12 +5028,15 @@ dependencies = [
  "sha1 0.10.7",
  "sha2 0.10.9",
  "ssh-key 0.6.7",
+ "strip-ansi-escapes",
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "tokio-socks",
  "tokio-util",
  "tracing",
  "uuid",
+ "vnc-rs",
  "zeroize",
 ]
 

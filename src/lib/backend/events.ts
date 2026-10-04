@@ -8,7 +8,7 @@ let channel: BroadcastChannel | undefined;
 export function deliver(event: string, payload: unknown): void {
   if (
     !handlers.get(event)?.size &&
-    /^(terminal-output-|session-closed-|connection-error-)/.test(event)
+    /^(terminal-output-|session-closed-|session-error-|connection-error-)/.test(event)
   ) {
     const bytes = (payload as { bytes?: number } | null)?.bytes ?? 0;
     const queue = pending.get(event) ?? [];

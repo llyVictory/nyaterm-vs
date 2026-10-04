@@ -286,6 +286,8 @@ pub async fn create_telnet_session(
     create_request_id: Option<String>,
     recording_scope_id: Option<String>,
     startup_command: Option<StartupCommandPayload>,
+    network: Option<config::ConnectionNetwork>,
+    encoding: Option<String>,
 ) -> AppResult<String> {
     let pending_creation = state.begin_session_creation(create_request_id).await;
     let (guard, cancel_rx) = match pending_creation {
@@ -330,6 +332,7 @@ pub async fn create_telnet_session(
                 name: conn.name.clone(),
                 username: config::resolve_account_username(account.as_ref(), &username),
                 password: telnet_password,
+                network: conn.network.clone(),
                 backspace_mode,
                 raw_tcp_cli,
                 enter_mode: core::TelnetEnterMode::from_config_value(&enter_mode),
@@ -352,6 +355,8 @@ pub async fn create_telnet_session(
             host: host.ok_or_else(|| AppError::Config("host is required".to_string()))?,
             port: port.unwrap_or(23),
             name: name.unwrap_or_else(|| "Telnet".to_string()),
+            network,
+            encoding: encoding.unwrap_or_else(|| "UTF-8".into()),
             ..Default::default()
         }
     };
