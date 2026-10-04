@@ -42,7 +42,7 @@ Core 和 Web 是两个独立 Cargo crate；Desktop 以 path dependency 引用 Co
 | `src-tauri/crates/nyaterm-web/src/{main,lib,auth,state,session,commands,sftp,ai,plugins,error}.rs` | 独立服务、显式命令 allowlist、会话和资源清理。                                                 |
 | `src-tauri/crates/nyaterm-web/tests/{transport,bootstrap}.rs`                                      | 真正 russh/SFTP fixture 与进程启动测试。                                                       |
 | 各 crate Cargo.toml/Cargo.lock、`package.json`、`vite.config.ts`                                   | 依赖、构建入口和 base path。                                                                   |
-| `Dockerfile`、`.dockerignore`、`compose.web.yml`、`.gitignore`                                     | 三阶段非 root 容器、持久 volume、构建上下文/秘密排除。                                         |
+| `Dockerfile`、`.dockerignore`、`docker-compose.yml`、`.gitignore`                                     | 三阶段非 root 容器、持久 volume、构建上下文/秘密排除。                                         |
 | `docs/web-deployment.md`、本文                                                                     | 操作步骤、能力、安全边界和验证报告。                                                           |
 
 原生 imports 只在 transport/platform 边界及被 capability 隔离的 RDP/VNC Channel、updater 和 native PluginPanel 资源转换中保留。不会在 Web startup 创建原生 Channel 或加载原生插件。
@@ -90,7 +90,7 @@ Core 和 Web 是两个独立 Cargo crate；Desktop 以 path dependency 引用 Co
 
 这是单管理员实例，不是多租户 ACL 服务。共享保存配置和历史应只对可信管理员开放。高熵登录密码与独立 32 字节外部数据密钥必须配置；启动不能回退到 OS credential manager 或路径派生密钥。既有主密码层次保留，错误数据密钥启动失败。redb 的元数据/AI 历史不等于整个数据库加密。
 
-cookie 为随机 256 bit、HttpOnly、SameSite=Strict，HTTPS 下 Secure，Path 绑定 base path，8 小时有效。登录校验 Origin 与自定义请求头；mutation 校验 CSRF；WS 校验 cookie 和 Origin；所有静态/API/事件/传输入口校验配置的 Host 与存在的 Origin。没有 wildcard CORS，也不把 forwarded headers 当作认证依据。非回环 public URL 必须 HTTPS。登录尝试限额为全局每分钟 20 次。
+cookie 为随机 256 bit、HttpOnly、SameSite=Strict，HTTPS 下 Secure，Path 绑定 base path，8 小时有效。登录校验 Origin 与自定义请求头；mutation 校验 CSRF；WS 校验 cookie 和 Origin；所有静态/API/事件/传输入口校验配置的 Host 与存在的 Origin。没有 wildcard CORS，也不把 forwarded headers 当作认证依据。非回环 public URL 默认要求 HTTPS；可通过 `NYATERM_WEB_ALLOW_INSECURE_HTTP=true` 显式允许 HTTP，Host/Origin 校验仍保持不变。前端请求 ID 在没有 `crypto.randomUUID` 的 HTTP 环境使用 `crypto.getRandomValues` 生成 UUID v4。登录尝试限额为全局每分钟 20 次。
 
 session/prompt/AI cancellation 隔离于登录 owner，跨 owner 的 session 返回 404、prompt 返回 403。WS URL 不含 token。SSH unknown/changed key 均要求明确确认后才保存。secret 不进入日志/列表，响应使用 no-store，并设置 CSP/nosniff/referrer policy。Web command 显式 allowlist，不能反射调用任意 Tauri command、访问服务端任意本地路径或执行本地程序。浏览器插件框架不提供服务端文件/进程权限。
 

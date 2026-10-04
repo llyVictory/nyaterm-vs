@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { emit } from "@/lib/backend/api";
 import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useEffect, useMemo, useState } from "react";
@@ -198,7 +199,7 @@ export default function QuickCommandPage() {
     let finalCategoryId = categoryId === "none" ? undefined : categoryId;
     let newCategory: QuickCommandCategory | undefined;
     if (categoryId === "new" && newCategoryName.trim()) {
-      const newId = crypto.randomUUID();
+      const newId = randomUUID();
       newCategory = {
         id: newId,
         name: newCategoryName.trim(),

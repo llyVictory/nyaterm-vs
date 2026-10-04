@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import { getCurrentWindow } from "@/lib/backend/platform/window";
 import {
@@ -388,7 +389,7 @@ export function ChildAppProvider({ children }: { children: ReactNode }) {
   const noop = useCallback(() => {}, []);
   const noopString = useCallback(() => "", []);
   const noopPendingTab = useCallback(
-    () => ({ tabId: "", paneId: "", createRequestId: crypto.randomUUID() }),
+    () => ({ tabId: "", paneId: "", createRequestId: randomUUID() }),
     [],
   );
   const noopPaneConnecting = useCallback(() => null, []);

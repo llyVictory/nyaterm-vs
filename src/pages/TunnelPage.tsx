@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { emit } from "@/lib/backend/api";
 import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -111,7 +112,7 @@ export default function TunnelPage() {
     setSaveError("");
 
     try {
-      const payload = nextTunnel.id ? nextTunnel : { ...nextTunnel, id: crypto.randomUUID() };
+      const payload = nextTunnel.id ? nextTunnel : { ...nextTunnel, id: randomUUID() };
       await invoke("save_tunnel", { tunnel: payload });
       await emit("tunnel-saved");
       getCurrentWindow().close();

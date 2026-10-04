@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import {
   ChevronDownIcon,
@@ -784,7 +785,7 @@ export default function NetworkPanel() {
         const groups = groupDialog.tab === "proxy" ? proxyGroups : tunnelGroups;
         const group = groupDialog.group
           ? { ...groupDialog.group, name }
-          : { id: crypto.randomUUID(), name, sort_order: groups.length };
+          : { id: randomUUID(), name, sort_order: groups.length };
         await invoke(groupDialog.tab === "proxy" ? "save_proxy_group" : "save_tunnel_group", {
           group,
         });

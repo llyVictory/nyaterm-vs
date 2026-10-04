@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { supports } from "@/lib/backend/runtime";
 import { emit, listen, type UnlistenFn } from "@/lib/backend/api";
 import {
@@ -754,7 +755,7 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
 
       setDetectedError(null);
       const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const requestStreamId = `ai-stream-${crypto.randomUUID()}`;
+      const requestStreamId = `ai-stream-${randomUUID()}`;
       let resolvedSessionId = requestSessionId ?? `pending-${requestStreamId}`;
       const userMessage = createLocalMessage("user", userInput, resolvedSessionId);
       const assistantMessage: AIMessage = {
@@ -1118,7 +1119,7 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
             };
         const categoryId = existingCategory?.id ?? newCategory?.id;
         const command: QuickCommand = {
-          id: `ai-${crypto.randomUUID()}`,
+          id: `ai-${randomUUID()}`,
           label: card.title,
           command: card.command,
           category_id: categoryId,

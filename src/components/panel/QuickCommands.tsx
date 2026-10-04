@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import { save as saveFileDialog } from "@/lib/backend/platform/dialog";
 import { MoreHorizontalIcon } from "lucide-react";
@@ -441,7 +442,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     (name: string) => {
       if (!newCategoryDraft) return;
       const newCategory: QuickCommandCategory = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name,
         parent_id: newCategoryDraft.parentId || undefined,
         sort_order: getNextQuickCommandCategorySortOrder(

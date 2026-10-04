@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import {
   type ReactNode,
@@ -74,7 +75,7 @@ import {
 } from "./AppContext";
 
 function createSessionRequestId() {
-  return crypto.randomUUID();
+  return randomUUID();
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {

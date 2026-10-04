@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { listen } from "@/lib/backend/api";
 import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { openUrl } from "@/lib/backend/platform/opener";
@@ -96,7 +97,7 @@ function updateDefaultModelId(ai: AISettings, models: AIModelConfigItem[]) {
 
 function newCredential(): AIProviderCredential {
   return {
-    id: `credential-${crypto.randomUUID()}`,
+    id: `credential-${randomUUID()}`,
     name: "",
     provider_kind: "openai_compatible",
     api_protocol: null,
@@ -168,7 +169,7 @@ function providerProtocolSelectValue(credential: AIProviderCredential): string {
 
 function newAction(prefix: string): AICustomActionConfig {
   return {
-    id: `${prefix}-${crypto.randomUUID()}`,
+    id: `${prefix}-${randomUUID()}`,
     name: "自定义 AI 功能",
     prompt: "",
     enabled: true,
@@ -1773,7 +1774,7 @@ export function AiModelsTab() {
     } else {
       credential = {
         ...newCredential(),
-        id: providerInfo && !existingBuiltin ? providerKind : `credential-${crypto.randomUUID()}`,
+        id: providerInfo && !existingBuiltin ? providerKind : `credential-${randomUUID()}`,
         name: availableProviderName(providerLabel, enabledCredentials),
         provider_kind: providerKind,
         base_url: providerInfo ? providerInfo.defaultBaseUrl : "",

@@ -33,15 +33,17 @@ pnpm web:serve
 
 ## 环境变量
 
-| 变量                                                             | 含义                                                                                            |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `NYATERM_WEB_PASSWORD` / `NYATERM_WEB_PASSWORD_FILE`             | 登录密码，至少 32 字符；推荐随机生成。指定 `_FILE` 时优先读取文件。                             |
-| `NYATERM_WEB_ENCRYPTION_KEY` / `NYATERM_WEB_ENCRYPTION_KEY_FILE` | 标准 Base64 编码的 32 字节随机密钥，必须持久保存，禁止重新生成后直接复用旧数据。                |
-| `NYATERM_WEB_PUBLIC_URL`                                         | 浏览器实际访问地址，含端口和 base path；默认 `http://localhost:8080/`。非回环地址必须为 HTTPS。 |
-| `NYATERM_WEB_BIND`                                               | 服务监听地址，默认 `127.0.0.1:8080`，容器为 `0.0.0.0:8080`。                                    |
-| `NYATERM_WEB_DATA_DIR`                                           | redb 数据目录，默认 `./nyaterm-web-data`，容器为 `/data`。                                      |
-| `NYATERM_WEB_DIST`                                               | 已构建 React 资源目录，默认 `dist`，容器为 `/app/dist`。                                        |
-| `NYATERM_WEB_BASE_PATH`                                          | **前端构建时**使用的路径，默认 `/`，必须与 PUBLIC_URL 的路径一致并以 `/` 结尾。                 |
+| 变量                                                             | 含义                                                                                                |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `NYATERM_WEB_PASSWORD` / `NYATERM_WEB_PASSWORD_FILE`             | 登录密码，至少 32 字符；推荐随机生成。指定 `_FILE` 时优先读取文件。                                 |
+| `NYATERM_WEB_ENCRYPTION_KEY` / `NYATERM_WEB_ENCRYPTION_KEY_FILE` | 标准 Base64 编码的 32 字节随机密钥，必须持久保存，禁止重新生成后直接复用旧数据。                    |
+| `NYATERM_WEB_PUBLIC_URL`                                         | 浏览器实际访问地址，含端口和 base path；默认 `http://localhost:8080/`。非回环地址默认必须为 HTTPS。 |
+| `NYATERM_WEB_BIND`                                               | 服务监听地址，默认 `127.0.0.1:8080`，容器为 `0.0.0.0:8080`。                                        |
+| `NYATERM_WEB_DATA_DIR`                                           | redb 数据目录，默认 `./nyaterm-web-data`，容器为 `/data`。                                          |
+| `NYATERM_WEB_DIST`                                               | 已构建 React 资源目录，默认 `dist`，容器为 `/app/dist`。                                            |
+| `NYATERM_WEB_BASE_PATH`                                          | **前端构建时**使用的路径，默认 `/`，必须与 PUBLIC_URL 的路径一致并以 `/` 结尾。                     |
+
+`NYATERM_WEB_ALLOW_INSECURE_HTTP=true` 可显式允许局域网 HTTP 地址；同时将 `NYATERM_WEB_PUBLIC_URL` 设置为浏览器实际使用的 IP/域名和端口，并将监听地址设为 `0.0.0.0:8080`。前端请求 ID 使用 `crypto.getRandomValues` 兼容 HTTP，但剪贴板等浏览器能力仍可能要求 HTTPS。Host/Origin 校验继续生效，访问地址必须与 PUBLIC_URL 一致。
 
 服务启动会验证数据密钥；错误密钥会阻止启动。文件方式会去掉末尾换行。登录密码可独立替换，服务器重启使所有旧登录失效；加密密钥目前没有在线轮换 API。
 
@@ -64,10 +66,10 @@ docker run -d --name nyaterm-web --init \
 
 容器使用 UID / GID `10001:10001`。绑定目录时，确保该用户可以读取秘密文件和写入数据目录；新 named volume 会继承镜像中 `/data` 的所有权。默认端口映射仅暴露本机。如需远程访问，使用下面的 HTTPS 反向代理配置。
 
-仓库还提供 `compose.web.yml`，它通过外部环境变量注入密码和密钥：
+仓库还提供 `docker-compose.yml`，它通过外部环境变量注入密码和密钥：
 
 ```sh
-docker compose -f compose.web.yml up --build -d
+docker compose -f docker-compose.yml up --build -d
 ```
 
 提前在当前 shell 或受限 `.env` 中设置两个必填秘密。`.env*` 已排除在 Git 和 Docker build context 外。生产环境优先将 Compose 改为 `secrets` 挂载和 `_FILE` 变量，避免把秘密写入镜像。Dockerfile 使用 Node、Rust、Debian 三阶段构建，最终镜像只含 dist、服务程序和运行依赖。
