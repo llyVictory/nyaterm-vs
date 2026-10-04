@@ -205,6 +205,9 @@ tauri-plugin-updater = { version = "2", default-features = false, features = [
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+
 [target.'cfg(not(windows))'.dependencies]
 ironrdp = { path = "vendor/ironrdp/crates/ironrdp", default-features = false, features = ["rustls"] }
 
