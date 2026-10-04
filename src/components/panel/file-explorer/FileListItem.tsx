@@ -15,7 +15,11 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../../ui/context-menu";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../ui/hover-card";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "../../ui/hover-card";
 
 interface FileListItemProps {
   entry: FileEntry;
@@ -38,6 +42,7 @@ interface FileListItemProps {
   onOpenExternal: (entry: FileEntry) => void;
   onRefresh: () => void;
   showTransferActions: boolean;
+  downloadDisabled?: boolean;
   onUpload: () => void;
   onUploadFolder: () => void;
   onUploadFolderContents: () => void;
@@ -107,6 +112,7 @@ export function FileListItem({
   onOpenExternal,
   onRefresh,
   showTransferActions,
+  downloadDisabled,
   onUpload,
   onUploadFolder,
   onUploadFolderContents,
@@ -280,7 +286,9 @@ export function FileListItem({
           <div className="flex min-w-0 items-center gap-2 px-2">
             <entryIcon.icon
               className="shrink-0 text-base"
-              style={{ color: isSelected ? "var(--df-primary)" : entryIcon.color }}
+              style={{
+                color: isSelected ? "var(--df-primary)" : entryIcon.color,
+              }}
             />
             {isRenaming ? (
               <input
@@ -450,6 +458,7 @@ export function FileListItem({
           activeSessionId={activeSessionId}
           editorType={editorType}
           showTransferActions={showTransferActions}
+          downloadDisabled={downloadDisabled}
           terminalInputEnabled={!!onSendToTerminal}
           sendTargetOptions={sendTargetOptions}
           getAiActions={() => aiActions}

@@ -45,7 +45,11 @@
     "build:web": "tsc && vite build",
     "web:build:server": "cargo build --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --release --locked",
     "web:serve": "cargo run --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked",
-    "test:web": "cargo test --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked"
+    "test:web": "cargo test --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked",
+    "i18n:keys": "node scripts/check-i18n-keys.mjs",
+    "test:web:e2e": "node scripts/web-e2e.mjs",
+    "web:audit": "node scripts/web-audit.mjs",
+    "web:audit:check": "node scripts/web-audit.mjs --check"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -116,6 +120,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.2",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/react": "^16.3.2",

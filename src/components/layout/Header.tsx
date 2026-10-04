@@ -1,4 +1,4 @@
-import { supports } from "@/lib/backend/runtime";
+import { runtime, supports } from "@/lib/backend/runtime";
 import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { listen } from "@/lib/backend/api";
 import { openUrl } from "@/lib/backend/platform/opener";
@@ -948,6 +948,7 @@ export default function Header({
 
   const menus: Record<string, MenuItem[]> = {
     file: [
+      ...(runtime === "web" ? [{ id: "file.signOut", label: t("web.signOut"), action: onRequestQuit }] : []),
       addNativeAccelerator({
         id: "file.newSession",
         label: t("menu.newSession"),

@@ -1,6 +1,6 @@
 # Web / Docker 部署
 
-Web 模式复用现有 React 界面，由 `nyaterm-web` 同时提供静态资源和 HTTP / WebSocket / SSE API。此 MVP 面向一个可信管理员：不同登录的终端、认证提示和运行中的 AI 请求隔离，但保存的连接、凭据、设置、known_hosts 和 AI 历史在同一实例内共享。
+Web 模式复用现有 React 界面，由 `nyaterm-web` 同时提供静态资源和 HTTP / WebSocket / SSE API。此 Beta 面向一个可信管理员：不同登录的终端、认证提示和运行中的 AI 请求隔离，但保存的连接、凭据、设置、known_hosts 和 AI 历史在同一实例内共享。
 
 ## 本地运行
 
@@ -115,10 +115,30 @@ location /nyaterm/ {
 
 停服后备份整个数据目录，并单独备份加密密钥与登录密码。密钥丢失将无法解密凭据。不要让多个进程同时写同一个 redb volume，也不要把桌面用户数据目录直接作为服务器 volume。保存的私人密钥、密码和 AI provider 密钥使用原有 AES-GCM 存储。AI 历史和连接元数据属于实例共享数据，未作为整个数据库加密。
 
-支持保存/临时 SSH、Telnet 和 VNC，密码/私钥与手工交互认证、主机指纹确认、终端输入/输出/resize、SFTP 浏览与单文件流式上传/下载、文本编辑、基础 AI Ask 和设置持久化。Telnet 支持原有字符编码、自动登录、本地回显、行编辑、NAWS 和 raw TCP；VNC 支持现有认证与服务器密钥确认、缩放、共享连接、只读、文本剪贴板和重连。三种协议均支持 SOCKS5、HTTP CONNECT 及代理认证、SSH 跳板（最多 8 层，使用跳板自身网络配置）。代理失败不回退到直连。插件部分提供兼容性及权限检查框架，当前没有浏览器插件安装/执行器。
+支持保存/临时 SSH、Telnet 和 VNC，密码/私钥与手工交互认证、主机指纹确认、终端输入/输出/resize、SFTP 浏览与单文件流式上传/下载、文本编辑、基础 AI Ask、设置持久化以及资源/GPU/NPU/进程监控。监控使用独立 SSH exec 通道，Docker 管理仍不支持。Telnet 支持原有字符编码、自动登录、本地回显、行编辑、NAWS 和 raw TCP；VNC 支持现有认证与服务器密钥确认、缩放、共享连接、只读、文本剪贴板和重连。三种协议均支持 SOCKS5、HTTP CONNECT 及代理认证、SSH 跳板（最多 8 层，使用跳板自身网络配置）。代理失败不回退到直连。插件部分提供兼容性及权限检查框架，当前没有浏览器插件安装/执行器。
 
-Web 当前不支持本地 Shell、Serial、RDP、ProxyCommand、SSH agent/X11/证书登录、SSH 启动命令、非标准 SSH profile、非 UTF-8 SSH 终端/文件名、SFTP compatibility mode、CWD 自动跟踪、远程监控、录制、SCP/Zmodem、本地文件 watcher、传输暂停/重试、同步备份和 AI Agent/MCP/本地附件。系统托盘、原生窗口、OS credential manager、系统全局快捷键、桌面通知、自动更新也不提供。浏览器文件、剪贴板、链接和 iframe 页面代替相应原生入口，仍受浏览器权限约束。
+Web 当前不支持本地 Shell、Serial、RDP、ProxyCommand、SSH agent/X11/证书登录、SSH 启动命令、非标准 SSH profile、非 UTF-8 SSH 终端/文件名、SFTP compatibility mode、CWD 自动跟踪、录制、SCP/Zmodem、本地文件 watcher、传输暂停/重试、同步备份和 AI Agent/MCP/本地附件。系统托盘、原生窗口、OS credential manager、系统全局快捷键、桌面通知、自动更新也不提供。浏览器文件、剪贴板、链接和 iframe 页面代替相应原生入口，仍受浏览器权限约束。
 
 刷新页面时，按工作区 pane ID 重新附着当前登录的有效会话；旧连接租期结束后，保存的连接按原有工作区恢复流程重新创建。SFTP 仅对 SSH 会话提供。浏览器剪贴板需要 HTTPS 和浏览器权限，未授权时显示提示，画面和键鼠仍可使用。网络面板可管理代理及分组，Web 子窗口使用同源 iframe。单镜像部署，无需 noVNC、Guacamole 或额外服务。
 
 测试与架构见 [web-architecture.md](web-architecture.md)。当前环境未安装 Docker CLI；镜像实构建及浏览器手工验收尚未执行，仍需在部署环境完成。更新后请重新构建镜像并重建容器，旧镜像不会自动获得协议支持。
+
+## Web Beta 能力矩阵与验收
+
+| 能力                            | Web Beta                                                | 桌面兼容                           |
+| ------------------------------- | ------------------------------------------------------- | ---------------------------------- |
+| SSH/Telnet                      | 登录 owner 隔离、输入输出、刷新附着、有限重试恢复       | 原生协议与生命周期保持             |
+| VNC                             | 现有 Web 认证、输入、剪贴板及恢复                       | 保持                               |
+| 单文件上传/下载                 | 流式原始上传；浏览器 Blob 下载并提示失败                | 保持原生传输                       |
+| 同名上传                        | ask/skip/rename/overwrite；POSIX 原子覆盖，拒绝目录覆盖 | 共用 duplicate_strategy 设置       |
+| 文件编辑                        | 默认内部编辑器，工作区或 iframe；二进制/不支持编码下载  | 保留外部编辑器、watcher 和本地路径 |
+| 传输设置                        | 仅冲突策略与内部编辑显示方式                            | 隐藏字段完整保留，无迁移           |
+| 目录传输、调优、暂停/重试       | 未实现，隐藏入口；含目录选择禁用下载                    | 保持                               |
+| 资源/GPU/NPU/进程监控           | 独立 SSH exec 与白名单进程信号                          | 保持                               |
+| RDP、录制、云同步、AI Agent/MCP | 当前不支持                                              | 保持                               |
+
+上传继续使用 `POST api/sessions/{id}/upload?path=...` 和原始文件正文；返回 `{ "bytes": 123, "status": "completed", "path": "/final/path" }`。跳过返回 bytes=0、status=skipped；改名返回 UUID 后缀的最终 path。覆盖依赖远端 `posix-rename@openssh.com`；不支持时明确失败并保留原文件，不回退到先删后写。
+
+SSH/Telnet 初次附着及断线恢复的每轮预算为 25 秒，单次握手最多 5 秒；退避依次 1、2、4 秒，之后不超过 5 秒。握手失败会查询当前会话；401/404 停止恢复，其余临时失败继续到预算结束。显式关闭、注销、服务端关闭均取消恢复。注销从 File 菜单进入。
+
+本轮检查结果、只读 CI 和真实 Docker/OpenSSH/Playwright 验收命令见 [Web Beta 合并准备](web-merge-readiness.md)。本机尚未执行实际 Docker/Chromium，不能以接口 fixture 测试代替部署验收。

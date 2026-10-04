@@ -4,7 +4,7 @@
 
 ## 修复进展（2026-10-04）
 
-本轮已完成主要公共 UI 缺口与浏览器替代流程。276 个命令、462 个调用点及 184 个未匹配命令仍是**原始审计基线**，未重新扫描；附带 `web-api-inventory.json` 也保留基线。不得将基线中“未匹配”当作当前实现状态或错误数量。
+本轮已完成主要公共 UI 缺口与浏览器替代流程，并追加 Web 文件、上传和附着恢复修复。合并状态和本轮验证以 [Web Beta 合并准备报告](web-merge-readiness.md) 为准。`web-api-inventory.json` 现由 `pnpm web:audit` 重新生成，包含当前调用位置及静态边界分类；下方 276 个命令、462 个调用点及 184 个未匹配命令和末尾表格保留为**原始审计基线**。不得将历史“未匹配”当作当前实现状态或错误数量。
 
 | 功能 | 已实现行为 |
 | --- | --- |
@@ -27,7 +27,7 @@ SFTP 覆盖和链接目标替换使用 OpenSSH `posix-rename@openssh.com` 原子
 
 深度终端历史、持久录制、递归传输/完整任务取消、云备份、HTTP MCP、RDP 与 Docker 管理仍需独立服务端设计；本轮保持相关入口隔离。客户端本地终端、当前串口、托盘、系统快捷键、本机 CLI、native plugin 和文件 watcher 继续保持桌面专属。浏览器快捷命令导入支持 JSON/WindTerm，XTS 压缩包导入仍属于桌面流程。Web 尚无终端 CWD 跟踪，CWD 查询返回真实 `null`，不声称目录跟随已恢复。
 
-### 验证
+### 前轮验证（历史记录）
 
 - 共享 Core：355 项单元测试通过，包含迁移后的翻译、监控和快捷命令测试。
 - Web：4 项集成测试全部通过，覆盖 HTTP 数据契约、配置持久化、真实密码/限速、RFC HOTP 计数、笔记冲突、SSH/SFTP/WS/SSE owner 边界、预览限额、流式复制移动、权限、链接原子替换及独立监控通道。
@@ -35,7 +35,7 @@ SFTP 覆盖和链接目标替换使用 OpenSSH `posix-rename@openssh.com` 原子
 - `pnpm build:web`、TypeScript、`pnpm lint`、四语言格式检查及桌面 `cargo check --locked` 通过。lint 仍有原有 `CommandSuggestions.tsx` hook dependency 警告；构建仍提示较大的 chunk 和旧 Browserslist 数据。
 - 本轮未进行真实浏览器交互/视觉验收、外部翻译服务实测或 GPU/NPU 硬件实测；自动化覆盖不能替代这些环境验证。
 
-## 结论
+## 原始审计结论（历史记录）
 
 当前问题是接口覆盖、数据契约和能力边界不完整，并不是 Web 性能不足。SSH/Telnet/VNC 的主连接路径已经存在，但公共 UI 中仍有未适配的入口；某些功能虽然不再报 501，却只返回空数据，不能算实现完成。
 

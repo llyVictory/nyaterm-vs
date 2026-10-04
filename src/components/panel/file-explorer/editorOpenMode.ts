@@ -17,8 +17,9 @@ export function resolveInternalEditorDisplay(
 
 export function resolveFileEditorOpenTarget(
   settings: EditorOpenSettings,
+  nativeFiles = true,
 ): FileEditorOpenTarget {
-  if ((settings.editor_type || "external") !== "internal") {
+  if (nativeFiles && (settings.editor_type || "external") !== "internal") {
     return "external";
   }
 

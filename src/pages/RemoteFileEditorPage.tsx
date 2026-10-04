@@ -1,3 +1,6 @@
+import { supports } from "@/lib/backend/runtime";
+import { downloadBrowserFile } from "@/lib/backend/files";
+import { logger } from "@/lib/logger";
 import { closeSearchPanel } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -33,7 +36,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useApp } from "@/context/AppContext";
 import { useChildWindowCommand } from "@/hooks/useChildWindowCommand";
 import { useFileEditorZoom } from "@/hooks/useFileEditorZoom";
@@ -100,19 +107,30 @@ interface WriteRemoteFileTextResult {
   contentHash?: string;
 }
 
-function getEditorDataPath(data: Pick<RemoteFileEditorData, "path" | "remotePath">) {
+function getEditorDataPath(
+  data: Pick<RemoteFileEditorData, "path" | "remotePath">,
+) {
   return data.path ?? data.remotePath ?? "";
 }
 
-function tabId(data: Pick<RemoteFileEditorData, "backend" | "sessionId" | "path" | "remotePath">) {
+function tabId(
+  data: Pick<
+    RemoteFileEditorData,
+    "backend" | "sessionId" | "path" | "remotePath"
+  >,
+) {
   const backend = data.backend ?? "remote";
   return `${backend}\n${data.sessionId}\n${getEditorDataPath(data)}`;
 }
 
 function getParentDirectoryName(path: string) {
   const normalized = path.replace(/[\\/]+$/, "");
-  if (!normalized || normalized === "/" || /^[a-zA-Z]:$/.test(normalized)) return normalized || "/";
-  const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  if (!normalized || normalized === "/" || /^[a-zA-Z]:$/.test(normalized))
+    return normalized || "/";
+  const index = Math.max(
+    normalized.lastIndexOf("/"),
+    normalized.lastIndexOf("\\"),
+  );
   const parent = index > 0 ? normalized.slice(0, index) : "";
   if (!parent || parent === "/" || /^[a-zA-Z]:$/.test(parent)) return parent || "/";
   return getLocalPathName(parent, parent);
@@ -178,15 +196,24 @@ export default function RemoteFileEditorPage() {
   const forceCloseRef = useRef(false);
   const suppressEditorUpdateRef = useRef(false);
   const editorStatesRef = useRef<Record<string, EditorState>>({});
-  const tabsRef = useRef<EditorTab[]>(initialData ? [createTab(initialData)] : []);
+  const tabsRef = useRef<EditorTab[]>(
+    initialData ? [createTab(initialData)] : [],
+  );
   const activeTabIdRef = useRef(initialData ? tabId(initialData) : "");
   const [tabs, setTabs] = useState<EditorTab[]>(tabsRef.current);
   const [activeTabId, setActiveTabId] = useState(activeTabIdRef.current);
   const [conflictTabId, setConflictTabId] = useState<string | null>(null);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
-  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
-  const [reloadConfirmTabId, setReloadConfirmTabId] = useState<string | null>(null);
-  const [cursorPosition, setCursorPosition] = useState<CursorPosition>({ line: 1, column: 1 });
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(
+    null,
+  );
+  const [reloadConfirmTabId, setReloadConfirmTabId] = useState<string | null>(
+    null,
+  );
+  const [cursorPosition, setCursorPosition] = useState<CursorPosition>({
+    line: 1,
+    column: 1,
+  });
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null,
@@ -203,15 +230,20 @@ export default function RemoteFileEditorPage() {
     return counts;
   }, [tabs]);
 
-  const updateTabs = useCallback((updater: (tabs: EditorTab[]) => EditorTab[]) => {
-    const next = updater(tabsRef.current);
-    tabsRef.current = next;
-    setTabs(next);
-  }, []);
+  const updateTabs = useCallback(
+    (updater: (tabs: EditorTab[]) => EditorTab[]) => {
+      const next = updater(tabsRef.current);
+      tabsRef.current = next;
+      setTabs(next);
+    },
+    [],
+  );
 
   const updateTab = useCallback(
     (id: string, updater: (tab: EditorTab) => EditorTab) => {
-      updateTabs((current) => current.map((tab) => (tab.id === id ? updater(tab) : tab)));
+      updateTabs((current) =>
+        current.map((tab) => (tab.id === id ? updater(tab) : tab)),
+      );
     },
     [updateTabs],
   );
@@ -297,13 +329,22 @@ export default function RemoteFileEditorPage() {
 
   const openExternalFile = useCallback(
     async (tab: EditorTab) => {
+      if (!supports("nativeFiles")) {
+        await downloadBrowserFile(tab.sessionId, tab.path);
+        return;
+      }
       if (tab.backend === "local") {
-        await openPath(tab.path, appSettings.transfer.default_editor || undefined);
+        await openPath(
+          tab.path,
+          appSettings.transfer.default_editor || undefined,
+        );
         return;
       }
 
       const root = await tempDir();
-      const safeName = await invoke<string>("sanitize_download_file_name", { name: tab.name });
+      const safeName = await invoke<string>("sanitize_download_file_name", {
+        name: tab.name,
+      });
       const localPath = await join(
         root,
         "nyaterm",
@@ -321,7 +362,10 @@ export default function RemoteFileEditorPage() {
         localPath,
         remotePath: tab.path,
       });
-      await openPath(localPath, appSettings.transfer.default_editor || undefined);
+      await openPath(
+        localPath,
+        appSettings.transfer.default_editor || undefined,
+      );
     },
     [appSettings.transfer.default_editor],
   );
@@ -344,15 +388,27 @@ export default function RemoteFileEditorPage() {
         if (result.status === "unsupported") {
           toast.info(
             t(
-              result.reason === "binary"
-                ? "fileExplorer.binaryOpenExternal"
-                : "fileExplorer.unsupportedEncodingOpenExternal",
+              !supports("nativeFiles")
+                ? "fileExplorer.webUnsupportedDownload"
+                : result.reason === "binary"
+                  ? "fileExplorer.binaryOpenExternal"
+                  : "fileExplorer.unsupportedEncodingOpenExternal",
             ),
           );
           try {
             await openExternalFile(tab);
             removeUnsupportedTab(id);
           } catch (externalError) {
+            logger.error({
+              domain: "transfer.lifecycle",
+              event: "download.failed",
+              message: "Browser download failed",
+              error: externalError,
+            });
+            if (!supports("nativeFiles")) toast.error(
+              getErrorMessage(externalError) ||
+                t("fileEditor.openExternalFailed"),
+            );
             updateTab(id, (current) => ({
               ...current,
               loading: false,
@@ -383,6 +439,13 @@ export default function RemoteFileEditorPage() {
           setEditorState(nextState);
         }
       } catch (err) {
+        logger.error({
+          domain: "ui.error",
+          event: "editor.open_failed",
+          message: "File open failed",
+          error: err,
+        });
+        if (!supports("nativeFiles")) toast.error(getErrorMessage(err) || t("fileEditor.loadFailed"));
         updateTab(id, (current) => ({
           ...current,
           loading: false,
@@ -390,7 +453,14 @@ export default function RemoteFileEditorPage() {
         }));
       }
     },
-    [createEditorState, openExternalFile, removeUnsupportedTab, setEditorState, t, updateTab],
+    [
+      createEditorState,
+      openExternalFile,
+      removeUnsupportedTab,
+      setEditorState,
+      t,
+      updateTab,
+    ],
   );
 
   const addOrFocusTab = useCallback(
@@ -437,7 +507,10 @@ export default function RemoteFileEditorPage() {
       : null;
     const initialState =
       (initialTab && editorStatesRef.current[initialTab.id]) ??
-      createEditorState(initialTab?.content ?? "", initialTab?.language ?? "plaintext");
+      createEditorState(
+        initialTab?.content ?? "",
+        initialTab?.language ?? "plaintext",
+      );
     if (initialTab) {
       editorStatesRef.current[initialTab.id] = initialState;
     }
@@ -762,7 +835,10 @@ export default function RemoteFileEditorPage() {
                   return (
                     <DropdownMenuItem
                       key={tab.id}
-                      className={cn("items-start gap-2 py-2", isActive && "bg-accent/60")}
+                      className={cn(
+                        "items-start gap-2 py-2",
+                        isActive && "bg-accent/60",
+                      )}
                       onClick={() => activateTab(tab.id)}
                     >
                       <span
@@ -816,23 +892,27 @@ export default function RemoteFileEditorPage() {
               <MdRefresh className="text-sm" />
               {t("fileEditor.reload")}
             </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1.5"
-                    disabled={!activeTab || activeTab.loading}
-                    onClick={() => activeTab && openExternal(activeTab)}
-                  >
-                    <MdOpenInNew className="text-sm" />
-                    {t("fileEditor.openExternal")}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t("fileEditor.openExternalTooltip")}</TooltipContent>
-            </Tooltip>
+            {supports("nativeFiles") && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      disabled={!activeTab || activeTab.loading}
+                      onClick={() => activeTab && openExternal(activeTab)}
+                    >
+                      <MdOpenInNew className="text-sm" />
+                      {t("fileEditor.openExternal")}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("fileEditor.openExternalTooltip")}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Button
               size="sm"
               className="h-8 gap-1.5"
@@ -898,7 +978,9 @@ export default function RemoteFileEditorPage() {
                   ·
                 </span>
                 <span className="truncate">
-                  {t("fileEditor.unsavedFilesDesc", { count: dirtyTabs.length })}
+                  {t("fileEditor.unsavedFilesDesc", {
+                    count: dirtyTabs.length,
+                  })}
                 </span>
               </>
             ) : null}

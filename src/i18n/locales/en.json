@@ -1031,6 +1031,7 @@
     "reloadDirtyTitle": "Discard unsaved changes?",
     "reloadUnsupportedEncoding": "The file is no longer valid UTF-8 text.",
     "remoteTarget": "Remote",
+    "save": "Save",
     "saveAll": "Save All",
     "saveAllAndClose": "Save All and Close",
     "saveAndClose": "Save and Close",
@@ -1212,7 +1213,10 @@
     "uploadFolderContentsEmpty": "The selected folder contains no items to upload.",
     "uploadOnce": "Upload Once",
     "uploadPrompt": "Remote file changed. Upload changes?",
-    "webRecursiveTransferUnavailable": "Recursive transfers are not available in Web mode. Move directories within the same session."
+    "webRecursiveTransferUnavailable": "Recursive transfers are not available in Web mode. Move directories within the same session.",
+    "webUnsupportedDownload": "This file cannot be opened in the browser editor. Downloading it instead.",
+    "webUploadRenamed": "Uploaded as: {{path}}",
+    "webUploadSkipped": "Skipped existing file: {{path}}"
   },
   "filePreview": {
     "clearSort": "Clear sort",
@@ -3177,7 +3181,8 @@
     "proxyCommandUnavailable": "ProxyCommand is only available in the desktop app.",
     "sessionTypesHint": "Web mode supports SSH, Telnet, and VNC. Use the desktop app for local terminals, serial, and RDP.",
     "signIn": "Sign in",
-    "signInFailed": "Unable to sign in. Check your password and server connection."
+    "signInFailed": "Unable to sign in. Check your password and server connection.",
+    "signOut": "Sign out"
   },
   "zmodem": {
     "cancelled": "ZMODEM transfer cancelled",

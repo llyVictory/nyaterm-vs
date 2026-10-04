@@ -1030,6 +1030,7 @@
     "reloadDirtyTitle": "放弃未保存修改？",
     "reloadUnsupportedEncoding": "文件已不再是有效的 UTF-8 文本。",
     "remoteTarget": "远程",
+    "save": "保存",
     "saveAll": "全部保存",
     "saveAllAndClose": "全部保存并关闭",
     "saveAndClose": "保存并关闭",
@@ -1211,7 +1212,10 @@
     "uploadFolderContentsEmpty": "所选文件夹中没有可上传的内容。",
     "uploadOnce": "上传一次",
     "uploadPrompt": "远程文件已修改，是否上传更改？",
-    "webRecursiveTransferUnavailable": "Web 暂不支持递归传输，目录仅支持在同一会话内移动。"
+    "webRecursiveTransferUnavailable": "Web 暂不支持递归传输，目录仅支持在同一会话内移动。",
+    "webUnsupportedDownload": "此文件无法在浏览器编辑器中打开，将下载到本地。",
+    "webUploadRenamed": "已重命名上传为：{{path}}",
+    "webUploadSkipped": "已跳过同名文件：{{path}}"
   },
   "filePreview": {
     "clearSort": "清除排序",
@@ -3175,7 +3179,8 @@
     "proxyCommandUnavailable": "ProxyCommand 仅适用于桌面版。",
     "sessionTypesHint": "Web 模式支持 SSH、Telnet 和 VNC。本地终端、串口和 RDP 请使用桌面版。",
     "signIn": "登录",
-    "signInFailed": "登录失败，请检查密码与服务端连接。"
+    "signInFailed": "登录失败，请检查密码与服务端连接。",
+    "signOut": "注销"
   },
   "zmodem": {
     "cancelled": "ZMODEM 传输已取消",

@@ -1,11 +1,25 @@
 import { backendURL, requireCapability } from "./runtime";
 import { deliver } from "./events";
+import { BrowserTerminals } from "./terminal";
+import { uploadBrowserFile } from "./files";
 import { closeBrowserVnc, closeAllBrowserVnc, sendBrowserVnc } from "./vnc";
 
 let csrf: string | undefined;
 let source: EventSource | undefined;
 let eventReady: Promise<void> | undefined;
-const sockets = new Map<string, { socket: WebSocket; ready: Promise<void>; closed: boolean }>();
+const terminals = new BrowserTerminals(
+  (id, signal) =>
+    request("api/commands/get_session_info", { sessionId: id }, "POST", signal),
+  (id) => request("api/commands/close_session", { sessionId: id }),
+);
+export class BackendRequestError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
 const nativeCommands =
   /^(create_local_session|create_serial_session|create_rdp_session|.*zmodem.*|.*serial_modem.*|.*local_file.*|.*watcher.*|open_local.*|install_plugin|import_plugin)$/;
 
@@ -13,9 +27,11 @@ export async function request<T>(
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(backendURL(path), {
     method,
+    signal,
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -25,7 +41,11 @@ export async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error ?? `Backend request failed (${response.status})`);
+  if (!response.ok)
+    throw new BackendRequestError(
+      value.error ?? `Backend request failed (${response.status})`,
+      response.status,
+    );
   return value as T;
 }
 export async function authenticate(password?: string): Promise<void> {
@@ -57,81 +77,18 @@ export function startEvents(): Promise<void> {
           event.event.replace("connection-error-", "session-error-"),
           typeof payload === "string" ? payload : payload.error,
         );
+      } else if (event.event.startsWith("session-closed-")) {
+        terminals.stop(event.event.slice("session-closed-".length), true);
       } else deliver(event.event, event.payload);
     };
-    source.addEventListener("expired", () => window.location.reload());
+    source.addEventListener("expired", () => {
+      terminals.stopAll();
+      closeAllBrowserVnc();
+      source?.close();
+      window.location.reload();
+    });
   });
   return eventReady;
-}
-async function attach(id: string): Promise<void> {
-  const previous = sockets.get(id);
-  if (previous && !previous.closed) return previous.ready;
-  const url = backendURL(`api/sessions/${encodeURIComponent(id)}/terminal`);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(url);
-  socket.binaryType = "arraybuffer";
-  const decoder = new TextDecoder();
-  const state = { socket, ready: Promise.resolve(), closed: false };
-  let opened = false;
-  let rejectReady: (reason: Error) => void = () => {};
-  state.ready = new Promise<void>((resolve, reject) => {
-    rejectReady = reject;
-    socket.onopen = () => {
-      opened = true;
-      resolve();
-    };
-    socket.onerror = () => reject(new Error("Terminal WebSocket unavailable"));
-  });
-  socket.onmessage = ({ data }) => {
-    if (typeof data !== "string") {
-      // Stream decoding preserves UTF-8 characters split across SSH packets.
-      try {
-        deliver(`terminal-output-${id}`, {
-          data: decoder.decode(data, { stream: true }),
-          bytes: data.byteLength,
-        });
-      } catch {
-        state.closed = true;
-        socket.close();
-        void request("api/commands/close_session", { sessionId: id }).catch(() => {});
-      }
-    } else {
-      const event = JSON.parse(data);
-      if (event.type === "error") deliver(`session-error-${id}`, event.error);
-      if (event.type === "closed" || event.type === "error") {
-        state.closed = true;
-        deliver(`session-closed-${id}`, null);
-        socket.close();
-      }
-    }
-  };
-  socket.onclose = () => {
-    if (!opened) {
-      state.closed = true;
-      rejectReady(new Error("Terminal WebSocket closed"));
-      return;
-    }
-    if (state.closed) {
-      if (sockets.get(id) === state) sockets.delete(id);
-      return;
-    }
-    state.closed = true;
-    // A transport interruption has a bounded server lease. Attempt a same-session
-    // attachment; an explicit reconnect in the UI still creates a new SSH session.
-    window.setTimeout(() => {
-      if (sockets.get(id) !== state) return;
-      void attach(id).catch(() => deliver(`session-closed-${id}`, null));
-    }, 1000);
-  };
-  sockets.set(id, state);
-  return state.ready;
-}
-async function terminalSend(id: string, message: string | Uint8Array): Promise<void> {
-  await attach(id);
-  const socket = sockets.get(id)?.socket;
-  if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Terminal is disconnected");
-  if (socket.bufferedAmount > 1024 * 1024) throw new Error("Terminal input queue is full");
-  socket.send(message);
 }
 export async function httpInvoke<T>(
   command: string,
@@ -139,7 +96,8 @@ export async function httpInvoke<T>(
 ): Promise<T> {
   if (command === "get_default_local_shell") requireCapability("localShell");
   if (nativeCommands.test(command)) requireCapability("nativeFiles");
-  if (command === "read_clipboard_text") return (await navigator.clipboard.readText()) as T;
+  if (command === "read_clipboard_text")
+    return (await navigator.clipboard.readText()) as T;
   if (command === "write_clipboard_text") {
     await navigator.clipboard.writeText(String(args.text));
     return undefined as T;
@@ -151,24 +109,18 @@ export async function httpInvoke<T>(
     const item = items.find((entry) => entry.types.includes("image/png"));
     if (!item) return null as T;
     const image = await item.getType("image/png");
-    if (image.size > 10 * 1024 * 1024) throw new Error("Clipboard image exceeds 10 MiB");
+    if (image.size > 10 * 1024 * 1024)
+      throw new Error("Clipboard image exceeds 10 MiB");
     const sessionId = String(args.sessionId);
     const directory =
       typeof args.remoteDir === "string"
         ? args.remoteDir
         : await request<string>("api/commands/get_home_dir", { sessionId });
     const path = `${directory.replace(/\/$/, "")}/nyaterm-clipboard-${crypto.randomUUID()}.png`;
-    const url = backendURL(`api/sessions/${encodeURIComponent(sessionId)}/upload`);
-    url.searchParams.set("path", path);
-    const response = await fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { ...csrfHeader(), "Content-Type": "application/octet-stream" },
-      body: image,
-    });
-    if (!response.ok)
-      throw new Error((await response.json()).error ?? "Clipboard image upload failed");
-    return { remote_path: path } as T;
+    const result = await uploadBrowserFile(sessionId, path, image);
+    return (
+      result.status === "skipped" ? null : { remote_path: result.path }
+    ) as T;
   }
   if (command === "read_clipboard_file_paths") return [] as T;
   if (
@@ -186,13 +138,9 @@ export async function httpInvoke<T>(
   const id = String(args.sessionId ?? "");
   switch (command) {
     case "quit_application": {
+      terminals.stopAll();
       await request("api/auth/logout", {});
       source?.close();
-      for (const active of sockets.values()) {
-        active.closed = true;
-        active.socket.close();
-      }
-      sockets.clear();
       closeAllBrowserVnc();
       window.location.reload();
       return undefined as T;
@@ -214,16 +162,22 @@ export async function httpInvoke<T>(
       return result.session_id as T;
     }
     case "attach_session":
-      await attach(id);
+      await terminals.attach(id);
       return undefined as T;
     case "write_to_session":
-      await terminalSend(id, JSON.stringify({ type: "input", data: args.data }));
+      await terminals.send(
+        id,
+        JSON.stringify({ type: "input", data: args.data }),
+      );
       return undefined as T;
     case "write_bytes_to_session":
-      await terminalSend(id, new Uint8Array(args.data as number[]));
+      await terminals.send(id, new Uint8Array(args.data as number[]));
       return undefined as T;
     case "resize_session":
-      await terminalSend(id, JSON.stringify({ type: "resize", cols: args.cols, rows: args.rows }));
+      await terminals.send(
+        id,
+        JSON.stringify({ type: "resize", cols: args.cols, rows: args.rows }),
+      );
       return undefined as T;
     case "vnc_input_batch":
       await sendBrowserVnc(id, { type: "input", events: args.events });
@@ -235,12 +189,7 @@ export async function httpInvoke<T>(
       closeBrowserVnc(id);
       break;
     case "close_session": {
-      const active = sockets.get(id);
-      if (active) {
-        active.closed = true;
-        active.socket.close();
-        sockets.delete(id);
-      }
+      terminals.stop(id);
       break;
     }
   }

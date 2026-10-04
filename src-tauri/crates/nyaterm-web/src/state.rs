@@ -71,7 +71,7 @@ impl State {
         }
     }
     pub async fn prompt(
-        &self,
+        self: &Arc<Self>,
         owner: &str,
         event: &str,
         mut payload: Value,
@@ -88,6 +88,11 @@ impl State {
                 reply,
             },
         );
+        // HTTP disconnects can drop this future before its normal cleanup.
+        let _cleanup = PromptCleanup {
+            state: self.clone(),
+            id: id.clone(),
+        };
         self.event(owner, event, payload).await;
         let result = tokio::select! {
             _ = cancel.cancelled() => Err(WebError::bad("Session creation cancelled")),
@@ -125,5 +130,19 @@ impl State {
             .lock()
             .await
             .retain(|_, prompt| prompt.owner != owner);
+    }
+}
+
+struct PromptCleanup {
+    state: Arc<State>,
+    id: String,
+}
+impl Drop for PromptCleanup {
+    fn drop(&mut self) {
+        let state = self.state.clone();
+        let id = self.id.clone();
+        tokio::spawn(async move {
+            state.prompts.lock().await.remove(&id);
+        });
     }
 }

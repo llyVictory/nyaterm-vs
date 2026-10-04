@@ -1030,6 +1030,7 @@
     "reloadDirtyTitle": "要捨棄未儲存的變更嗎？",
     "reloadUnsupportedEncoding": "檔案已不再是有效的 UTF-8 文字。",
     "remoteTarget": "遠端",
+    "save": "儲存",
     "saveAll": "全部儲存",
     "saveAllAndClose": "全部儲存並關閉",
     "saveAndClose": "儲存並關閉",
@@ -1211,7 +1212,10 @@
     "uploadFolderContentsEmpty": "所選資料夾中沒有可上傳的內容。",
     "uploadOnce": "上傳一次",
     "uploadPrompt": "遠端檔案已修改，是否上傳變更？",
-    "webRecursiveTransferUnavailable": "Web 暫不支援遞迴傳輸，目錄僅支援在同一工作階段內移動。"
+    "webRecursiveTransferUnavailable": "Web 暫不支援遞迴傳輸，目錄僅支援在同一工作階段內移動。",
+    "webUnsupportedDownload": "此檔案無法在瀏覽器編輯器中開啟，將下載至本機。",
+    "webUploadRenamed": "已重新命名上傳為：{{path}}",
+    "webUploadSkipped": "已略過同名檔案：{{path}}"
   },
   "filePreview": {
     "clearSort": "清除排序",
@@ -1952,6 +1956,8 @@
     "jumpHostChain": "跳板鏈路",
     "jumpHostCycle": "偵測到迴圈",
     "jumpHostMissing": "跳板機已缺失",
+    "moveToGroup": "移至群組",
+    "moveToGroupFailed": "移動失敗：{{error}}",
     "newConnection": "新增連線",
     "newFolder": "新增資料夾",
     "newSubfolder": "新增子資料夾",
@@ -1981,6 +1987,7 @@
     "stopBits": "停止位",
     "tags": "標籤",
     "terminalPath": "終端路徑",
+    "ungroupedConnections": "未分組",
     "user": "使用者",
     "windtermHint": ".wind/profiles/default.v10/terminal/user.sessions",
     "windtermMasterPasswordConfirm": "匯入",
@@ -2060,8 +2067,10 @@
     "shellTargets": "非序列埠工作階段：{{count}}",
     "shellUnavailable": "沒有可用的 Shell 視窗",
     "shellUnavailableDesc": "目前使用中視窗中沒有 SSH、本機終端或 Telnet 工作階段可接收命令。",
+    "singleSession": "{{name}} · {{type}}{{tabSuffix}}",
     "stop": "停止",
     "target": "目標工作階段",
+    "targetSessions": "工作階段",
     "text": "文字",
     "textPlaceholder": "輸入要傳送的文字...",
     "unavailable": "沒有可用的活動工作階段",
@@ -3170,7 +3179,8 @@
     "proxyCommandUnavailable": "ProxyCommand 僅適用於桌面版。",
     "sessionTypesHint": "Web 模式支援 SSH、Telnet 和 VNC。本機終端、序列埠和 RDP 請使用桌面版。",
     "signIn": "登入",
-    "signInFailed": "登入失敗，請檢查密碼與伺服器連線。"
+    "signInFailed": "登入失敗，請檢查密碼與伺服器連線。",
+    "signOut": "登出"
   },
   "zmodem": {
     "cancelled": "ZMODEM 傳輸已取消",

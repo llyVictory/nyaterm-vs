@@ -45,3 +45,7 @@ temp/
 .env.*
 nyaterm-web-data/
 web-test-data/
+
+# Isolated deployment test traces and container logs
+artifacts/web-e2e/
+playwright-report/

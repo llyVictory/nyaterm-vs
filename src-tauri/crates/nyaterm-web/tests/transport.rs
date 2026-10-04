@@ -261,6 +261,9 @@ impl russh_sftp::server::Handler for MemoryFiles {
         Ok(success(id))
     }
     async fn stat(&mut self, id: u32, path: String) -> Result<sf::Attrs, SfCode> {
+        if path == "/denied.bin" {
+            return Err(SfCode::PermissionDenied);
+        }
         let files = self.files.lock().unwrap();
         let file = files.get(&path).ok_or(SfCode::NoSuchFile)?;
         Ok(sf::Attrs {
@@ -282,6 +285,9 @@ impl russh_sftp::server::Handler for MemoryFiles {
     }
     async fn rename(&mut self, id: u32, old: String, new: String) -> Result<sf::Status, SfCode> {
         let mut files = self.files.lock().unwrap();
+        if files.contains_key(&new) {
+            return Err(SfCode::Failure);
+        }
         let bytes = files.remove(&old).ok_or(SfCode::NoSuchFile)?;
         files.insert(new.clone(), bytes);
         let mut attributes = self.attributes.lock().unwrap();
@@ -382,9 +388,14 @@ impl russh_sftp::server::Handler for MemoryFiles {
             bytes = &bytes[4 + len..];
         }
         assert!(bytes.is_empty());
-        Ok(sf::Packet::Status(
-            self.rename(id, paths[0].clone(), paths[1].clone()).await?,
-        ))
+        let mut files = self.files.lock().unwrap();
+        let bytes = files.remove(&paths[0]).ok_or(SfCode::NoSuchFile)?;
+        files.insert(paths[1].clone(), bytes);
+        let mut attributes = self.attributes.lock().unwrap();
+        if let Some(value) = attributes.remove(&paths[0]) {
+            attributes.insert(paths[1].clone(), value);
+        }
+        Ok(sf::Packet::Status(success(id)))
     }
     async fn realpath(&mut self, id: u32, _: String) -> Result<sf::Name, SfCode> {
         Ok(sf::Name {
@@ -433,6 +444,41 @@ fn state(host: String, base_path: &str) -> Arc<State> {
         mutation: Mutex::new(()),
         shutdown: CancellationToken::new(),
     })
+}
+async fn upload_file(
+    app: &Router,
+    state: &State,
+    id: &str,
+    path: &str,
+    owner: &str,
+    csrf: &str,
+    body: Body,
+) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/nyaterm/api/sessions/{id}/upload?path={path}"))
+                .header("host", &state.host)
+                .header("origin", &state.origin)
+                .header("cookie", format!("{}={owner}", auth::COOKIE))
+                .header("x-nyaterm-csrf", csrf)
+                .body(body)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+async fn wait_clean(files: &Arc<std::sync::Mutex<HashMap<String, Vec<u8>>>>) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while files.lock().unwrap().keys().any(|p| p.contains(".part")) {
+        assert!(Instant::now() < deadline, "Temporary upload files leaked");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 async fn request(
     app: &Router,
@@ -1138,6 +1184,320 @@ async fn authenticated_ssh_vertical_slice_and_security() {
         .0,
         StatusCode::OK
     );
+    // Real SFTP conflict semantics: ordinary rename may never replace an existing file.
+    let mut upload_settings = nyaterm_core::config::load_app_settings(&()).unwrap();
+    let original_strategy = upload_settings.transfer.duplicate_strategy.clone();
+    files
+        .lock()
+        .unwrap()
+        .insert("/collision.txt".into(), b"original".to_vec());
+    upload_settings.transfer.duplicate_strategy = "skip".into();
+    nyaterm_core::config::save_app_settings(&(), &upload_settings).unwrap();
+    // A skipped body must not be polled, even if it would fail.
+    let bad_body = Body::from_stream(futures_util::stream::iter(vec![
+        Err::<axum::body::Bytes, _>(std::io::Error::other("must not read")),
+    ]));
+    let (status, result) =
+        upload_file(&app, &state, id, "/collision.txt", &owner, &csrf, bad_body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        result,
+        json!({"bytes":0,"status":"skipped","path":"/collision.txt"})
+    );
+    assert_eq!(files.lock().unwrap()["/collision.txt"], b"original");
+    upload_settings.transfer.duplicate_strategy = "rename".into();
+    nyaterm_core::config::save_app_settings(&(), &upload_settings).unwrap();
+    let (status, renamed) = upload_file(
+        &app,
+        &state,
+        id,
+        "/collision.txt",
+        &owner,
+        &csrf,
+        Body::from("renamed"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let renamed_path = renamed["path"].as_str().unwrap();
+    assert!(renamed_path.starts_with("/collision.txt."));
+    uuid::Uuid::parse_str(renamed_path.trim_start_matches("/collision.txt.")).unwrap();
+    assert_eq!(renamed["status"], "completed");
+    assert_eq!(files.lock().unwrap()[renamed_path], b"renamed");
+    upload_settings.transfer.duplicate_strategy = "overwrite".into();
+    nyaterm_core::config::save_app_settings(&(), &upload_settings).unwrap();
+    assert_eq!(
+        upload_file(
+            &app,
+            &state,
+            id,
+            "/collision.txt",
+            &owner,
+            &csrf,
+            Body::from("replaced")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(files.lock().unwrap()["/collision.txt"], b"replaced");
+    posix_rename.store(false, std::sync::atomic::Ordering::Relaxed);
+    let (status, result) = upload_file(
+        &app,
+        &state,
+        id,
+        "/collision.txt",
+        &owner,
+        &csrf,
+        Body::from("unsafe"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(result["error"].as_str().unwrap().contains("Atomic"));
+    assert_eq!(files.lock().unwrap()["/collision.txt"], b"replaced");
+    posix_rename.store(true, std::sync::atomic::Ordering::Relaxed);
+    wait_clean(&files).await;
+    files.lock().unwrap().insert("/upload-dir".into(), vec![]);
+    let mut directory_attrs = attrs(0);
+    directory_attrs.permissions = Some(0o40755);
+    attributes
+        .lock()
+        .unwrap()
+        .insert("/upload-dir".into(), directory_attrs);
+    assert_eq!(
+        upload_file(
+            &app,
+            &state,
+            id,
+            "/upload-dir",
+            &owner,
+            &csrf,
+            Body::from("unsafe")
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        upload_file(
+            &app,
+            &state,
+            id,
+            "/denied.bin",
+            &owner,
+            &csrf,
+            Body::from("unsafe")
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert!(!files.lock().unwrap().contains_key("/denied.bin"));
+    assert_eq!(
+        upload_file(
+            &app,
+            &state,
+            id,
+            "/not-owned",
+            &other,
+            &other_csrf,
+            Body::from("unsafe")
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    upload_settings.transfer.duplicate_strategy = "ask".into();
+    nyaterm_core::config::save_app_settings(&(), &upload_settings).unwrap();
+    let mut other_events = state.login(&other).await.unwrap().events.subscribe();
+    for choice in ["skip", "overwrite"] {
+        while events.try_recv().is_ok() {}
+        let upload_app = app.clone();
+        let state_for_upload = state.clone();
+        let (upload_id, upload_owner, upload_csrf) = (id.to_string(), owner.clone(), csrf.clone());
+        let pending = tokio::spawn(async move {
+            upload_file(
+                &upload_app,
+                &state_for_upload,
+                &upload_id,
+                "/collision.txt",
+                &upload_owner,
+                &upload_csrf,
+                Body::from("asked"),
+            )
+            .await
+        });
+        let prompt = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.event == "transfer-duplicate-request" {
+                    break event;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            other_events.try_recv().is_err(),
+            "Conflict prompts must be owner-only"
+        );
+        let reply = json!({"requestId":prompt.payload["requestId"],"action":choice});
+        assert_eq!(
+            request(
+                &app,
+                &state,
+                "commands/respond_transfer_duplicate",
+                Some(reply.clone()),
+                Some(&other),
+                Some(&other_csrf)
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(
+                &app,
+                &state,
+                "commands/respond_transfer_duplicate",
+                Some(reply),
+                Some(&owner),
+                Some(&csrf)
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+        let (status, result) = pending.await.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            result["status"],
+            if choice == "skip" {
+                "skipped"
+            } else {
+                "completed"
+            }
+        );
+    }
+    assert_eq!(files.lock().unwrap()["/collision.txt"], b"asked");
+    // Disconnect while waiting for a conflict must dispose the owner prompt.
+    while events.try_recv().is_ok() {}
+    let (upload_app, upload_state, upload_id, upload_owner, upload_csrf) = (
+        app.clone(),
+        state.clone(),
+        id.to_owned(),
+        owner.clone(),
+        csrf.clone(),
+    );
+    let disconnected = tokio::spawn(async move {
+        upload_file(
+            &upload_app,
+            &upload_state,
+            &upload_id,
+            "/collision.txt",
+            &upload_owner,
+            &upload_csrf,
+            Body::from("disconnect"),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if events.recv().await.unwrap().event == "transfer-duplicate-request" {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    disconnected.abort();
+    let _ = disconnected.await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !state.prompts.lock().await.is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // Explicit session closure cancels a blocked body and cleans its temporary file.
+    let (_, _, spare) = request(
+        &app,
+        &state,
+        "sessions",
+        Some(args.clone()),
+        Some(&owner),
+        Some(&csrf),
+    )
+    .await;
+    let spare_id = spare["session_id"].as_str().unwrap();
+    let mut spare_socket = ws(&host, &state, spare_id, &owner).await;
+    spare_socket
+        .send(Message::Binary(b"ready".to_vec().into()))
+        .await
+        .unwrap();
+    assert_eq!(binary(&mut spare_socket).await, b"ready");
+    let (upload_app, upload_state, upload_id, upload_owner, upload_csrf) = (
+        app.clone(),
+        state.clone(),
+        spare_id.to_owned(),
+        owner.clone(),
+        csrf.clone(),
+    );
+    let body = Body::from_stream(
+        futures_util::stream::once(async {
+            Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"partial"))
+        })
+        .chain(futures_util::stream::pending()),
+    );
+    let cancelled = tokio::spawn(async move {
+        upload_file(
+            &upload_app,
+            &upload_state,
+            &upload_id,
+            "/cancelled.bin",
+            &upload_owner,
+            &upload_csrf,
+            body,
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !files
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|p| p.starts_with("/cancelled.bin.") && p.ends_with(".part"))
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        request(
+            &app,
+            &state,
+            "commands/close_session",
+            Some(json!({"sessionId":spare_id})),
+            Some(&owner),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), cancelled)
+            .await
+            .unwrap()
+            .unwrap()
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    wait_clean(&files).await;
+    assert!(!files.lock().unwrap().contains_key("/cancelled.bin"));
+    upload_settings.transfer.duplicate_strategy = original_strategy;
+    nyaterm_core::config::save_app_settings(&(), &upload_settings).unwrap();
+    wait_clean(&files).await;
     let body = Body::from_stream(futures_util::stream::iter(vec![
         Ok(axum::body::Bytes::from_static(b"partial")),
         Err(std::io::Error::other("test interrupted upload")),

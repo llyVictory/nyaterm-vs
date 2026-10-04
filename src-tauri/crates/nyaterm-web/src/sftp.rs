@@ -565,6 +565,9 @@ async fn copy_entry(state: &Arc<State>, owner: &str, command: &str, args: &Value
         total: attrs.size.unwrap_or(0),
         bytes: 0,
         sftp: target_sftp.clone(),
+        permits: std::iter::once(_source_permit)
+            .chain(_target_permit)
+            .collect(),
         temporary: None,
         done: false,
         last_progress: std::time::Instant::now(),
@@ -659,6 +662,7 @@ struct Transfer {
     total: u64,
     bytes: u64,
     sftp: Arc<russh_sftp::client::SftpSession>,
+    permits: Vec<tokio::sync::OwnedSemaphorePermit>,
     temporary: Option<String>,
     done: bool,
     last_progress: std::time::Instant,
@@ -679,6 +683,7 @@ impl Transfer {
 impl Drop for Transfer {
     fn drop(&mut self) {
         let sftp = self.sftp.clone();
+        let permits = std::mem::take(&mut self.permits);
         let temporary = self.temporary.take();
         let state = self.state.clone();
         let owner = self.owner.clone();
@@ -686,13 +691,13 @@ impl Drop for Transfer {
         let sid = self.session_id.clone();
         let done = self.done;
         tokio::spawn(async move {
-            let _ = tokio::time::timeout(Duration::from_secs(5), async {
-                if let Some(path) = temporary {
-                    let _ = sftp.remove_file(path).await;
-                }
-                let _ = sftp.close().await;
-            })
-            .await;
+            // Session shutdown waits for permits, including asynchronous cleanup.
+            let _permits = permits;
+            if let Some(path) = temporary {
+                let _ = tokio::time::timeout(Duration::from_secs(4), sftp.remove_file(path)).await;
+            }
+            // A stalled removal must still allow the SFTP close attempt.
+            let _ = tokio::time::timeout(Duration::from_secs(1), sftp.close()).await;
             if !done {
                 state
                     .event(
@@ -731,6 +736,7 @@ pub async fn download(
         total,
         bytes: 0,
         sftp,
+        permits: vec![permit],
         temporary: None,
         done: false,
         last_progress: std::time::Instant::now(),
@@ -738,7 +744,7 @@ pub async fn download(
     let cancel = session.cancel.clone();
     use futures_util::StreamExt;
     let stream = async_stream::try_stream! {
-        let _permit=permit;let mut chunks=ReaderStream::with_capacity(file,64*1024);transfer.progress("started").await;
+        let mut chunks=ReaderStream::with_capacity(file,64*1024);transfer.progress("started").await;
         loop {
             let next=tokio::select!{_ = cancel.cancelled()=>Some(Err(std::io::Error::other("Session closed"))),result=tokio::time::timeout(Duration::from_secs(30),chunks.next())=>result.unwrap_or(Some(Err(std::io::Error::other("SFTP download timed out"))))};
             match next { Some(Ok(bytes))=>{transfer.bytes+=bytes.len() as u64;transfer.progress("progress").await;yield bytes;},Some(Err(error))=>{transfer.finish("error").await;Err(error)?;},None=>break }
@@ -785,13 +791,12 @@ pub async fn upload(
         .try_acquire_owned()
         .map_err(|_| WebError::bad("Too many transfers"))?;
     let sftp = Arc::new(open(&session).await?);
-    let transfer_id = uuid::Uuid::new_v4().to_string();
-    let temporary = format!("{}.nyaterm-{}.part", query.path, transfer_id);
+    // Own cleanup before metadata lookup or a potentially long conflict prompt.
     let mut transfer = Transfer {
         state,
         owner: owner.0,
         session_id: id,
-        id: transfer_id,
+        id: uuid::Uuid::new_v4().to_string(),
         path: query.path.clone(),
         direction: "upload",
         total: request
@@ -802,13 +807,61 @@ pub async fn upload(
             .unwrap_or(0),
         bytes: 0,
         sftp: sftp.clone(),
-        temporary: Some(temporary.clone()),
+        permits: vec![_permit],
+        temporary: None,
         done: false,
         last_progress: std::time::Instant::now(),
     };
-    let mut file = sftp.create(&temporary).await?;
-    let mut stream = request.into_body().into_data_stream();
-    let copy = async {
+    let operation = async {
+        let mut overwrite = false;
+        match sftp.symlink_metadata(&transfer.path).await {
+            Ok(existing) => {
+                let strategy = nyaterm_core::config::load_app_settings(&())?
+                    .transfer
+                    .duplicate_strategy;
+                let strategy = if strategy == "ask" {
+                    transfer
+                        .state
+                        .prompt(
+                            &transfer.owner,
+                            "transfer-duplicate-request",
+                            json!({"sessionId":session.id,"remotePath":transfer.path,
+                            "fileName":transfer.path.rsplit('/').next().unwrap_or("file"),
+                            "isDirectory":existing.is_dir()}),
+                            &session.cancel,
+                        )
+                        .await?
+                        .as_str()
+                        .unwrap_or("skip")
+                        .to_owned()
+                } else {
+                    strategy
+                };
+                match strategy.as_str() {
+                    "skip" => {
+                        transfer.finish("cancelled").await;
+                        return Ok(json!({"bytes":0,"status":"skipped","path":transfer.path}));
+                    }
+                    "rename" => {
+                        transfer.path = format!("{}.{}", transfer.path, uuid::Uuid::new_v4());
+                        validate_path(&transfer.path)?;
+                    }
+                    "overwrite" if !existing.is_dir() => overwrite = true,
+                    "overwrite" => {
+                        return Err(WebError::bad("Cannot overwrite a directory with a file"));
+                    }
+                    _ => return Err(WebError::bad("Invalid duplicate strategy")),
+                }
+            }
+            Err(russh_sftp::client::error::Error::Status(status))
+                if status.status_code == russh_sftp::protocol::StatusCode::NoSuchFile => {}
+            Err(error) => return Err(error.into()),
+        }
+        let temporary = format!("{}.nyaterm-{}.part", transfer.path, transfer.id);
+        validate_path(&temporary)?;
+        transfer.temporary = Some(temporary.clone());
+        let mut file = sftp.create(&temporary).await?;
+        let mut stream = request.into_body().into_data_stream();
         transfer.progress("started").await;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|_| WebError::bad("Upload interrupted"))?;
@@ -824,16 +877,31 @@ pub async fn upload(
         file.shutdown()
             .await
             .map_err(|_| WebError::bad("SFTP write failed"))?;
-        sftp.rename(&temporary, &query.path).await?;
-        Ok::<_, WebError>(())
+        if overwrite {
+            sftp.rename_replace(&temporary, &transfer.path)
+                .await
+                .map_err(|_| {
+                    WebError::bad(
+                        "Atomic upload replacement failed; no non-atomic fallback was attempted",
+                    )
+                })?;
+        } else {
+            sftp.rename(&temporary, &transfer.path).await?;
+        }
+        transfer.temporary = None;
+        transfer.total = transfer.bytes;
+        transfer.finish("completed").await;
+        Ok::<_, WebError>(json!({"bytes":transfer.bytes,"status":"completed","path":transfer.path}))
     };
-    let result = tokio::select! {_ = session.cancel.cancelled()=>Err(WebError::bad("Session closed")),result=tokio::time::timeout(Duration::from_secs(3600),copy)=>result.unwrap_or(Err(WebError::bad("Upload timed out")))};
-    if let Err(error) = result {
-        transfer.finish("error").await;
-        return Err(error);
+    let result = tokio::select! {
+        _ = session.cancel.cancelled() => Err(WebError::bad("Session closed")),
+        result = tokio::time::timeout(Duration::from_secs(3600), operation) => result.unwrap_or(Err(WebError::bad("Upload timed out"))),
+    };
+    match result {
+        Ok(value) => Ok(Json(value)),
+        Err(error) => {
+            transfer.finish("error").await;
+            Err(error)
+        }
     }
-    transfer.temporary = None;
-    transfer.total = transfer.bytes;
-    transfer.finish("completed").await;
-    Ok(Json(json!({"bytes":transfer.bytes})))
 }

@@ -477,6 +477,12 @@ pub async fn create(state: Arc<State>, owner: &str, args: Value) -> Result<Strin
 }
 pub(crate) async fn finish(state: &State, session: &WebSession) {
     session.cancel.cancel();
+    // Let cancelled transfers remove their temporary files while SSH is still alive.
+    let _transfers = tokio::time::timeout(
+        Duration::from_secs(6),
+        session.transfers.clone().acquire_many_owned(4),
+    )
+    .await;
     if let Some(handle) = session.handle.lock().await.take() {
         let _ = tokio::time::timeout(
             Duration::from_secs(2),

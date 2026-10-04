@@ -19,3 +19,6 @@ src-tauri/resources
 src-tauri/vendor/portable-pty
 src-tauri/vendor/picky
 src-tauri/vendor/sspi
+
+artifacts
+playwright-report

@@ -40,9 +40,9 @@ Core 和 Web 是两个独立 Cargo crate；Desktop 以 path dependency 引用 Co
 | `src-tauri/src/{config,storage,utils,core/ai,core/history,core/sftp/util.rs,...}`                  | 原位置使用 re-export/wrapper，保留 Desktop 调用兼容性。文件删除对应迁入 Core，非删除桌面功能。 |
 | `src-tauri/src/{cmd/connection.rs,cmd/ai.rs,core/ssh,core/sftp/sftp_backend/session.rs}`           | 调用共享服务与协议；原生管理器继续保留。                                                       |
 | `src-tauri/crates/nyaterm-web/src/{main,lib,auth,state,session,commands,sftp,ai,plugins,error}.rs` | 独立服务、显式命令 allowlist、会话和资源清理。                                                 |
-| `src-tauri/crates/nyaterm-web/tests/{transport,bootstrap,protocols}.rs`                                      | 真实 SSH/SFTP、Telnet、VNC、代理/跳板 fixture 与进程启动测试。                                                       |
+| `src-tauri/crates/nyaterm-web/tests/{transport,bootstrap,protocols}.rs`                            | 真实 SSH/SFTP、Telnet、VNC、代理/跳板 fixture 与进程启动测试。                                 |
 | 各 crate Cargo.toml/Cargo.lock、`package.json`、`vite.config.ts`                                   | 依赖、构建入口和 base path。                                                                   |
-| `Dockerfile`、`.dockerignore`、`docker-compose.yml`、`.gitignore`                                     | 三阶段非 root 容器、持久 volume、构建上下文/秘密排除。                                         |
+| `Dockerfile`、`.dockerignore`、`docker-compose.yml`、`.gitignore`                                  | 三阶段非 root 容器、持久 volume、构建上下文/秘密排除。                                         |
 | `docs/web-deployment.md`、本文                                                                     | 操作步骤、能力、安全边界和验证报告。                                                           |
 
 原生 imports 只在 transport/platform 边界及被 capability 隔离的 RDP Channel 和桌面 VNC Channel 适配器、updater 和 native PluginPanel 资源转换中保留。不会在 Web startup 创建原生 Channel 或加载原生插件。
@@ -80,10 +80,10 @@ Core 和 Web 是两个独立 Cargo crate；Desktop 以 path dependency 引用 Co
 | AI Assistant                                                              | provider API/Ask streaming、脱敏、历史；无 Agent、MCP 或本地附件。                                |
 | 插件                                                                      | Web target/capability/permission 检查框架；只允许 UI 类权限，未提供安装或执行器。                 |
 | 本地文件、剪贴板、外部链接、子窗口                                        | 浏览器 File/download、Clipboard、受限链接、同源 iframe 页面替代；浏览器权限仍适用。               |
-| Local Shell/PTY、Serial、RDP                                  | 不支持；创建入口与服务均 gate。                                                                   |
+| Local Shell/PTY、Serial、RDP                                              | 不支持；创建入口与服务均 gate。                                                                   |
 | tray、原生窗口、全局快捷键、桌面通知、OS credential manager、自动更新     | 不支持；Web 采用服务端加密存储和浏览器页面。                                                      |
 | SCP/Zmodem、watcher、复杂本地文件集成、录制、远程监控、传输控制、同步备份 | 不支持，集中 capability/panel/settings gate。                                                     |
-| SSH agent/X11/证书、SSH 启动命令、network_device、非 UTF-8 SSH        | 拒绝连接；不能静默改成直接连接或忽略这些配置。                                                    |
+| SSH agent/X11/证书、SSH 启动命令、network_device、非 UTF-8 SSH            | 拒绝连接；不能静默改成直接连接或忽略这些配置。                                                    |
 | OSC/CWD 自动跟踪、动态标题                                                | Web 暂不提供；Desktop 原逻辑保留。                                                                |
 
 补充能力：Telnet/VNC 使用独立 capability，启用 VNC 不会启用 RDP。Telnet 复用 terminal WebSocket，将字符串输入按连接编码转换，二进制输入保留原始字节；服务端输出统一转成 UTF-8。VNC 使用 `/api/sessions/{id}/vnc`：二进制帧与桌面共用 44 字节补丁头，JSON 承载状态、输入和剪贴板。附着时重放完整画面与状态，最多缓存两帧，溢出后从权威帧缓冲重同步，完整帧和增量帧有序发送。只读限制在服务端执行。
@@ -98,7 +98,7 @@ cookie 为随机 256 bit、HttpOnly、SameSite=Strict，HTTPS 下 Secure，Path 
 
 session/prompt/AI cancellation 隔离于登录 owner，跨 owner 的 session 返回 404、prompt 返回 403。WS URL 不含 token。SSH unknown/changed key 均要求明确确认后才保存。secret 不进入日志/列表，响应使用 no-store，并设置 CSP/nosniff/referrer policy。Web command 显式 allowlist，不能反射调用任意 Tauri command、访问服务端任意本地路径或执行本地程序。浏览器插件框架不提供服务端文件/进程权限。
 
-## 验证结果
+## 历史验证结果
 
 已完成的验证：
 
@@ -116,8 +116,7 @@ session/prompt/AI cancellation 隔离于登录 owner，跨 owner 的 session 返
 
 ## 后续扩展
 
-优先在 Linux CI 构建和启动 Docker 镜像，加入 Playwright 登录→保存 SSH→指纹确认→xterm→SFTP 的完整浏览器验收，并在三平台 native runner 验证 Desktop。再把更多 SSH auth/session policy 抽为注入 event sink 的服务，减少两端调度差异。随后实现更细的能力描述与本地化不可用提示、Web 插件 sandbox/runtime、SFTP overwrite/递归/取消控制、OSC/CWD。若需要多人使用，先增加用户、保存资源 ACL、AI history 隔离和审计，再放开多用户入口。
-
+现已加入只读 Web 合并 CI、三平台桌面编译及 Docker/OpenSSH/Playwright 双路径验收脚本；本机未执行 Docker，实际通过情况须等待 CI，见 [合并准备报告](web-merge-readiness.md)。再把更多 SSH auth/session policy 抽为注入 event sink 的服务，减少两端调度差异。随后实现更细的能力描述与本地化不可用提示、Web 插件 sandbox/runtime、SFTP 递归/完整任务取消控制、OSC/CWD。若需要多人使用，先增加用户、保存资源 ACL、AI history 隔离和审计，再放开多用户入口。
 
 ## Telnet / VNC 增量验证
 
@@ -125,3 +124,9 @@ session/prompt/AI cancellation 隔离于登录 owner，跨 owner 的 session 返
 - Core 包含抽取后的 Telnet/编码/VNC 原有测试，以及分片 IAC、NAWS 转义和慢订阅者完整帧重同步测试。
 - Core 292 项、vendored VNC 协议库 40 项测试通过。Web 三项集成测试通过；Telnet/VNC/代理/生命周期集成测试连续 10 次通过，覆盖终端结束前最后输出的送达。
 - 前端全量 158 文件、1003 项测试通过；Web 构建、lint 和四语言格式检查通过，桌面 `cargo check --locked` 通过。Docker CLI 当前不可用，容器实构建及真实远端图形环境手工验收仍待部署环境执行。
+
+## Web Beta 可靠性增量
+
+浏览器 SSH/Telnet 由 `BrowserTerminals` 持有每会话连接状态，初次握手和掉线恢复统一执行有时间预算的附着重试，复用 `get_session_info` 查询和原有终端事件，无新增重连协议。跨 WS/SSE 的关闭事件只投递一次。
+
+Web 上传使用 SFTP lstat 区分存在、目录、权限和连接错误，复用 owner 冲突提示。临时文件和传输许可由 RAII guard 持有直到异步清理结束，显式会话关闭等待清理后才断开 SSH；提示 future 被 HTTP 中断丢弃时仍会移除待响应记录。数据格式保持兼容，新增响应字段见部署文档。

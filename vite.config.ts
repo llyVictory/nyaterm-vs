@@ -26,7 +26,9 @@ export default defineConfig(async () => ({
   css: {
     transformer: "lightningcss",
     lightningcss: {
-      targets: browserslistToTargets(browserslist("safari >= 14, chrome >= 105")),
+      targets: browserslistToTargets(
+        browserslist("safari >= 14, chrome >= 105"),
+      ),
     },
   },
 
@@ -39,7 +41,12 @@ export default defineConfig(async () => ({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
-    exclude: [...configDefaults.exclude, "**/src-tauri/vendor/**", "**/temp/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "**/src-tauri/vendor/**",
+      "**/temp/**",
+      "**/e2e/**",
+    ],
   },
 
   clearScreen: false,

@@ -1,3 +1,4 @@
+import { supports } from "@/lib/backend/runtime";
 import { downloadDir } from "@/lib/backend/platform/path";
 import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { useEffect, useState } from "react";
@@ -83,6 +84,7 @@ export function TransferTab() {
   const [defaultDownloadDir, setDefaultDownloadDir] = useState("");
 
   useEffect(() => {
+    if (!supports("nativeFiles")) return;
     downloadDir()
       .then(setDefaultDownloadDir)
       .catch(() => {});
@@ -94,21 +96,27 @@ export function TransferTab() {
   return (
     <div className="space-y-5">
       <SettingSection contentClassName="space-y-5">
-        <PathPickerInput
-          label={t("settings.downloadPath")}
-          desc={t("settings.downloadPathDesc")}
-          value={transfer.download_path}
-          placeholder={defaultDownloadDir}
-          onChange={(v) => update({ download_path: v })}
-        />
+        {supports("nativeFiles") && (
+          <>
+            <PathPickerInput
+              label={t("settings.downloadPath")}
+              desc={t("settings.downloadPathDesc")}
+              value={transfer.download_path}
+              placeholder={defaultDownloadDir}
+              onChange={(v) => update({ download_path: v })}
+            />
 
-        <SettingRow label={t("settings.askSaveLocation")} desc={t("settings.askSaveLocationDesc")}>
-          <SettingSwitch
-            checked={transfer.ask_save_location}
-            onChange={(v) => update({ ask_save_location: v })}
-          />
-        </SettingRow>
-
+            <SettingRow
+              label={t("settings.askSaveLocation")}
+              desc={t("settings.askSaveLocationDesc")}
+            >
+              <SettingSwitch
+                checked={transfer.ask_save_location}
+                onChange={(v) => update({ ask_save_location: v })}
+              />
+            </SettingRow>
+          </>
+        )}
         <SettingSelect
           label={t("settings.duplicateStrategy")}
           desc={t("settings.duplicateStrategyDesc")}
@@ -116,38 +124,53 @@ export function TransferTab() {
           controlClassName="max-w-sm"
           onValueChange={(v) => update({ duplicate_strategy: v })}
         >
-          <SelectItem value="overwrite">{t("settings.strategyOverwrite")}</SelectItem>
+          <SelectItem value="overwrite">
+            {t("settings.strategyOverwrite")}
+          </SelectItem>
           <SelectItem value="skip">{t("settings.strategySkip")}</SelectItem>
           <SelectItem value="rename">{t("settings.strategyRename")}</SelectItem>
           <SelectItem value="ask">{t("settings.strategyAsk")}</SelectItem>
         </SettingSelect>
 
-        <SettingSelect
-          label={t("settings.editorType")}
-          desc={t("settings.editorTypeDesc")}
-          value={transfer.editor_type || "external"}
-          controlClassName="max-w-sm"
-          onValueChange={(v) => update({ editor_type: v as "external" | "internal" })}
-        >
-          <SelectItem value="external">{t("settings.editorTypeExternal")}</SelectItem>
-          <SelectItem value="internal">{t("settings.editorTypeInternal")}</SelectItem>
-        </SettingSelect>
-
-        {(transfer.editor_type || "external") === "external" && (
-          <PathPickerInput
-            label={t("settings.defaultEditor")}
-            desc={t("settings.defaultEditorDesc")}
-            value={transfer.default_editor}
-            placeholder={t("settings.defaultEditorDesc")}
-            onChange={(v) => update({ default_editor: v })}
-            directory={false}
-            filters={[
-              { name: "Executable", extensions: ["exe", "cmd", "bat", "com", "app", "sh", ""] },
-            ]}
-          />
+        {supports("nativeFiles") && (
+          <SettingSelect
+            label={t("settings.editorType")}
+            desc={t("settings.editorTypeDesc")}
+            value={transfer.editor_type || "external"}
+            controlClassName="max-w-sm"
+            onValueChange={(v) =>
+              update({ editor_type: v as "external" | "internal" })
+            }
+          >
+            <SelectItem value="external">
+              {t("settings.editorTypeExternal")}
+            </SelectItem>
+            <SelectItem value="internal">
+              {t("settings.editorTypeInternal")}
+            </SelectItem>
+          </SettingSelect>
         )}
 
-        {(transfer.editor_type || "external") === "internal" && (
+        {supports("nativeFiles") &&
+          (transfer.editor_type || "external") === "external" && (
+            <PathPickerInput
+              label={t("settings.defaultEditor")}
+              desc={t("settings.defaultEditorDesc")}
+              value={transfer.default_editor}
+              placeholder={t("settings.defaultEditorDesc")}
+              onChange={(v) => update({ default_editor: v })}
+              directory={false}
+              filters={[
+                {
+                  name: "Executable",
+                  extensions: ["exe", "cmd", "bat", "com", "app", "sh", ""],
+                },
+              ]}
+            />
+          )}
+
+        {(!supports("nativeFiles") ||
+          (transfer.editor_type || "external") === "internal") && (
           <SettingSelect
             label={t("settings.internalEditorDisplay")}
             desc={t("settings.internalEditorDisplayDesc")}
@@ -157,85 +180,93 @@ export function TransferTab() {
               update({ internal_editor_display: v as "workspace" | "window" })
             }
           >
-            <SelectItem value="workspace">{t("settings.internalEditorDisplayWorkspace")}</SelectItem>
-            <SelectItem value="window">{t("settings.internalEditorDisplayWindow")}</SelectItem>
+            <SelectItem value="workspace">
+              {t("settings.internalEditorDisplayWorkspace")}
+            </SelectItem>
+            <SelectItem value="window">
+              {t("settings.internalEditorDisplayWindow")}
+            </SelectItem>
           </SettingSelect>
         )}
       </SettingSection>
 
-      <SettingSection contentClassName="space-y-5">
-        <SettingFieldGrid>
-          <SettingNumberInput
-            label={t("settings.downloadConcurrentTasks")}
-            desc={t("settings.downloadConcurrentTasksDesc")}
-            min={1}
-            max={10}
-            value={transfer.download_threads}
-            controlClassName="max-w-sm"
-            onChange={(v) => update({ download_threads: v })}
-          />
+      {supports("nativeFiles") && (
+        <SettingSection contentClassName="space-y-5">
+          <SettingFieldGrid>
+            <SettingNumberInput
+              label={t("settings.downloadConcurrentTasks")}
+              desc={t("settings.downloadConcurrentTasksDesc")}
+              min={1}
+              max={10}
+              value={transfer.download_threads}
+              controlClassName="max-w-sm"
+              onChange={(v) => update({ download_threads: v })}
+            />
 
-          <SettingNumberInput
-            label={t("settings.uploadConcurrentTasks")}
-            desc={t("settings.uploadConcurrentTasksDesc")}
-            min={1}
-            max={10}
-            value={transfer.upload_threads}
-            controlClassName="max-w-sm"
-            onChange={(v) => update({ upload_threads: v })}
-          />
+            <SettingNumberInput
+              label={t("settings.uploadConcurrentTasks")}
+              desc={t("settings.uploadConcurrentTasksDesc")}
+              min={1}
+              max={10}
+              value={transfer.upload_threads}
+              controlClassName="max-w-sm"
+              onChange={(v) => update({ upload_threads: v })}
+            />
 
-          <SettingNumberInput
-            label={t("settings.maxTransferRetries")}
-            desc={t("settings.maxTransferRetriesDesc")}
-            min={0}
-            max={10}
-            value={transfer.max_transfer_retries}
-            controlClassName="max-w-sm"
-            onChange={(v) => update({ max_transfer_retries: v })}
-          />
+            <SettingNumberInput
+              label={t("settings.maxTransferRetries")}
+              desc={t("settings.maxTransferRetriesDesc")}
+              min={0}
+              max={10}
+              value={transfer.max_transfer_retries}
+              controlClassName="max-w-sm"
+              onChange={(v) => update({ max_transfer_retries: v })}
+            />
 
-          <SettingNumberInput
-            label={t("settings.transferBufferSize")}
-            desc={t("settings.transferBufferSizeDesc")}
-            min={8}
-            max={256}
-            step={8}
-            value={transfer.transfer_buffer_size}
-            controlClassName="max-w-sm"
-            onChange={(v) => update({ transfer_buffer_size: v })}
-          />
+            <SettingNumberInput
+              label={t("settings.transferBufferSize")}
+              desc={t("settings.transferBufferSizeDesc")}
+              min={8}
+              max={256}
+              step={8}
+              value={transfer.transfer_buffer_size}
+              controlClassName="max-w-sm"
+              onChange={(v) => update({ transfer_buffer_size: v })}
+            />
 
-          <SettingInput
-            label={t("settings.defaultFilePermissions")}
-            desc={t("settings.defaultFilePermissionsDesc")}
-            placeholder="644"
-            value={transfer.default_file_permissions}
-            controlClassName="max-w-sm"
-            onChange={(e) => update({ default_file_permissions: e.target.value })}
-          />
-        </SettingFieldGrid>
+            <SettingInput
+              label={t("settings.defaultFilePermissions")}
+              desc={t("settings.defaultFilePermissionsDesc")}
+              placeholder="644"
+              value={transfer.default_file_permissions}
+              controlClassName="max-w-sm"
+              onChange={(e) =>
+                update({ default_file_permissions: e.target.value })
+              }
+            />
+          </SettingFieldGrid>
 
-        <SettingRow
-          label={t("settings.preserveTimestamps")}
-          desc={t("settings.preserveTimestampsDesc")}
-        >
-          <SettingSwitch
-            checked={transfer.preserve_timestamps}
-            onChange={(v) => update({ preserve_timestamps: v })}
-          />
-        </SettingRow>
+          <SettingRow
+            label={t("settings.preserveTimestamps")}
+            desc={t("settings.preserveTimestampsDesc")}
+          >
+            <SettingSwitch
+              checked={transfer.preserve_timestamps}
+              onChange={(v) => update({ preserve_timestamps: v })}
+            />
+          </SettingRow>
 
-        <SettingRow
-          label={t("settings.resumeBrokenTransfer")}
-          desc={t("settings.resumeBrokenTransferDesc")}
-        >
-          <SettingSwitch
-            checked={transfer.resume_broken_transfer}
-            onChange={(v) => update({ resume_broken_transfer: v })}
-          />
-        </SettingRow>
-      </SettingSection>
+          <SettingRow
+            label={t("settings.resumeBrokenTransfer")}
+            desc={t("settings.resumeBrokenTransferDesc")}
+          >
+            <SettingSwitch
+              checked={transfer.resume_broken_transfer}
+              onChange={(v) => update({ resume_broken_transfer: v })}
+            />
+          </SettingRow>
+        </SettingSection>
+      )}
     </div>
   );
 }

@@ -5,6 +5,12 @@ import {
 } from "./editorOpenMode";
 
 describe("file editor open mode", () => {
+  it("uses the browser editor without changing external desktop preferences", () => {
+    const settings = { editor_type: "external", internal_editor_display: "window" } as const;
+    expect(resolveFileEditorOpenTarget(settings, false)).toBe("internal-window");
+    expect(resolveFileEditorOpenTarget({ editor_type: "external" }, false)).toBe("internal-workspace");
+    expect(settings.editor_type).toBe("external");
+  });
   it("uses the external editor when editor_type is external", () => {
     expect(
       resolveFileEditorOpenTarget({

@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import type { TerminalFitScheduler } from "@/components/terminal/terminalFitScheduler";
 
@@ -40,7 +47,9 @@ class FakeSocket {
 class FakeEvents {
   onmessage?: (event: { data: string }) => void;
   constructor() {
-    queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ event: "ready" }) }));
+    queueMicrotask(() =>
+      this.onmessage?.({ data: JSON.stringify({ event: "ready" }) }),
+    );
   }
   addEventListener() {}
   close() {}
@@ -66,7 +75,13 @@ beforeEach(() => {
               ? { csrf: "csrf-test" }
               : url.pathname.endsWith("/sessions")
                 ? { session_id: "session-1" }
-                : null,
+                : url.pathname.endsWith("/upload")
+                  ? {
+                      bytes: 4,
+                      status: "completed",
+                      path: url.searchParams.get("path"),
+                    }
+                  : null,
           ),
           { headers: { "Content-Type": "application/json" } },
         ),
@@ -83,23 +98,38 @@ afterEach(() => {
 
 describe("browser backend boundary", () => {
   it("uploads browser clipboard PNG bytes with session ownership and CSRF", async () => {
-    const image = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
+    const image = new Blob([new Uint8Array([137, 80, 78, 71])], {
+      type: "image/png",
+    });
     const clipboard = {
-      read: vi.fn().mockResolvedValue([{ types: ["image/png"], getType: async () => image }]),
+      read: vi
+        .fn()
+        .mockResolvedValue([
+          { types: ["image/png"], getType: async () => image },
+        ]),
     };
     const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: clipboard,
+    });
     try {
       const { authenticate, httpInvoke } = await import("./http");
       await authenticate();
-      const result = await httpInvoke<{ remote_path: string }>("upload_clipboard_image_to_ssh", {
-        sessionId: "owned-session",
-        remoteDir: "/home/test",
-      });
-      const [url, options] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!;
+      const result = await httpInvoke<{ remote_path: string }>(
+        "upload_clipboard_image_to_ssh",
+        {
+          sessionId: "owned-session",
+          remoteDir: "/home/test",
+        },
+      );
+      const [url, options] =
+        fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!;
       expect(url.pathname).toBe("/nyaterm/api/sessions/owned-session/upload");
       expect(url.searchParams.get("path")).toBe(result.remote_path);
-      expect(result.remote_path).toMatch(/^\/home\/test\/nyaterm-clipboard-.*\.png$/);
+      expect(result.remote_path).toMatch(
+        /^\/home\/test\/nyaterm-clipboard-.*\.png$/,
+      );
       expect(options).toMatchObject({
         method: "POST",
         credentials: "same-origin",
@@ -112,9 +142,89 @@ describe("browser backend boundary", () => {
     }
   });
 
+  it.each(["completed", "skipped"])(
+    "uses final clipboard upload path and handles %s",
+    async (status) => {
+      const image = new Blob(["PNG"], { type: "image/png" });
+      const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          read: async () => [
+            { types: ["image/png"], getType: async () => image },
+          ],
+        },
+      });
+      fetchMock.mockImplementation(
+        async (url: URL) =>
+          new Response(
+            JSON.stringify(
+              url.pathname.endsWith("/upload")
+                ? {
+                    bytes: status === "skipped" ? 0 : 3,
+                    status,
+                    path: "/renamed.png.uuid",
+                  }
+                : { csrf: "csrf-test" },
+            ),
+          ),
+      );
+      try {
+        const { authenticate, httpInvoke } = await import("./http");
+        await authenticate();
+        expect(
+          await httpInvoke("upload_clipboard_image_to_ssh", {
+            sessionId: "owned-session",
+            remoteDir: "/",
+          }),
+        ).toEqual(
+          status === "skipped" ? null : { remote_path: "/renamed.png.uuid" },
+        );
+      } finally {
+        if (previous) Object.defineProperty(navigator, "clipboard", previous);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    },
+  );
+
+  it("returns browser upload results and rejects failed downloads", async () => {
+    const { uploadBrowserFile, downloadBrowserFile } = await import("./files");
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ bytes: 0, status: "skipped", path: "/same.txt" }),
+      ),
+    );
+    expect(
+      await uploadBrowserFile("s", "/same.txt", new Blob(["data"])),
+    ).toEqual({ bytes: 0, status: "skipped", path: "/same.txt" });
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          bytes: 4,
+          status: "completed",
+          path: "/same.txt.uuid",
+        }),
+      ),
+    );
+    expect(
+      (await uploadBrowserFile("s", "/same.txt", new Blob(["data"]))).path,
+    ).toBe("/same.txt.uuid");
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 400,
+      }),
+    );
+    await expect(downloadBrowserFile("s", "/denied.txt")).rejects.toThrow(
+      "Permission denied",
+    );
+  });
+
   it("uses Web background data URLs without sending desktop paths to the server", async () => {
-    const { loadBackgroundImageDataUrl } = await import("@/lib/backgroundImage");
-    expect(await loadBackgroundImageDataUrl("C:\\Users\\test\\background.png")).toBe("");
+    const { loadBackgroundImageDataUrl } =
+      await import("@/lib/backgroundImage");
+    expect(
+      await loadBackgroundImageDataUrl("C:\\Users\\test\\background.png"),
+    ).toBe("");
     const image = "data:image/png;base64,iVBORw0KGgo=";
     expect(await loadBackgroundImageDataUrl(image)).toBe(image);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -160,9 +270,12 @@ describe("browser backend boundary", () => {
 
   it("does not report Web active session changes to the desktop MCP host", async () => {
     const { useMcpActiveSession } = await import("@/hooks/useMcpActiveSession");
-    const { rerender } = renderHook(({ sessionId }) => useMcpActiveSession(sessionId), {
-      initialProps: { sessionId: "web-ssh" as string | null },
-    });
+    const { rerender } = renderHook(
+      ({ sessionId }) => useMcpActiveSession(sessionId),
+      {
+        initialProps: { sessionId: "web-ssh" as string | null },
+      },
+    );
     rerender({ sessionId: "web-telnet" });
     rerender({ sessionId: null });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -193,7 +306,9 @@ describe("browser backend boundary", () => {
           JSON.stringify(
             url.pathname.endsWith("get_quick_commands")
               ? {
-                  commands: [{ id: "q1", label: "List files", command: "ls -la" }],
+                  commands: [
+                    { id: "q1", label: "List files", command: "ls -la" },
+                  ],
                   categories: [],
                 }
               : url.pathname.endsWith("fuzzy_search_commands")
@@ -219,7 +334,15 @@ describe("browser backend boundary", () => {
     const apply = vi.fn();
     const canShow = () => true;
     const { result, unmount } = renderHook(() =>
-      useCommandHistory(terminalRef, inputStateRef, apply, canShow, true, 1, 100),
+      useCommandHistory(
+        terminalRef,
+        inputStateRef,
+        apply,
+        canShow,
+        true,
+        1,
+        100,
+      ),
     );
     act(() => {
       result.current.triggerSearch({ manual: true });
@@ -232,10 +355,14 @@ describe("browser backend boundary", () => {
     });
     // Automatic searches normally debounce for 80ms.
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await waitFor(() => expect(result.current.suggestions[0]?.command).toBe("ls -la"));
-    expect(fetchMock.mock.calls.some(([url]) => url.pathname.endsWith("get_quick_commands"))).toBe(
-      true,
+    await waitFor(() =>
+      expect(result.current.suggestions[0]?.command).toBe("ls -la"),
     );
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        url.pathname.endsWith("get_quick_commands"),
+      ),
+    ).toBe(true);
     unmount();
   });
 
@@ -291,13 +418,17 @@ describe("browser backend boundary", () => {
   it("denies native local execution and bounds pending output", async () => {
     const { httpInvoke } = await import("./http");
     const { deliver } = await import("./events");
-    await expect(httpInvoke("create_local_session")).rejects.toThrow("Capability unavailable");
+    await expect(httpInvoke("create_local_session")).rejects.toThrow(
+      "Capability unavailable",
+    );
     await expect(httpInvoke("get_default_local_shell")).rejects.toThrow(
       "Capability unavailable in Web mode: localShell",
     );
     expect(fetchMock).not.toHaveBeenCalled();
     deliver("terminal-output-absent", { data: "", bytes: 2 * 1024 * 1024 });
-    expect(() => deliver("terminal-output-absent", { data: "x", bytes: 1 })).toThrow("listener");
+    expect(() =>
+      deliver("terminal-output-absent", { data: "x", bytes: 1 }),
+    ).toThrow("listener");
   });
   it("opens existing settings pages in a browser dialog and closes them", async () => {
     const { WebviewWindow } = await import("./platform/webviewWindow");
@@ -365,7 +496,9 @@ describe("browser backend boundary", () => {
       title: "New session",
       url: "index.html?window=new-session&owner=main",
     });
-    const failure = expect(opening).rejects.toThrow("Child window did not finish rendering");
+    const failure = expect(opening).rejects.toThrow(
+      "Child window did not finish rendering",
+    );
     await waitFor(() => expect(document.querySelector("iframe")).toBeTruthy());
     const url = new URL(document.querySelector("iframe")!.src);
     await browserEmit(CHILD_WINDOW_LIFECYCLE_EVENT, {
@@ -425,7 +558,9 @@ describe("browser backend boundary", () => {
       ).toBeNull(),
     );
     fireEvent.click(screen.getByRole("button", { name: "web.signIn" }));
-    expect(await screen.findByText("Existing NyaTerm application")).toBeTruthy();
+    expect(
+      await screen.findByText("Existing NyaTerm application"),
+    ).toBeTruthy();
   });
 });
 
@@ -447,7 +582,9 @@ describe("Web Telnet and VNC", () => {
       recovered.onmessage?.({ data: bytes });
       expect(frame).toHaveBeenCalledWith(bytes);
       await sendBrowserVnc("retry", { type: "input", events: [] });
-      expect(recovered.sent).toEqual([JSON.stringify({ type: "input", events: [] })]);
+      expect(recovered.sent).toEqual([
+        JSON.stringify({ type: "input", events: [] }),
+      ]);
       stop();
       await vi.advanceTimersByTimeAsync(3000);
       expect(FakeSocket.instances).toHaveLength(3);
@@ -469,26 +606,39 @@ describe("Web Telnet and VNC", () => {
       host: "telnet.test",
       port: 23,
     });
-    expect(JSON.parse(fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1].body)).toEqual({
+    expect(
+      JSON.parse(
+        fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1].body,
+      ),
+    ).toEqual({
       host: "telnet.test",
       port: 23,
       type: "telnet",
     });
     await httpInvoke("create_vnc_session", { connectionId: "vnc-saved" });
-    expect(JSON.parse(fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1].body)).toEqual({
+    expect(
+      JSON.parse(
+        fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1].body,
+      ),
+    ).toEqual({
       connectionId: "vnc-saved",
       type: "vnc",
     });
     await httpInvoke("get_proxies");
-    expect(fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[0].pathname).toBe(
-      "/nyaterm/api/commands/get_proxies",
-    );
+    expect(
+      fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[0].pathname,
+    ).toBe("/nyaterm/api/commands/get_proxies");
   });
   it("replays VNC messages and keeps a replacement safe from stale cleanup", async () => {
     const { subscribeBrowserVnc, sendBrowserVnc, closeAllBrowserVnc } = await import("./vnc");
     const { browserListen } = await import("./events");
     const oldController = new AbortController();
-    const old = subscribeBrowserVnc("vnc", vi.fn(), vi.fn(), oldController.signal).catch(() => {});
+    const old = subscribeBrowserVnc(
+      "vnc",
+      vi.fn(),
+      vi.fn(),
+      oldController.signal,
+    ).catch(() => {});
     const frame = vi.fn();
     const current = subscribeBrowserVnc("vnc", frame, vi.fn());
     await old;
@@ -506,10 +656,14 @@ describe("Web Telnet and VNC", () => {
       }),
     });
     expect(frame).toHaveBeenCalledWith(bytes);
-    expect(state).toHaveBeenCalledWith(expect.objectContaining({ payload: { state: "active" } }));
+    expect(state).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: { state: "active" } }),
+    );
     oldController.abort();
     await sendBrowserVnc("vnc", { type: "input", events: [] });
-    expect(socket.sent).toContain(JSON.stringify({ type: "input", events: [] }));
+    expect(socket.sent).toContain(
+      JSON.stringify({ type: "input", events: [] }),
+    );
     expect(socket.url.search).toBe("");
     stop();
     expect(socket.readyState).toBe(3);
@@ -519,7 +673,12 @@ describe("Web Telnet and VNC", () => {
   it("cancels a VNC attachment before its socket opens", async () => {
     const { subscribeBrowserVnc } = await import("./vnc");
     const controller = new AbortController();
-    const result = subscribeBrowserVnc("cancelled", vi.fn(), vi.fn(), controller.signal);
+    const result = subscribeBrowserVnc(
+      "cancelled",
+      vi.fn(),
+      vi.fn(),
+      controller.signal,
+    );
     controller.abort();
     await expect(result).rejects.toThrow();
     expect(FakeSocket.instances[0].readyState).toBe(3);
