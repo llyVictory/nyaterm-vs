@@ -53,6 +53,7 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
       return response.json();
     };
     const settings = await command("get_app_settings");
+    settings.general.startup_restore = true;
     settings.ui.language = "en";
     settings.ui.file_explorer_view_mode = "list";
     settings.ui.active_left_panel = "fileExplorer";
@@ -205,10 +206,11 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
       ).file.content,
     ).toBe("renamed browser upload\n");
     const downloaded = page.waitForEvent("download");
-    await page
-      .getByText("readme.txt", { exact: true })
-      .first()
-      .click({ button: "right" });
+    const readmeRow = page.getByRole("listitem").filter({
+      has: page.getByText("readme.txt", { exact: true }),
+    });
+    await expect(readmeRow).toHaveCount(1);
+    await readmeRow.click({ button: "right" });
     await page
       .getByRole("menuitem", {
         name: t("fileExplorer.cmDownload"),
