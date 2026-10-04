@@ -336,22 +336,31 @@ describe("NewSessionPage", () => {
     });
   });
 
-  it("skips local shell discovery in Web mode and explains unavailable session types", async () => {
-    window.history.replaceState({}, "", "/");
-    supportsMock.mockImplementation((capability?: string) => ["ssh", "telnet", "vnc", "networkProxy"].includes(capability ?? ""));
+  it.each([
+    "/",
+    `/?edit=${sshConnection.id}`,
+    `/?edit=${telnetConnection.id}`,
+    `/?edit=${vncConnection.id}`,
+  ])("only shows supported session tabs in Web mode at %s", async (url) => {
+    window.history.replaceState({}, "", url);
+    supportsMock.mockImplementation((capability?: string) =>
+      ["ssh", "telnet", "vnc", "networkProxy"].includes(capability ?? ""),
+    );
     render(<NewSessionPage />);
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_saved_connections"));
+    const editedConnection = [sshConnection, telnetConnection, vncConnection].find(
+      (connection) => url === `/?edit=${connection.id}`,
+    );
+    if (editedConnection) await screen.findByDisplayValue(editedConnection.name);
     expect(invokeMock).not.toHaveBeenCalledWith("get_default_local_shell");
-    expect(screen.getByText("web.sessionTypesHint")).toBeTruthy();
+    expect(screen.queryByText("web.sessionTypesHint")).toBeNull();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
     const sshTab = screen.getByRole("tab", { name: "SSH" });
     expect((sshTab as HTMLButtonElement).disabled).toBe(false);
     for (const name of ["dialog.localTerminal", "dialog.serial", "RDP"]) {
-      const tab = screen.getByRole("tab", { name });
-      expect((tab as HTMLButtonElement).disabled).toBe(true);
-      fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+      expect(screen.queryByRole("tab", { name })).toBeNull();
     }
-    expect(sshTab.getAttribute("aria-selected")).toBe("true");
     for (const name of ["Telnet", "VNC"]) {
       const tab = screen.getByRole("tab", { name });
       expect((tab as HTMLButtonElement).disabled).toBe(false);

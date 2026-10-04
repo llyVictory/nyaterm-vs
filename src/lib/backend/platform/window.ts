@@ -44,6 +44,9 @@ const browserWindow = {
     window.addEventListener("resize", resized);
     return () => window.removeEventListener("resize", resized);
   },
+  // Browsers expose no window move event; terminal DPI changes use matchMedia.
+  onMoved: async () => noop,
+  onScaleChanged: async () => noop,
   onCloseRequested: async () => noop,
   listen: browserListen,
   emit: browserEmit,

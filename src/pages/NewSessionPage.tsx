@@ -87,6 +87,14 @@ const DEFAULT_SSH_AGENT_FORWARDING_CONFIG: SshAgentForwardingConfig = {
   sources: { external_agent: false, external_agent_endpoints: [], stored_keys: true },
   policy: { mode: "allowlist", fingerprints: [] },
 };
+const SESSION_TYPE_TABS = [
+  { value: "ssh", capability: "ssh", label: "SSH" },
+  { value: "local", capability: "localShell", labelKey: "dialog.localTerminal" },
+  { value: "telnet", capability: "telnet", label: "Telnet" },
+  { value: "serial", capability: "serial", labelKey: "dialog.serial" },
+  { value: "rdp", capability: "remoteDesktop", label: "RDP" },
+  { value: "vnc", capability: "vnc", label: "VNC" },
+] as const;
 
 function resolveInitialPasswordSource(
   connection: SavedConnection,
@@ -176,6 +184,7 @@ const isValidSftpShellDetectionTimeout = (value: number) =>
 export default function NewSessionPage() {
   const { t } = useTranslation();
   const { appSettings } = useApp();
+  const sessionTypeTabs = SESSION_TYPE_TABS.filter(({ capability }) => supports(capability));
   const params = new URLSearchParams(window.location.search);
   const editId = params.get("edit") ?? undefined;
   const autoConnect = params.get("autoConnect") === "1";
@@ -1282,51 +1291,16 @@ export default function NewSessionPage() {
         className="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
         <div className="shrink-0 px-4 pt-3 sm:px-5">
-          <TabsList className="grid h-8 w-full grid-cols-6 pointer-events-auto">
-            <TabsTrigger value="ssh" className="text-xs">
-              SSH
-            </TabsTrigger>
-            <TabsTrigger
-              disabled={!supports("localShell")}
-              value="local"
-              className="text-xs"
-            >
-              {t("dialog.localTerminal")}
-            </TabsTrigger>
-            <TabsTrigger
-              disabled={!supports("telnet")}
-              value="telnet"
-              className="text-xs"
-            >
-              Telnet
-            </TabsTrigger>
-            <TabsTrigger
-              disabled={!supports("serial")}
-              value="serial"
-              className="text-xs"
-            >
-              {t("dialog.serial")}
-            </TabsTrigger>
-            <TabsTrigger
-              disabled={!supports("remoteDesktop")}
-              value="rdp"
-              className="text-xs"
-            >
-              RDP
-            </TabsTrigger>
-            <TabsTrigger
-              disabled={!supports("vnc")}
-              value="vnc"
-              className="text-xs"
-            >
-              VNC
-            </TabsTrigger>
+          <TabsList
+            className="grid h-8 w-full pointer-events-auto"
+            style={{ gridTemplateColumns: `repeat(${sessionTypeTabs.length}, minmax(0, 1fr))` }}
+          >
+            {sessionTypeTabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value} className="text-xs">
+                {"labelKey" in tab ? t(tab.labelKey) : tab.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
-          {!supports("localShell") && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t("web.sessionTypesHint")}
-            </p>
-          )}
         </div>
 
         <div className="flex-1 min-h-0 w-full space-y-3 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20">

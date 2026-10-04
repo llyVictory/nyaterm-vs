@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { Terminal } from "@xterm/xterm";
+import type { TerminalFitScheduler } from "@/components/terminal/terminalFitScheduler";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -82,6 +84,52 @@ afterEach(() => {
 });
 
 describe("browser backend boundary", () => {
+  it("mounts a Web terminal and cleans up browser resize listeners", async () => {
+    const { useTerminalRefreshEffects } = await import(
+      "@/components/terminal/useTerminalRefreshEffects"
+    );
+    const schedule = vi.fn();
+    const terminal = {
+      buffer: { active: { baseY: 0, viewportY: 0 } },
+    } as unknown as Terminal;
+    const { unmount } = renderHook(() =>
+      useTerminalRefreshEffects({
+        terminalRef: { current: terminal },
+        fitSchedulerRef: { current: { schedule } as unknown as TerminalFitScheduler },
+        active: true,
+        visible: true,
+        appLocked: false,
+        terminalReady: true,
+        performanceMode: "normal",
+        sessionId: "web-ssh",
+        showGutter: false,
+        showContentPadding: false,
+      }),
+    );
+    // Window subscriptions resolve asynchronously, like the desktop API.
+    await Promise.resolve();
+    schedule.mockClear();
+    window.dispatchEvent(new Event("resize"));
+    expect(schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "window-resized", refresh: true }),
+    );
+
+    unmount();
+    schedule.mockClear();
+    window.dispatchEvent(new Event("resize"));
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("does not report Web active session changes to the desktop MCP host", async () => {
+    const { useMcpActiveSession } = await import("@/hooks/useMcpActiveSession");
+    const { rerender } = renderHook(({ sessionId }) => useMcpActiveSession(sessionId), {
+      initialProps: { sessionId: "web-ssh" as string | null },
+    });
+    rerender({ sessionId: "web-telnet" });
+    rerender({ sessionId: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses same-origin base paths, cookie credentials and CSRF without URL secrets", async () => {
     const { authenticate, httpInvoke } = await import("./http");
     await authenticate("test-login");
