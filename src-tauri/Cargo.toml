@@ -92,7 +92,7 @@ nyaterm-gpu = { path = "crates/nyaterm-gpu" }
 nyaterm-otp = { path = "crates/otp" }
 nyaterm-mcp-protocol = { path = "crates/nyaterm-mcp-protocol" }
 nyaterm-plugin-runtime = { path = "crates/nyaterm-plugin-runtime" }
-tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -204,9 +204,6 @@ tauri-plugin-updater = { version = "2", default-features = false, features = [
 ] }
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
 
 [target.'cfg(not(windows))'.dependencies]
 ironrdp = { path = "vendor/ironrdp/crates/ironrdp", default-features = false, features = ["rustls"] }

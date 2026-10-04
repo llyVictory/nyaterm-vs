@@ -1236,7 +1236,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (hasRestored.current || !appSettingsLoaded.current || !lockStateLoaded) return;
+    if (hasRestored.current || !settingsLoaded || !lockStateLoaded) return;
 
     hasRestored.current = true;
     const primaryWindow = isPrimaryMainWindow();
@@ -1279,7 +1279,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     }
     setStartupRestoreComplete(true);
-  }, [appSettings, isLocked, lockStateLoaded, restoreSessionsForTabs, setActiveTabId]);
+  }, [
+    appSettings,
+    isLocked,
+    lockStateLoaded,
+    restoreSessionsForTabs,
+    setActiveTabId,
+    settingsLoaded,
+  ]);
 
   useEffect(() => {
     if (isLocked) return;
