@@ -3,7 +3,8 @@
 NyaTerm supports locally installed tool and panel extensions. A plugin can add
 sandboxed HTML panels, terminal/connection context-menu commands, and an optional
 persistent native backend. Built-in connection protocols remain managed by
-NyaTerm. Connection/filesystem providers and an online marketplace are future APIs.
+NyaTerm. Connection/filesystem providers are future APIs. Reviewed plugins are
+distributed through the official Plugin Store.
 
 ## Install and use
 
@@ -67,6 +68,14 @@ Installed versions persist provenance; switching between local and Store sources
 requires uninstalling first. Old registry records default to local provenance.
 
 The Store lives in [`nyakang/nyaterm-plugins`](https://github.com/nyakang/nyaterm-plugins).
+Each extension has a separate listing, per-target review submissions and per-version
+release records. Publisher and signing configuration lives under `trust/`; the
+client downloads the generated `public/v1/plugins.json` catalog. The previous
+catalog endpoint has been removed without a compatibility mirror, so older
+clients must upgrade to load the Store. Deploy the Store's new endpoint before
+releasing the updated client. Catalog v1, package formats and installed provenance
+remain unchanged.
+
 Its records and signing workflow are independent of author plugin source. First
 rollout requires initializing the official key and configuring the protected
 `plugin-signing` environment; an empty client trust store rejects every Store install.
@@ -358,3 +367,8 @@ pnpm lint
 cargo test --manifest-path src-tauri/crates/nyaterm-plugin-runtime/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib core::plugins
 ```
+
+For Store/client interoperability, set `NYATERM_STORE_CATALOGS` to the generated
+public catalog and any populated fixture paths (separated by `;` on Windows or
+`:` on Unix). The runtime's `store_catalog` test parses each with the client's
+catalog validator. See the Store README for exporting the populated fixture.
