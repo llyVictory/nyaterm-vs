@@ -47,9 +47,7 @@
     "web:serve": "cargo run --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked",
     "test:web": "cargo test --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked",
     "i18n:keys": "node scripts/check-i18n-keys.mjs",
-    "test:web:e2e": "node scripts/web-e2e.mjs",
-    "web:audit": "node scripts/web-audit.mjs",
-    "web:audit:check": "node scripts/web-audit.mjs --check"
+    "test:web:e2e": "node scripts/web-e2e.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
