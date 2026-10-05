@@ -2,7 +2,7 @@ struct TranscriptState {
     records: VecDeque<TranscriptRecord>,
     record_bytes: usize,
     memory_limit_bytes: usize,
-    output_buffer: String,
+    output_buffer: Vec<char>,
     output_cursor: usize,
     submitted_line_echo: Option<String>,
     next_line_id: u64,
@@ -14,7 +14,7 @@ impl TranscriptState {
             records: VecDeque::new(),
             record_bytes: 0,
             memory_limit_bytes,
-            output_buffer: String::new(),
+            output_buffer: Vec::new(),
             output_cursor: 0,
             submitted_line_echo: None,
             next_line_id: 1,
@@ -50,14 +50,23 @@ impl TranscriptState {
             return Vec::new();
         }
 
-        let replayed = replay_terminal_output(data, &self.output_buffer, self.output_cursor);
-        self.output_buffer = replayed.tail;
-        self.output_cursor = replayed.cursor;
-
+        let replayed = replay_terminal_output(
+            data,
+            &mut self.output_buffer,
+            &mut self.output_cursor,
+        );
+        let first_forced_split = replayed.first_forced_split;
         replayed
             .lines
             .into_iter()
-            .filter_map(|line| self.append_output_line(line))
+            .enumerate()
+            .filter_map(|(index, line)| {
+                if Some(index) == first_forced_split {
+                    // A segment ending in the command is not proof of an echo.
+                    self.submitted_line_echo = None;
+                }
+                self.append_output_line(line)
+            })
             .collect()
     }
 
@@ -93,11 +102,8 @@ impl TranscriptState {
     fn flush_output_lines(&mut self, flush_partial: bool) -> Vec<TranscriptRecord> {
         let mut flushed = Vec::new();
 
-        if flush_partial && !self.output_buffer.is_empty() {
-            let tail = mem::take(&mut self.output_buffer)
-                .trim_end_matches('\r')
-                .to_string();
-            self.output_cursor = 0;
+        if flush_partial {
+            let tail = take_replay_line(&mut self.output_buffer, &mut self.output_cursor);
             if let Some(record) = self.append_output_line(tail) {
                 flushed.push(record);
             }
@@ -137,14 +143,7 @@ impl TranscriptState {
     }
 
     fn flush_output_before_command(&mut self) -> Vec<TranscriptRecord> {
-        if self.output_buffer.is_empty() {
-            return Vec::new();
-        }
-
-        let tail = mem::take(&mut self.output_buffer)
-            .trim_end_matches('\r')
-            .to_string();
-        self.output_cursor = 0;
+        let tail = take_replay_line(&mut self.output_buffer, &mut self.output_cursor);
 
         if looks_like_prompt_tail(&tail) {
             return Vec::new();

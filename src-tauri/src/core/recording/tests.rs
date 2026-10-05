@@ -121,6 +121,220 @@ mod tests {
     }
 
     #[test]
+    fn segments_long_output_in_one_chunk_without_losing_unicode() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        let output = "你🙂".repeat(super::MAX_REPLAY_LINE_CHARS + 3);
+
+        let mut records = transcript.write_output(&output);
+
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| {
+            record.data.chars().count() == super::MAX_REPLAY_LINE_CHARS
+        }));
+        records.extend(transcript.finish());
+        let restored: String = records.iter().map(|record| record.data.as_str()).collect();
+        assert_eq!(restored, output);
+    }
+
+    #[test]
+    fn segments_long_output_across_chunks_with_bounded_pending_line() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        let chunk = "x".repeat(257);
+        let mut records = Vec::new();
+
+        for _ in 0..256 {
+            records.extend(transcript.write_output(&chunk));
+            assert!(transcript.output_buffer.len() <= super::MAX_REPLAY_LINE_CHARS);
+        }
+        records.extend(transcript.finish());
+
+        assert!(records.iter().all(|record| {
+            record.data.chars().count() <= super::MAX_REPLAY_LINE_CHARS
+        }));
+        let restored: String = records.iter().map(|record| record.data.as_str()).collect();
+        assert_eq!(restored, chunk.repeat(256));
+    }
+
+    #[test]
+    fn keeps_full_pending_line_editable_until_it_needs_another_segment() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        let full_line = "x".repeat(super::MAX_REPLAY_LINE_CHARS);
+
+        assert!(transcript.write_output(&full_line).is_empty());
+        assert!(transcript.write_output("\rZ").is_empty());
+        let edited = transcript.write_output("\n");
+        assert_eq!(edited.len(), 1);
+        assert_eq!(edited[0].data, format!("Z{}", &full_line[1..]));
+
+        assert!(transcript.write_output(&full_line).is_empty());
+        let segments = transcript.write_output("!");
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].data, full_line);
+        assert_eq!(transcript.finish()[0].data, "!");
+    }
+
+    #[test]
+    fn preserves_split_output_ending_with_a_pending_command() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.record_command("pwd".to_string());
+        let output = format!("{}pwdTAIL", "x".repeat(super::MAX_REPLAY_LINE_CHARS - 3));
+
+        let records = transcript.write_output(&format!("{output}\n"));
+
+        assert_eq!(records.len(), 2);
+        let restored: String = records.iter().map(|record| record.data.as_str()).collect();
+        assert_eq!(restored, output);
+    }
+
+    #[test]
+    fn filters_complete_command_echo_before_later_forced_splits() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.record_command("pwd".to_string());
+        let output = format!("{}tail", "x".repeat(super::MAX_REPLAY_LINE_CHARS));
+
+        let records = transcript.write_output(&format!("pwd\n{output}\n"));
+
+        assert_eq!(records.len(), 2);
+        let restored: String = records.iter().map(|record| record.data.as_str()).collect();
+        assert_eq!(restored, output);
+    }
+
+    #[test]
+    fn reuses_pending_line_storage_across_chunks_and_flushes() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.output_buffer.reserve(128);
+        let allocation = transcript.output_buffer.as_ptr();
+        let capacity = transcript.output_buffer.capacity();
+
+        for _ in 0..64 {
+            assert!(transcript.write_output("x").is_empty());
+            assert_eq!(transcript.output_buffer.as_ptr(), allocation);
+        }
+        assert_eq!(transcript.write_output("\n")[0].data, "x".repeat(64));
+        assert_eq!(transcript.output_buffer.capacity(), capacity);
+        transcript.write_output("next");
+        assert_eq!(transcript.output_buffer.as_ptr(), allocation);
+    }
+
+    #[test]
+    fn preserves_cursor_position_between_output_chunks() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.write_output("abc");
+        transcript.write_output("\x1b[8G");
+
+        let records = transcript.write_output("X\n");
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].data, "abc    X");
+    }
+
+    #[test]
+    fn resets_cursor_when_flushing_an_empty_pending_line() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.write_output("\x1b[8G");
+        assert!(transcript.finish().is_empty());
+        assert_eq!(transcript.write_output("first\n")[0].data, "first");
+
+        transcript.write_output("\x1b[8G");
+        transcript.snapshot_records();
+        assert_eq!(transcript.write_output("second\n")[0].data, "second");
+
+        transcript.write_output("\x1b[8G");
+        transcript.record_command("echo third".to_string());
+        assert_eq!(transcript.write_output("third\n")[0].data, "third");
+    }
+
+    #[test]
+    fn bounds_csi_insert_expansion_without_losing_existing_text() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.write_output("tail");
+        let insert = format!("\r\x1b[{}@", usize::MAX);
+
+        assert!(transcript.write_output(&insert).is_empty());
+        assert_eq!(transcript.output_buffer.len(), super::MAX_REPLAY_LINE_CHARS);
+        assert!(transcript.write_output(&insert).is_empty());
+        assert_eq!(transcript.output_buffer.len(), super::MAX_REPLAY_LINE_CHARS);
+
+        let records = transcript.write_output("ok\nnext\n");
+        assert_eq!(records.len(), 2);
+        assert!(records[0].data.starts_with("ok"));
+        assert!(records[0].data.ends_with("tail"));
+        assert_eq!(records[0].data.chars().count(), super::MAX_REPLAY_LINE_CHARS);
+        assert_eq!(records[1].data, "next");
+    }
+
+    #[test]
+    fn bounds_csi_vertical_movement_without_expanding_empty_rows() {
+        for final_byte in ['B', 'E'] {
+            let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+            let output = format!("before\x1b[{}{final_byte}after\n", usize::MAX);
+
+            let records = transcript.write_output(&output);
+
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[0].data, "before");
+            assert_eq!(records[1].data, "after");
+            assert!(transcript.output_buffer.is_empty());
+        }
+    }
+
+    #[test]
+    fn bounds_csi_horizontal_movement_and_deletion() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        transcript.write_output(&format!("\x1b[{}C", usize::MAX));
+        transcript.write_output("X");
+        assert_eq!(transcript.output_buffer.len(), super::MAX_REPLAY_CURSOR_COLUMNS + 1);
+
+        let records = transcript.write_output(&format!(
+            "\x1b[{}D\x1b[{}Pdone\n", usize::MAX, usize::MAX
+        ));
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].data, "done");
+    }
+
+    #[test]
+    fn bounds_repeated_tui_redraws_without_linefeeds() {
+        let mut transcript = super::TranscriptState::new(super::DEFAULT_MEMORY_LIMIT_BYTES);
+        let text = "x".repeat(200);
+        let chunk = format!("\x1b[1;1H\x1b[32m{text}\x1b[0m");
+        let mut recorded_chars = 0;
+
+        for _ in 0..2048 {
+            for record in transcript.write_output(&chunk) {
+                assert!(record.data.len() <= super::MAX_REPLAY_LINE_CHARS);
+                recorded_chars += record.data.len();
+            }
+            assert!(transcript.output_buffer.len() <= super::MAX_REPLAY_LINE_CHARS);
+        }
+        for record in transcript.finish() {
+            recorded_chars += record.data.len();
+        }
+        assert_eq!(recorded_chars, text.len() * 2048);
+    }
+
+    #[test]
+    fn searches_output_after_long_unterminated_text() {
+        let manager = RecordingManager::new();
+        manager.write_output("s1", &"x".repeat(super::MAX_REPLAY_LINE_CHARS * 3));
+        manager.write_output("s1", "tail-sentinel\n");
+
+        let result = manager.search_history(super::TerminalHistorySearchRequest {
+            session_id: "s1".to_string(),
+            query: "tail-sentinel".to_string(),
+            case_sensitive: true,
+            regex: false,
+            whole_word: false,
+            limit: None,
+            context_before: None,
+            context_after: None,
+            max_lines: None,
+        }).unwrap();
+
+        assert_eq!(result.total, 1);
+        assert_eq!(result.results[0].preview, "tail-sentinel");
+    }
+
+    #[test]
     fn consumes_matching_echo_prefix() {
         let mut prefix = "ps -ef".to_string();
         let consumed = consume_matching_prefix(&mut prefix, "ps -ef\nUID");
@@ -571,13 +785,16 @@ mod tests {
         let path = manager
             .start_with_profile(session_id, context, profile, None)
             .unwrap();
-        manager.write_raw_output(session_id, b"\x1b[31mERROR\x1b[0m\n");
-        manager.write_output(session_id, "\x1b[31mERROR\x1b[0m\n");
+        let output = format!(
+            "\x1b[31mERROR\x1b[0m\n{}",
+            "x".repeat(super::MAX_REPLAY_LINE_CHARS * 2 + 3),
+        );
+        manager.write_raw_output(session_id, output.as_bytes());
+        manager.write_output(session_id, &output);
         manager.stop(session_id).unwrap();
 
         let raw = fs::read(&path).unwrap();
-        assert!(raw.windows(5).any(|window| window == b"ERROR"));
-        assert!(raw.contains(&0x1b));
+        assert_eq!(raw, output.as_bytes());
 
         let transcript_path = unique_path("raw-transcript");
         manager
