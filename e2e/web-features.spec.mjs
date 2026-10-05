@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { gotoLogin } from "./loginNavigation.mjs";
 
 const locale = (language) =>
   JSON.parse(
@@ -30,7 +31,7 @@ test("login layouts in four languages, light/dark themes and narrow screens", as
         { language, theme },
       );
       const page = await context.newPage();
-      await page.goto(process.env.NYATERM_E2E_URL);
+      await gotoLogin(page, process.env.NYATERM_E2E_URL);
       const password = page.getByLabel(t("web.password", locale(language)), {
         exact: true,
       });
@@ -66,8 +67,8 @@ test("password errors, keyboard login, SSE retry, portable backup and diagnostic
     throw new Error("Run scripts/web-local-e2e.mjs or pnpm test:web:e2e");
   const base = process.env.NYATERM_E2E_URL;
   const errors = [];
+  await gotoLogin(page, base);
   page.on("pageerror", (error) => errors.push(String(error)));
-  await page.goto(base);
   const password = page.getByLabel(t("web.password"), { exact: true });
   await expect(password).toBeEnabled();
   await password.fill("incorrect-password");

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { gotoLogin } from "./loginNavigation.mjs";
 
 const en = JSON.parse(
   readFileSync(new URL("../src/i18n/locales/en.json", import.meta.url), "utf8"),
@@ -19,7 +20,6 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
   const base = process.env.NYATERM_E2E_URL;
   const errors = [],
     output = [];
-  page.on("pageerror", (error) => errors.push(String(error)));
   page.on("websocket", (socket) => {
     if (socket.url().endsWith("/terminal"))
       socket.on("framereceived", ({ payload }) => {
@@ -28,7 +28,8 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
   });
   const terminalOutput = () => Buffer.concat(output).toString("utf8");
   try {
-    await page.goto(base);
+    await gotoLogin(page, base);
+    page.on("pageerror", (error) => errors.push(String(error)));
     await page
       .getByLabel(t("web.password"))
       .fill(process.env.NYATERM_E2E_PASSWORD);
@@ -210,14 +211,17 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
       has: page.getByText("readme.txt", { exact: true }),
     });
     await expect(readmeRow).toHaveCount(1);
-    await readmeRow.click();
+    // Click the visible filename, not the center of an overflowing grid row.
+    await readmeRow.getByText("readme.txt", { exact: true }).click();
     await page
       .getByRole("button", {
         name: t("fileExplorer.downloadSelected"),
         exact: true,
       })
       .click();
-    expect(readFileSync(await (await downloaded).path()).toString()).toBe(
+    const textDownload = await downloaded;
+    expect(textDownload.suggestedFilename()).toBe("readme.txt");
+    expect(readFileSync(await textDownload.path()).toString()).toBe(
       "browser upload\n",
     );
 
