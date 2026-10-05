@@ -118,31 +118,34 @@ fn context_records(
 
 #[cfg(test)]
 fn strip_terminal_control_sequences(text: &str) -> String {
-    let replayed = replay_terminal_output(text, "", 0);
+    let mut pending = Vec::new();
+    let mut cursor = 0;
+    let replayed = replay_terminal_output(text, &mut pending, &mut cursor);
     let mut out = String::with_capacity(text.len());
     for line in replayed.lines {
         out.push_str(&line);
         out.push('\n');
     }
-    out.push_str(&replayed.tail);
+    out.extend(pending);
     out
 }
 
 struct TerminalReplayResult {
     lines: Vec<String>,
-    tail: String,
-    cursor: usize,
+    // Echo matching must stop at the first artificial line boundary.
+    first_forced_split: Option<usize>,
 }
 
 fn replay_terminal_output(
     text: &str,
-    initial_line: &str,
-    initial_cursor: usize,
+    line: &mut Vec<char>,
+    cursor: &mut usize,
 ) -> TerminalReplayResult {
     let bytes = text.as_bytes();
-    let mut line = initial_line.chars().collect::<Vec<_>>();
-    let mut cursor = initial_cursor.min(line.len());
-    let mut lines = Vec::new();
+    let mut replayed = TerminalReplayResult {
+        lines: Vec::new(),
+        first_forced_split: None,
+    };
     let mut i = 0;
 
     while i < bytes.len() {
@@ -163,9 +166,9 @@ fn replay_terminal_output(
                                 apply_csi_sequence(
                                     &text[params_start..i - 1],
                                     b,
-                                    &mut line,
-                                    &mut cursor,
-                                    &mut lines,
+                                    line,
+                                    cursor,
+                                    &mut replayed.lines,
                                 );
                                 break;
                             }
@@ -201,28 +204,26 @@ fn replay_terminal_output(
                 }
             }
             b'\r' => {
-                cursor = 0;
+                *cursor = 0;
                 i += 1;
             }
             b'\n' => {
-                lines.push(line.iter().collect());
-                line.clear();
-                cursor = 0;
+                replayed.lines.push(take_replay_line(line, cursor));
                 i += 1;
             }
             b'\t' => {
-                write_terminal_char(&mut line, &mut cursor, '\t');
+                write_terminal_char(line, cursor, '\t', &mut replayed);
                 i += 1;
             }
             b'\x08' => {
-                cursor = cursor.saturating_sub(1);
+                *cursor = cursor.saturating_sub(1);
                 i += 1;
             }
             b if b.is_ascii_control() => {
                 i += 1;
             }
             b if b.is_ascii() => {
-                write_terminal_char(&mut line, &mut cursor, b as char);
+                write_terminal_char(line, cursor, b as char, &mut replayed);
                 i += 1;
             }
             _ => {
@@ -233,24 +234,36 @@ fn replay_terminal_output(
                 let Some(ch) = text[i..].chars().next() else {
                     break;
                 };
-                write_terminal_char(&mut line, &mut cursor, ch);
+                write_terminal_char(line, cursor, ch, &mut replayed);
                 i += ch.len_utf8();
             }
         }
     }
 
-    TerminalReplayResult {
-        lines,
-        tail: line.iter().collect(),
-        cursor,
-    }
+    replayed
 }
 
 const MAX_REPLAY_CURSOR_COLUMNS: usize = 4096;
+// Transcript segments are bounded even when a TUI never sends a newline.
+const MAX_REPLAY_LINE_CHARS: usize = 16 * 1024;
 
-fn write_terminal_char(line: &mut Vec<char>, cursor: &mut usize, ch: char) {
-    while *cursor > line.len() {
-        line.push(' ');
+fn take_replay_line(line: &mut Vec<char>, cursor: &mut usize) -> String {
+    *cursor = 0;
+    line.drain(..).collect()
+}
+
+fn write_terminal_char(
+    line: &mut Vec<char>,
+    cursor: &mut usize,
+    ch: char,
+    replayed: &mut TerminalReplayResult,
+) {
+    if *cursor >= MAX_REPLAY_LINE_CHARS {
+        replayed.first_forced_split.get_or_insert(replayed.lines.len());
+        replayed.lines.push(take_replay_line(line, cursor));
+    }
+    if *cursor > line.len() {
+        line.resize(*cursor, ' ');
     }
 
     if *cursor == line.len() {
@@ -270,12 +283,9 @@ fn apply_csi_sequence(
 ) {
     match final_byte {
         b'B' | b'E' => {
-            let count = csi_param(params, 0, 1).max(1);
-            for _ in 0..count {
-                lines.push(line.iter().collect());
-                line.clear();
-            }
-            *cursor = 0;
+            // Empty transcript records are discarded; do not expand cursor
+            // movement into a parameter-sized collection of blank rows.
+            lines.push(take_replay_line(line, cursor));
         }
         b'C' => {
             let count = csi_param(params, 0, 1);
@@ -316,10 +326,10 @@ fn apply_csi_sequence(
             }
         }
         b'@' => {
-            let count = csi_param(params, 0, 1);
-            for _ in 0..count {
-                line.insert((*cursor).min(line.len()), ' ');
-            }
+            let count = csi_param(params, 0, 1)
+                .min(MAX_REPLAY_LINE_CHARS.saturating_sub(line.len()));
+            let start = (*cursor).min(line.len());
+            line.splice(start..start, std::iter::repeat_n(' ', count));
         }
         _ => {}
     }
