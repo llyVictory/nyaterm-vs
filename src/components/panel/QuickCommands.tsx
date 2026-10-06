@@ -317,6 +317,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const [commandToDelete, setCommandToDelete] = useState<QuickCommand | null>(
     null,
   );
+  const [contextCommandId, setContextCommandId] = useState<string | null>(null);
   const [draggingCategoryId, setDraggingCategoryId] = useState<string | null>(
     null,
   );
@@ -658,6 +659,15 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     categoryById.has(storedSelectedCategory)
       ? storedSelectedCategory
       : "all";
+  const newCommandCategoryId =
+    selectedCategory !== "all" &&
+    selectedCategory !== "uncategorized" &&
+    savedCategories.some((category) => category.id === selectedCategory)
+      ? selectedCategory
+      : null;
+  const contextCommand = contextCommandId
+    ? (commands.find((command) => command.id === contextCommandId) ?? null)
+    : null;
   const commandDragCategoryId =
     selectedCategory === "uncategorized"
       ? null
@@ -1231,6 +1241,13 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
           <MdEdit className="text-[0.875rem]" />
           {t("quickCommands.edit")}
         </ContextMenuItem>
+        <ContextMenuItem
+          className="text-xs gap-2"
+          onClick={() => void handleCopyCommand(cmd.command)}
+        >
+          <MdContentCopy className="text-[0.875rem]" />
+          {t("quickCommands.copyCommand")}
+        </ContextMenuItem>
         {onSendToAll && (
           <ContextMenuItem
             className="text-xs gap-2"
@@ -1250,7 +1267,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
         </ContextMenuItem>
       </ContextMenuContent>
     ),
-    [handleSendToAll, onSendToAll, sendDisabled, t],
+    [handleCopyCommand, handleSendToAll, onSendToAll, sendDisabled, t],
   );
   const renderCommandListItem = useCallback(
     (cmd: QuickCommand) => {
@@ -1258,50 +1275,47 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDragging = draggingCommandId === cmd.id;
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
       return (
-      <ContextMenu key={cmd.id}>
-        <ContextMenuTrigger asChild>
-          <div
-            draggable={draggable}
-            onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-            onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-            onDrop={(event) => handleCommandDrop(event, cmd.id)}
-            onDragEnd={resetCommandDrag}
-            className={cn(
-              "group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md border border-border/35 bg-muted/15 px-2 py-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
-              draggable && "cursor-grab active:cursor-grabbing",
-              isDragging && "opacity-50",
-              isDropTarget && "ring-1 ring-primary/70",
-            )}
-            style={{ color: "var(--df-text)" }}
+        <div
+          key={cmd.id}
+          data-quick-command-id={cmd.id}
+          draggable={draggable}
+          onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+          onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+          onDrop={(event) => handleCommandDrop(event, cmd.id)}
+          onDragEnd={resetCommandDrag}
+          className={cn(
+            "group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md border border-border/35 bg-muted/15 px-2 py-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
+            draggable && "cursor-grab active:cursor-grabbing",
+            isDragging && "opacity-50",
+            isDropTarget && "ring-1 ring-primary/70",
+          )}
+          style={{ color: "var(--df-text)" }}
+        >
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 text-left"
+            disabled={sendDisabled}
+            onClick={() => handleCommandClick(cmd)}
           >
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 text-left"
-              disabled={sendDisabled}
-              onClick={() => handleCommandClick(cmd)}
-            >
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                {renderCommandIcon(cmd)}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {cmd.pinned && (
-                    <MdPushPin className="shrink-0 text-[0.7rem] opacity-60" />
-                  )}
-                  <span className="min-w-0 truncate font-medium">
-                    {cmd.label}
-                  </span>
-                </span>
-                <span className="min-w-0 truncate font-mono text-[0.6875rem] leading-none text-muted-foreground">
-                  {cmd.command}
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {renderCommandIcon(cmd)}
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-1.5">
+                {cmd.pinned && (
+                  <MdPushPin className="shrink-0 text-[0.7rem] opacity-60" />
+                )}
+                <span className="min-w-0 truncate font-medium">
+                  {cmd.label}
                 </span>
               </span>
-            </button>
-            {renderCommandActions(cmd)}
-          </div>
-        </ContextMenuTrigger>
-        {renderContextMenuContent(cmd)}
-      </ContextMenu>
+              <span className="min-w-0 truncate font-mono text-[0.6875rem] leading-none text-muted-foreground">
+                {cmd.command}
+              </span>
+            </span>
+          </button>
+          {renderCommandActions(cmd)}
+        </div>
       );
     },
     [
@@ -1315,7 +1329,6 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       resetCommandDrag,
       renderCommandActions,
       renderCommandIcon,
-      renderContextMenuContent,
       sendDisabled,
     ],
   );
@@ -1325,46 +1338,43 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDragging = draggingCommandId === cmd.id;
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
       return (
-      <ContextMenu key={cmd.id}>
-        <ContextMenuTrigger asChild>
-          <div
-            draggable={draggable}
-            onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-            onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-            onDrop={(event) => handleCommandDrop(event, cmd.id)}
-            onDragEnd={resetCommandDrag}
-            className={cn(
-              "group flex h-8 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
-              draggable && "cursor-grab active:cursor-grabbing",
-              isDragging && "opacity-50",
-              isDropTarget && "ring-1 ring-primary/70",
-            )}
-            style={{ color: "var(--df-text)" }}
+        <div
+          key={cmd.id}
+          data-quick-command-id={cmd.id}
+          draggable={draggable}
+          onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+          onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+          onDrop={(event) => handleCommandDrop(event, cmd.id)}
+          onDragEnd={resetCommandDrag}
+          className={cn(
+            "group flex h-8 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
+            draggable && "cursor-grab active:cursor-grabbing",
+            isDragging && "opacity-50",
+            isDropTarget && "ring-1 ring-primary/70",
+          )}
+          style={{ color: "var(--df-text)" }}
+        >
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-0.5 text-left"
+            disabled={sendDisabled}
+            onClick={() => handleCommandClick(cmd)}
           >
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-0.5 text-left"
-              disabled={sendDisabled}
-              onClick={() => handleCommandClick(cmd)}
-            >
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                {renderCommandIcon(cmd, "text-[0.8rem]")}
-              </span>
-              {cmd.pinned && (
-                <MdPushPin className="shrink-0 text-[0.65rem] opacity-60" />
-              )}
-              <span className="min-w-[4rem] max-w-[38%] truncate font-medium">
-                {cmd.label}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground/85">
-                {cmd.command}
-              </span>
-            </button>
-            {renderCommandActions(cmd, { showBadge: false })}
-          </div>
-        </ContextMenuTrigger>
-        {renderContextMenuContent(cmd)}
-      </ContextMenu>
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {renderCommandIcon(cmd, "text-[0.8rem]")}
+            </span>
+            {cmd.pinned && (
+              <MdPushPin className="shrink-0 text-[0.65rem] opacity-60" />
+            )}
+            <span className="min-w-[4rem] max-w-[38%] truncate font-medium">
+              {cmd.label}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground/85">
+              {cmd.command}
+            </span>
+          </button>
+          {renderCommandActions(cmd, { showBadge: false })}
+        </div>
       );
     },
     [
@@ -1378,7 +1388,6 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       resetCommandDrag,
       renderCommandActions,
       renderCommandIcon,
-      renderContextMenuContent,
       sendDisabled,
     ],
   );
@@ -1390,87 +1399,83 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
 
       return (
-        <ContextMenu key={cmd.id}>
-          <Tooltip>
-            <ContextMenuTrigger asChild>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  draggable={draggable}
-                  onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-                  onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-                  onDrop={(event) => handleCommandDrop(event, cmd.id)}
-                  onDragEnd={resetCommandDrag}
-                  className={cn(
-                    "group flex max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border/35 bg-muted/20 px-2 py-1 text-left text-[0.6875rem] font-medium text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground",
-                    draggable && "cursor-grab active:cursor-grabbing",
-                    isDragging && "opacity-50",
-                    isDropTarget && "ring-1 ring-primary/70",
-                  )}
-                  style={{ color: "var(--df-text)" }}
-                  disabled={sendDisabled}
-                  onClick={() => handleCommandClick(cmd)}
-                >
-                  <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                    {renderCommandIcon(cmd, "text-[0.75rem]")}
+        <Tooltip key={cmd.id}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-quick-command-id={cmd.id}
+              draggable={draggable}
+              onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+              onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+              onDrop={(event) => handleCommandDrop(event, cmd.id)}
+              onDragEnd={resetCommandDrag}
+              className={cn(
+                "group flex max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border/35 bg-muted/20 px-2 py-1 text-left text-[0.6875rem] font-medium text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground",
+                draggable && "cursor-grab active:cursor-grabbing",
+                isDragging && "opacity-50",
+                isDropTarget && "ring-1 ring-primary/70",
+              )}
+              style={{ color: "var(--df-text)" }}
+              disabled={sendDisabled}
+              onClick={() => handleCommandClick(cmd)}
+            >
+              <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                {renderCommandIcon(cmd, "text-[0.75rem]")}
+              </span>
+              {cmd.pinned && (
+                <MdPushPin className="shrink-0 text-[0.625rem] opacity-60" />
+              )}
+              <span className="min-w-0 truncate whitespace-nowrap">
+                {cmd.label}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            align="start"
+            showArrow={false}
+            className="w-[320px] overflow-hidden rounded-xl border-border/60 bg-popover/95 p-0 shadow-2xl backdrop-blur-md"
+          >
+            <div className="flex flex-col">
+              <div className="flex flex-col gap-1.5 border-b border-border/30 bg-muted/30 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {renderCommandIcon(cmd, "text-[0.875rem]")}
                   </span>
-                  {cmd.pinned && (
-                    <MdPushPin className="shrink-0 text-[0.625rem] opacity-60" />
-                  )}
-                  <span className="min-w-0 truncate whitespace-nowrap">
+                  <span className="truncate text-sm font-semibold text-foreground">
                     {cmd.label}
                   </span>
-                </button>
-              </TooltipTrigger>
-            </ContextMenuTrigger>
-            <TooltipContent
-              side="top"
-              align="start"
-              showArrow={false}
-              className="w-[320px] overflow-hidden rounded-xl border-border/60 bg-popover/95 p-0 shadow-2xl backdrop-blur-md"
-            >
-              <div className="flex flex-col">
-                <div className="flex flex-col gap-1.5 border-b border-border/30 bg-muted/30 p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                      {renderCommandIcon(cmd, "text-[0.875rem]")}
+                  <div className="flex-1" />
+                  {categoryName && (
+                    <span className="max-w-[7rem] truncate rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.625rem] font-medium text-primary">
+                      {categoryName}
                     </span>
-                    <span className="truncate text-sm font-semibold text-foreground">
-                      {cmd.label}
-                    </span>
-                    <div className="flex-1" />
-                    {categoryName && (
-                      <span className="max-w-[7rem] truncate rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.625rem] font-medium text-primary">
-                        {categoryName}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
-                    {cmd.execution_mode === "append" ? (
-                      <MdKeyboardReturn className="text-[0.75rem]" />
-                    ) : (
-                      <MdBolt className="text-[0.75rem]" />
-                    )}
-                    {cmd.execution_mode === "append"
-                      ? t("quickCommands.appendOnly")
-                      : t("quickCommands.executeImmediately")}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-3 p-3">
-                  {cmd.description && (
-                    <div className="text-xs leading-relaxed text-muted-foreground/90">
-                      {cmd.description}
-                    </div>
                   )}
-
-                  {renderCommandPreview(cmd)}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                  {cmd.execution_mode === "append" ? (
+                    <MdKeyboardReturn className="text-[0.75rem]" />
+                  ) : (
+                    <MdBolt className="text-[0.75rem]" />
+                  )}
+                  {cmd.execution_mode === "append"
+                    ? t("quickCommands.appendOnly")
+                    : t("quickCommands.executeImmediately")}
                 </div>
               </div>
-            </TooltipContent>
-          </Tooltip>
-          {renderContextMenuContent(cmd)}
-        </ContextMenu>
+
+              <div className="flex flex-col gap-3 p-3">
+                {cmd.description && (
+                  <div className="text-xs leading-relaxed text-muted-foreground/90">
+                    {cmd.description}
+                  </div>
+                )}
+
+                {renderCommandPreview(cmd)}
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
       );
     },
     [
@@ -1485,7 +1490,6 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       resetCommandDrag,
       renderCommandIcon,
       renderCommandPreview,
-      renderContextMenuContent,
       sendDisabled,
       t,
     ],
@@ -1644,7 +1648,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       className="h-6 w-6 shrink-0 rounded-md p-0 transition-colors hover:bg-[var(--df-bg-hover)]"
                       style={{ color: "var(--df-text-muted)" }}
                       aria-label={t("quickCommands.addCommand")}
-                      onClick={() => openQuickCommand()}
+                      onClick={() =>
+                        openNewCommandForCategory(newCommandCategoryId)
+                      }
                     >
                       <MdAdd className="text-[1.05rem]" />
                     </Button>
@@ -1752,12 +1758,12 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
 
         <div className="flex min-h-0 flex-1">
           <aside
-            className="shrink-0 overflow-y-auto overflow-x-hidden p-1.5 terminal-scroll"
+            className="shrink-0 overflow-y-auto overflow-x-hidden p-1.5 terminal-scroll flex flex-col"
             style={{ width: categorySidebarWidth }}
             onDragOver={handleCategoryRootDragOver}
             onDrop={handleCategoryRootDrop}
           >
-            <div className="flex flex-col gap-1">
+            <div className="flex shrink-0 flex-col gap-1">
               {(() => {
                 const active = selectedCategory === "all";
                 return (
@@ -2031,6 +2037,23 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 );
               })()}
             </div>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-testid="quick-command-category-empty-area"
+                  className="min-h-6 flex-1"
+                />
+              </ContextMenuTrigger>
+              <ContextMenuContent className="min-w-[140px]">
+                <ContextMenuItem
+                  className="text-xs gap-2"
+                  onClick={() => openNewCategoryDialog(null)}
+                >
+                  <MdFolder className="text-[0.875rem]" />
+                  {t("quickCommands.addCategory")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </aside>
           <ResizeHandle
             direction="horizontal"
@@ -2038,42 +2061,74 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
             className="opacity-70 hover:opacity-100 active:opacity-100"
           />
 
-          <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scroll p-1.5">
-            <div
-              className={cn(
-                "min-w-0 gap-1.5",
-                viewMode === "tile"
-                  ? "flex flex-wrap content-start"
-                  : "flex flex-col",
-              )}
-            >
-              {filteredCommands.length === 0 ? (
-                <div className="mx-auto mt-8 flex w-full max-w-md flex-col items-center justify-center rounded-lg border border-dashed p-4 text-muted-foreground opacity-70">
-                  <MdTerminal className="text-2xl mb-2" />
-                  <span className="text-xs mb-3">
-                    {t("quickCommands.noCommandsFound")}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs bg-muted/20 hover:bg-muted"
-                    onClick={() => openQuickCommand()}
-                  >
-                    <MdAdd className="mr-1 text-sm" />
-                    {t("quickCommands.addCommand")}
-                  </Button>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div
+                data-testid="quick-command-pane"
+                className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scroll p-1.5"
+                onContextMenu={(event) => {
+                  const target =
+                    event.target instanceof Element ? event.target : null;
+                  const item = target?.closest<HTMLElement>(
+                    "[data-quick-command-id]",
+                  );
+                  setContextCommandId(item?.dataset.quickCommandId ?? null);
+                }}
+              >
+                <div
+                  className={cn(
+                    "min-w-0 gap-1.5",
+                    viewMode === "tile"
+                      ? "flex flex-wrap content-start"
+                      : "flex flex-col",
+                  )}
+                >
+                  {filteredCommands.length === 0 ? (
+                    <div className="mx-auto mt-8 flex w-full max-w-md flex-col items-center justify-center rounded-lg border border-dashed p-4 text-muted-foreground opacity-70">
+                      <MdTerminal className="text-2xl mb-2" />
+                      <span className="text-xs mb-3">
+                        {t("quickCommands.noCommandsFound")}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs bg-muted/20 hover:bg-muted"
+                        onClick={() =>
+                          openNewCommandForCategory(newCommandCategoryId)
+                        }
+                      >
+                        <MdAdd className="mr-1 text-sm" />
+                        {t("quickCommands.addCommand")}
+                      </Button>
+                    </div>
+                  ) : (
+                    filteredCommands.map((cmd) =>
+                      viewMode === "tile"
+                        ? renderCommandTile(cmd)
+                        : viewMode === "compact"
+                          ? renderCommandCompactItem(cmd)
+                          : renderCommandListItem(cmd),
+                    )
+                  )}
                 </div>
-              ) : (
-                filteredCommands.map((cmd) =>
-                  viewMode === "tile"
-                    ? renderCommandTile(cmd)
-                    : viewMode === "compact"
-                      ? renderCommandCompactItem(cmd)
-                      : renderCommandListItem(cmd),
-                )
-              )}
-            </div>
-          </div>
+              </div>
+            </ContextMenuTrigger>
+            {contextCommand ? (
+              renderContextMenuContent(contextCommand)
+            ) : (
+              <ContextMenuContent className="min-w-[140px]">
+                <ContextMenuItem
+                  className="text-xs gap-2"
+                  onClick={() =>
+                    openNewCommandForCategory(newCommandCategoryId)
+                  }
+                >
+                  <MdTerminal className="text-[0.875rem]" />
+                  {t("quickCommands.addCommand")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            )}
+          </ContextMenu>
         </div>
         {promptCmd && (
           <VariablePromptDialog
