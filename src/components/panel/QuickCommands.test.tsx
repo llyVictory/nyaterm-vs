@@ -189,6 +189,27 @@ describe("QuickCommands context actions", () => {
     },
   );
 
+  it("resolves command context from an SVG descendant", async () => {
+    renderQuickCommands();
+    await waitForLoadedCommand();
+
+    const commandItem = screen
+      .getByText(deployCommand.label)
+      .closest("[data-quick-command-id]");
+    const icon = commandItem?.querySelector("svg");
+    expect(icon).not.toBeNull();
+
+    fireEvent.contextMenu(icon!);
+    const edit = await screen.findByText("Edit");
+    const itemMenu = edit.closest('[data-slot="context-menu-content"]');
+    expect(itemMenu).not.toBeNull();
+    expect(
+      Array.from(itemMenu?.querySelectorAll('[role="menuitem"]') ?? []).map(
+        (item) => item.textContent?.trim(),
+      ),
+    ).toEqual(["Edit", "Copy command", "Send to all", "Delete"]);
+  });
+
   it("inherits the selected saved category from toolbar and empty-state creation", async () => {
     renderQuickCommands({
       selectedCategory: dockerCategory.id,

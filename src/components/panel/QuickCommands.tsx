@@ -2068,7 +2068,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scroll p-1.5"
                 onContextMenu={(event) => {
                   const target =
-                    event.target instanceof HTMLElement ? event.target : null;
+                    event.target instanceof Element ? event.target : null;
                   const item = target?.closest<HTMLElement>(
                     "[data-quick-command-id]",
                   );
