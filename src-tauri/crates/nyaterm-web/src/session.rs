@@ -726,19 +726,10 @@ async fn socket_loop(
     let mut last_peer = Instant::now();
     loop {
         tokio::select! {
+            // Read control frames and heartbeats even when output is always ready.
+            // Keep buffered terminal output ahead of backend cancellation so the
+            // final bytes are delivered before the closed frame.
             biased;
-            next = output.recv() => {
-                let final_frame = !matches!(&next, Some(Output::Data(_)));
-                let message = match next {
-                    Some(Output::Data(data)) => Message::Binary(data.into()),
-                    Some(Output::Error) => Message::Text(json!({"type":"error","error":if matches!(session.protocol, SessionProtocol::Telnet) { "Telnet connection failed" } else { "SSH connection failed" }}).to_string().into()),
-                    Some(Output::Failure(error)) => Message::Text(json!({"type":"error","error":error}).to_string().into()),
-                    _ => Message::Text(json!({"type":"closed"}).to_string().into()),
-                };
-                if !matches!(tokio::time::timeout(Duration::from_secs(10),socket.send(message)).await,Ok(Ok(()))) { session.cancel.cancel(); break; }
-                if final_frame { break; }
-            },
-            _ = session.cancel.cancelled() => { let _ = tokio::time::timeout(Duration::from_secs(2),socket.send(Message::Text(json!({"type":"closed"}).to_string().into()))).await; break; },
             message = socket.recv() => match message {
                 Some(Ok(Message::Text(text))) => {
                     last_peer = Instant::now();
@@ -760,7 +751,20 @@ async fn socket_loop(
             _ = heartbeat.tick() => {
                 if last_peer.elapsed() > Duration::from_secs(45) { break; }
                 if !matches!(tokio::time::timeout(Duration::from_secs(2),socket.send(Message::Ping(Vec::new().into()))).await,Ok(Ok(()))) { break; }
-            }
+            },
+            next = output.recv() => {
+                let final_frame = !matches!(&next, Some(Output::Data(_)));
+                let message = match next {
+                    Some(Output::Data(data)) => Message::Binary(data.into()),
+                    Some(Output::Error) => Message::Text(json!({"type":"error","error":if matches!(session.protocol, SessionProtocol::Telnet) { "Telnet connection failed" } else { "SSH connection failed" }}).to_string().into()),
+                    Some(Output::Failure(error)) => Message::Text(json!({"type":"error","error":error}).to_string().into()),
+                    _ => Message::Text(json!({"type":"closed"}).to_string().into()),
+                };
+                // A failed attachment leaves the remote alive for its reconnect lease.
+                if !matches!(tokio::time::timeout(Duration::from_secs(10),socket.send(message)).await,Ok(Ok(()))) { break; }
+                if final_frame { break; }
+            },
+            _ = session.cancel.cancelled() => { let _ = tokio::time::timeout(Duration::from_secs(2),socket.send(Message::Text(json!({"type":"closed"}).to_string().into()))).await; break; },
         }
     }
     // Complete the WebSocket close handshake before dropping the TCP stream.

@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
 struct Echo {
+    output_cancel: CancellationToken,
     resize: mpsc::UnboundedSender<(u32, u32)>,
     channels: HashMap<ChannelId, Channel<server::Msg>>,
     sftp_channels: std::collections::HashSet<ChannelId>,
@@ -37,6 +38,7 @@ struct Echo {
 impl Clone for Echo {
     fn clone(&self) -> Self {
         Self {
+            output_cancel: CancellationToken::new(),
             resize: self.resize.clone(),
             channels: HashMap::new(),
             sftp_channels: Default::default(),
@@ -155,7 +157,23 @@ impl server::Handler for Echo {
         if self.sftp_channels.contains(&id) {
             return Ok(());
         }
-        if data == b"large-and-close" {
+        if data == b"start-continuous-output" {
+            let h = s.handle();
+            let cancel = self.output_cancel.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        result = h.data(id, vec![b'y'; 32768]) => {
+                            if result.is_err() { break; }
+                        }
+                    }
+                }
+            });
+        } else if data == b"stop-continuous-output" {
+            self.output_cancel.cancel();
+            s.data(id, b"continuous-output-stopped".to_vec())?;
+        } else if data == b"large-and-close" {
             let h = s.handle();
             tokio::spawn(async move {
                 let bytes = vec![b'x'; 3 * 1024 * 1024];
@@ -615,6 +633,7 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     let ssh_posix_rename = posix_rename.clone();
     let ssh_task = tokio::spawn(async move {
         Echo {
+            output_cancel: CancellationToken::new(),
             resize,
             files: ssh_files,
             attributes: ssh_attributes,
@@ -1551,6 +1570,40 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     )
     .await;
     assert_eq!(plain, "credential-secret");
+    // Abrupt transport loss during continuous SSH output must detach, not
+    // cancel the remote session. Keep the reaper active throughout recovery.
+    let reaper = tokio::spawn(nyaterm_web::reap(state.clone()));
+    let session = state.session(&owner, id).await.unwrap();
+    socket
+        .send(Message::Binary(b"start-continuous-output".to_vec().into()))
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        assert!(binary(&mut socket).await.iter().all(|byte| *byte == b'y'));
+        drop(socket); // No WebSocket close handshake: simulate a lost network.
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while session.attached.load(std::sync::atomic::Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("Lost WebSocket must release the attachment");
+        assert!(!session.cancel.is_cancelled(), "Disconnect cancelled SSH");
+        let current = state.session(&owner, id).await.unwrap();
+        assert!(Arc::ptr_eq(&current, &session));
+        assert!(session.detached_at.lock().unwrap().elapsed() < Duration::from_secs(30));
+        socket = ws(&host, &state, id, &owner).await;
+    }
+    socket
+        .send(Message::Binary(b"stop-continuous-output".to_vec().into()))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while binary(&mut socket).await != b"continuous-output-stopped" {}
+    })
+    .await
+    .expect("Input must still work while the remote is producing output");
+    reaper.abort();
     socket.close(None).await.unwrap();
     drop(socket);
     tokio::time::sleep(Duration::from_millis(100)).await;

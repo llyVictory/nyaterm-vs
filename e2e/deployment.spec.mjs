@@ -112,8 +112,27 @@ test("single administrator: login, SSH, refresh, editor, conflicts, download, ch
     await expect
       .poll(async () => (await command("get_app_settings")).ui.open_tabs.length)
       .toBeGreaterThan(0);
+    // Leave a remote producer running across reload; quiet terminals do not
+    // exercise the server's WebSocket send/disconnect race.
+    const terminal = page.locator(".xterm-helper-textarea").first();
+    await terminal.focus();
+    await terminal.pressSequentially(
+      "while :; do printf 'WEB_%s\\n' 'STREAMING'; sleep 0.01; done & NYATERM_E2E_OUTPUT_PID=$!",
+    );
+    await terminal.press("Enter");
+    await expect.poll(terminalOutput).toContain("WEB_STREAMING");
     await page.reload();
     await expect(page.locator(".xterm-helper-textarea").first()).toBeAttached();
+    output.length = 0;
+    await expect.poll(terminalOutput).toContain("WEB_STREAMING");
+    expect(
+      (await command("get_sessions")).map((session) => session.id),
+    ).toEqual([sessionId]);
+    await terminal.focus();
+    await terminal.pressSequentially(
+      'kill "$NYATERM_E2E_OUTPUT_PID"; wait "$NYATERM_E2E_OUTPUT_PID" 2>/dev/null',
+    );
+    await terminal.press("Enter");
     await typeCommand("REFRESHED");
     expect((await command("get_sessions"))[0].id).toBe(sessionId);
 
