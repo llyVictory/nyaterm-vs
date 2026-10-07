@@ -17,13 +17,5 @@ services:
     volumes:
       - nyaterm-data:/data
     restart: unless-stopped
-    init: true
-    read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
 volumes:
   nyaterm-data:
