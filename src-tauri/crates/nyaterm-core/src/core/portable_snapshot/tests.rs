@@ -843,6 +843,7 @@ mod tests {
     fn portable_snapshot_zip_roundtrip() {
         let mut snapshot = sample_snapshot();
         snapshot.passwords.passwords.push(config::SavedPassword {
+            sort_order: 0,
             id: "account-1".to_string(),
             name: "Production".to_string(),
             username: "admin".to_string(),
@@ -1232,5 +1233,38 @@ mod tests {
             compressed.len() < legacy.len(),
             "compressed snapshot should be smaller than legacy redb"
         );
+    }
+    #[test]
+    fn portable_snapshot_secret_sort_order_roundtrip_and_legacy_defaults() {
+        let mut snapshot = sample_snapshot();
+        snapshot.passwords = serde_json::from_value(serde_json::json!({"passwords":[{"id":"account","name":"Account","sort_order":7,"password":"cipher-password"}]})).unwrap();
+        snapshot.keys = serde_json::from_value(serde_json::json!({"keys":[{"id":"key","name":"Key","sort_order":9,"key":"cipher-key","cert":"cipher-cert","passphrase":"cipher-passphrase"}]})).unwrap();
+        snapshot.payload_hash = calculate_payload_hash(&snapshot).unwrap();
+        let encoded = encode_portable_snapshot(&snapshot).unwrap();
+        let decoded = super::decode_portable_snapshot(&encoded).unwrap();
+        assert_eq!(decoded.passwords.passwords[0].sort_order, 7);
+        assert_eq!(decoded.keys.keys[0].sort_order, 9);
+        assert_eq!(decoded.keys.keys[0].key.as_deref(), Some("cipher-key"));
+        assert_eq!(decoded.keys.keys[0].cert.as_deref(), Some("cipher-cert"));
+        assert_eq!(
+            decoded.keys.keys[0].passphrase.as_deref(),
+            Some("cipher-passphrase")
+        );
+        assert_eq!(
+            decoded.passwords.passwords[0].password.as_deref(),
+            Some("cipher-password")
+        );
+
+        let mut entities = snapshot_entities(&snapshot);
+        for (name, list) in [("keys", "keys"), ("passwords", "passwords")] {
+            let mut value: serde_json::Value = serde_json::from_str(&entities[name]).unwrap();
+            value[list][0].as_object_mut().unwrap().remove("sort_order");
+            entities.insert(name.into(), serde_json::to_string(&value).unwrap());
+        }
+        let source_hash = calculate_v3_raw_payload_hash(&entities).unwrap();
+        let encoded = encode_v3_raw_snapshot_redb_for_test(&snapshot, &entities, source_hash);
+        let decoded = super::decode_portable_snapshot(&encoded).unwrap();
+        assert_eq!(decoded.keys.keys[0].sort_order, 0);
+        assert_eq!(decoded.passwords.passwords[0].sort_order, 0);
     }
 }

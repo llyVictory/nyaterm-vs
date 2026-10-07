@@ -2168,6 +2168,7 @@ fn upsert_runtime_saved_password(
         .map(|password| password.username.clone())
         .unwrap_or_else(|| username.to_string());
     let entry = crate::config::SavedPassword {
+        sort_order: crate::config::password_sort_order(&cfg, &target_id),
         id: target_id.clone(),
         name: entry_name,
         username: entry_username,
@@ -3162,6 +3163,7 @@ mod tests {
 
     fn test_account(username: &str, password: Option<&str>) -> SavedPassword {
         SavedPassword {
+            sort_order: 0,
             id: "account-1".to_string(),
             name: "Account".to_string(),
             username: username.to_string(),

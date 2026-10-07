@@ -182,10 +182,16 @@ fn import_prepared_nyaterm_json(
     }
 
     let mut passwords = config::load_passwords(app)?;
-    passwords.passwords.extend(prepared.passwords);
+    for mut entry in prepared.passwords {
+        entry.sort_order = config::password_sort_order(&passwords, &entry.id);
+        passwords.passwords.push(entry);
+    }
 
     let mut keys = config::load_keys(app)?;
-    keys.keys.extend(prepared.ssh_keys);
+    for mut entry in prepared.ssh_keys {
+        entry.sort_order = config::key_sort_order(&keys, &entry.id);
+        keys.keys.push(entry);
+    }
     crate::storage::backup::import_connections(
         &config::SessionsConfig {
             connections: cfg.connections,

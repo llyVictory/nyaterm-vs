@@ -446,6 +446,7 @@ fn import_windterm_key(
             |file_name| format!("{session_name} ({file_name})"),
         );
     ssh_keys.push(config::SshKey {
+        sort_order: 0,
         id: id.clone(),
         name: display_name,
         key: Some(encrypt_import_secret(&key_content)?),

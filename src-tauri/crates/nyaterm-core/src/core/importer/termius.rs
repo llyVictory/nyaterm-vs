@@ -938,6 +938,7 @@ fn prepare_termius_keys(keys: &[TermiusRawSshKey]) -> AppResult<PreparedTermiusK
         }
         ids.insert(termius_ssh_key_key(key), id.clone());
         prepared.push(config::SshKey {
+            sort_order: 0,
             id,
             name: normalize_optional_string(key.label.clone())
                 .unwrap_or_else(|| "Termius SSH Key".to_string()),
@@ -979,6 +980,7 @@ fn prepare_termius_passwords(
                 ids.insert(format!("host:{alias}"), id.clone());
             }
             passwords.push(config::SavedPassword {
+                sort_order: 0,
                 id,
                 name: format!(
                     "{} password",
@@ -1004,6 +1006,7 @@ fn prepare_termius_passwords(
                 ids.insert(format!("identity:{alias}"), id.clone());
             }
             passwords.push(config::SavedPassword {
+                sort_order: 0,
                 id,
                 name: format!(
                     "{} password",
@@ -1120,6 +1123,7 @@ fn align_termius_account_username(
 
     let replacement_id = uuid::Uuid::new_v4().to_string();
     prepared_passwords.passwords.push(config::SavedPassword {
+        sort_order: 0,
         id: replacement_id.clone(),
         username: username.to_string(),
         ..account

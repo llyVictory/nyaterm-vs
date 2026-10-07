@@ -734,6 +734,12 @@ where
     );
 
     keys.push(SshKey {
+        sort_order: keys
+            .iter()
+            .map(|key| key.sort_order)
+            .max()
+            .unwrap_or(-1)
+            .saturating_add(1),
         id: key_id.clone(),
         name,
         key: Some(encrypt(&content)?),

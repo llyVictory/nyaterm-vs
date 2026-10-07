@@ -403,6 +403,8 @@ pub fn run() {
             cmd::credential::save_credential,
             cmd::credential::delete_credential,
             cmd::credential::reorder_credentials,
+            cmd::connection::reorder_passwords,
+            cmd::connection::reorder_ssh_keys,
             cmd::settings::get_app_settings,
             cmd::settings::save_app_settings,
             cmd::settings::save_app_language,

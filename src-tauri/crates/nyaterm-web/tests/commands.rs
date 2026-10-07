@@ -207,6 +207,99 @@ async fn persistent_web_commands_preserve_contracts_and_verify_real_passwords() 
         "b"
     );
 
+    // Legacy rows have no explicit sort order. Reorder persists metadata only.
+    let password_ciphertext = crypto::encrypt("saved-account-secret").unwrap();
+    let key_ciphertext = crypto::encrypt("saved-private-key").unwrap();
+    let cert_ciphertext = crypto::encrypt("saved-certificate").unwrap();
+    let passphrase_ciphertext = crypto::encrypt("saved-passphrase").unwrap();
+    config::save_passwords(
+        &(),
+        &serde_json::from_value(json!({"passwords":[
+            {"id":"z","name":"Z","username":"root","password":password_ciphertext},
+            {"id":"a","name":"A","username":"admin"}
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    config::save_keys(&(), &serde_json::from_value(json!({"keys":[
+        {"id":"z","name":"Z","key":key_ciphertext,"cert":cert_ciphertext,"passphrase":passphrase_ciphertext},
+        {"id":"a","name":"A","key":key_ciphertext}
+    ]})).unwrap()).unwrap();
+    for (list, reorder) in [
+        ("get_saved_passwords", "reorder_passwords"),
+        ("get_ssh_keys", "reorder_ssh_keys"),
+    ] {
+        let before = ok(&app, list, json!({})).await;
+        assert_eq!(before[0]["id"], "a");
+        assert_eq!(before[0]["sort_order"], 0);
+        ok(
+            &app,
+            reorder,
+            json!({"updates":[{"id":"z","sort_order":0},{"id":"a","sort_order":1}]}),
+        )
+        .await;
+        let after = ok(&app, list, json!({})).await;
+        assert_eq!(after[0]["id"], "z");
+        assert_eq!(after[1]["sort_order"], 1);
+        assert!(after[0].get("password").is_none());
+        assert!(after[0].get("key").is_none());
+        assert!(after[0].get("passphrase").is_none());
+    }
+    let passwords = config::load_passwords(&()).unwrap();
+    assert_eq!(
+        passwords.passwords[0].password.as_ref(),
+        Some(&password_ciphertext)
+    );
+    let keys = config::load_keys(&()).unwrap();
+    assert_eq!(keys.keys[0].key.as_ref(), Some(&key_ciphertext));
+    assert_eq!(keys.keys[0].cert.as_ref(), Some(&cert_ciphertext));
+    assert_eq!(
+        keys.keys[0].passphrase.as_ref(),
+        Some(&passphrase_ciphertext)
+    );
+    // Even clients omitting sort_order preserve position on edits.
+    ok(
+        &app,
+        "save_password",
+        json!({"entry":{"id":"a","name":"Edited account","username":"admin"}}),
+    )
+    .await;
+    ok(
+        &app,
+        "save_ssh_key",
+        json!({"key":{"id":"a","name":"Edited key"}}),
+    )
+    .await;
+    assert_eq!(
+        config::load_passwords(&()).unwrap().passwords[1].sort_order,
+        1
+    );
+    assert_eq!(config::load_keys(&()).unwrap().keys[1].sort_order, 1);
+    let new_id = ok(
+        &app,
+        "save_password",
+        json!({"entry":{"id":"","name":"Appended account","username":"new"}}),
+    )
+    .await;
+    let passwords = config::load_passwords(&()).unwrap();
+    assert_eq!(passwords.passwords[2].id, new_id.as_str().unwrap());
+    assert_eq!(passwords.passwords[2].sort_order, 2);
+    let generated =
+        russh::keys::PrivateKey::random(&mut rand_new::rng(), russh::keys::Algorithm::Ed25519)
+            .unwrap();
+    let pem = generated
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .unwrap();
+    let new_id = ok(
+        &app,
+        "save_ssh_key",
+        json!({"key":{"id":"","name":"Appended key","key_data":pem.as_str()}}),
+    )
+    .await;
+    let keys = config::load_keys(&()).unwrap();
+    assert_eq!(keys.keys[2].id, new_id.as_str().unwrap());
+    assert_eq!(keys.keys[2].sort_order, 2);
+
     let entry = json!({"id":"otp","otp_type":"hotp","issuer":"RFC4226","username":"test","secret":"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ","algorithm":"SHA1","digits":6,"period":30,"counter":0});
     ok(&app, "save_otp_entry", json!({"entry":entry})).await;
     let otp = ok(&app, "get_otp_entries", json!({})).await;

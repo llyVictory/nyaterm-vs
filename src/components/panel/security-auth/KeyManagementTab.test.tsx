@@ -25,6 +25,7 @@ vi.mock("@/components/dialog/security-auth/PrivateKeyViewDialog", () => ({
 }));
 
 const key: SshKey = {
+  sort_order: 0,
   id: "key-1",
   name: "Production key",
   has_key_data: true,

@@ -201,16 +201,17 @@ pub async fn route(
             config.groups.retain(|g|g.id!=id);config.groups.push(group);config::save_config(&(),&config)?;
             state.broadcast("connections-changed",Value::Null).await;json!(id)
         },
-        "get_saved_passwords" => json!(config::load_passwords(&())?.passwords.into_iter().map(|entry| json!({"id":entry.id,"name":entry.name,"username":entry.username,"has_password":entry.password.is_some()})).collect::<Vec<_>>()),
+        "get_saved_passwords" => json!(config::load_passwords(&())?.passwords.into_iter().map(|entry| json!({"id":entry.id,"sort_order":entry.sort_order,"name":entry.name,"username":entry.username,"has_password":entry.password.is_some()})).collect::<Vec<_>>()),
         "save_password" => {
             let _guard=state.mutation.lock().await;
             let mut entry:config::SavedPassword=argument(&args,"entry")?;if entry.id.is_empty(){entry.id=uuid::Uuid::new_v4().to_string();}
             let id=entry.id.clone();let mut config=config::load_passwords(&())?;
+            entry.sort_order=config::password_sort_order(&config,&id);
             entry.password=match entry.password.as_deref(){Some("")=>None,Some(secret)=>Some(crypto::encrypt(secret)?),None=>config.passwords.iter().find(|p|p.id==id).and_then(|p|p.password.clone())};
             config.passwords.retain(|p|p.id!=id);config.passwords.push(entry);config::save_passwords(&(),&config)?;json!(id)
         },
         "delete_password" => { let _guard=state.mutation.lock().await;let mut config=config::load_passwords(&())?;config.passwords.retain(|p|Some(p.id.as_str())!=args["id"].as_str());config::save_passwords(&(),&config)?;Value::Null },
-        "get_ssh_keys" => json!(config::load_keys(&())?.keys.into_iter().map(|entry| json!({"id":entry.id,"name":entry.name,"has_key_data":entry.key.is_some(),"has_cert_data":entry.cert.is_some()})).collect::<Vec<_>>()),
+        "get_ssh_keys" => json!(config::load_keys(&())?.keys.into_iter().map(|entry| json!({"id":entry.id,"sort_order":entry.sort_order,"name":entry.name,"has_key_data":entry.key.is_some(),"has_cert_data":entry.cert.is_some()})).collect::<Vec<_>>()),
         "save_ssh_key" => {
             let _guard=state.mutation.lock().await;
             let mut entry:config::SshKey=argument(&args,"key")?;
@@ -219,6 +220,7 @@ pub async fn route(
             let mut config=config::load_keys(&())?;let existing=config.keys.iter().find(|p|p.id==id);
             // The client can supply plaintext only via transient key_data. It may
             // never inject an encrypted on-disk token or a server filesystem path.
+            entry.sort_order=config::key_sort_order(&config,&id);
             entry.key=match entry.key_data.take(){Some(data)=>{services::validate_private_key_content(&data,entry.passphrase.as_deref())?;Some(crypto::encrypt(&data)?)},None=>existing.and_then(|k|k.key.clone())};
             entry.cert=match entry.cert_data.take(){Some(data)=>{services::validate_certificate_content(&data)?;Some(crypto::encrypt(&data)?)},None=>existing.and_then(|k|k.cert.clone())};
             if entry.key.is_none() { return Err(WebError::bad("Private key required")); }
@@ -226,6 +228,8 @@ pub async fn route(
             config.keys.retain(|p|p.id!=id);config.keys.push(entry);config::save_keys(&(),&config)?;json!(id)
         },
         "delete_ssh_key" => { let _guard=state.mutation.lock().await;let mut config=config::load_keys(&())?;config.keys.retain(|p|Some(p.id.as_str())!=args["id"].as_str());config::save_keys(&(),&config)?;Value::Null },
+        "reorder_passwords" => { let _guard=state.mutation.lock().await;let updates:Vec<SortOrderUpdate>=argument(&args,"updates")?;let mut cfg=config::load_passwords(&())?;config::reorder_passwords(&mut cfg,&updates.into_iter().map(|u|(u.id,u.sort_order)).collect::<Vec<_>>());config::save_passwords(&(),&cfg)?;Value::Null },
+        "reorder_ssh_keys" => { let _guard=state.mutation.lock().await;let updates:Vec<SortOrderUpdate>=argument(&args,"updates")?;let mut cfg=config::load_keys(&())?;config::reorder_ssh_keys(&mut cfg,&updates.into_iter().map(|u|(u.id,u.sort_order)).collect::<Vec<_>>());config::save_keys(&(),&cfg)?;Value::Null },
         "get_saved_credentials" => { let entries=config::load_credentials(&())?.credentials;json!(entries.into_iter().map(|mut e| { let exists=e.password.is_some();e.password=None;let mut value=json!(e);value["has_password"]=json!(exists);value }).collect::<Vec<_>>()) },
         "save_credential" => { let _guard=state.mutation.lock().await;let entry:config::SavedCredential=argument(&args,"entry")?;{ let mut config=config::load_credentials(&())?;let id=config::upsert_credential(&mut config,entry)?;config::save_credentials(&(),&config)?;state.broadcast("credentials-changed",Value::Null).await;json!(id) } },
         "get_connection_password_value" => {let conn=config::load_connection_by_id(&(),text(&args,"id")?)?;json!(conn.auth.as_ref().map(|a|crypto::decrypt_optional(&a.password)).transpose()?.flatten())},

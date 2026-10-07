@@ -858,6 +858,7 @@ mod tests {
             ..ConnectionAuth::default()
         };
         let account = config::SavedPassword {
+            sort_order: 0,
             id: "saved-1".to_string(),
             name: "Saved".to_string(),
             username: String::new(),
@@ -880,6 +881,7 @@ mod tests {
             ..ConnectionAuth::default()
         };
         let account = config::SavedPassword {
+            sort_order: 0,
             id: "account-1".to_string(),
             name: "Account".to_string(),
             username: "admin".to_string(),
@@ -903,6 +905,7 @@ mod tests {
             ..ConnectionAuth::default()
         };
         let account = config::SavedPassword {
+            sort_order: 0,
             id: "account-1".to_string(),
             name: "Account".to_string(),
             username: "admin".to_string(),

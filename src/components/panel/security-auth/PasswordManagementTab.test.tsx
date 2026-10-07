@@ -13,6 +13,7 @@ vi.mock("./SecretUnlockFooter", () => ({ SecretUnlockFooter: () => null }));
 vi.mock("./CopyButton", () => ({ CopyButton: () => null }));
 
 const account: SavedAccount = {
+  sort_order: 0,
   id: "account-1",
   name: "Production",
   username: "root",

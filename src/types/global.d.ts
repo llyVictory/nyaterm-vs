@@ -307,6 +307,7 @@ export interface Group {
 /** Managed SSH private key stored in local app storage. */
 export interface SshKey {
   id: string;
+  sort_order: number;
   name: string;
   /** Transient: plaintext private key content pasted from the UI. */
   key_data?: string;
@@ -339,6 +340,7 @@ export interface KnownHostEntry {
 /** Managed account entry stored in local app storage. */
 export interface SavedAccount {
   id: string;
+  sort_order: number;
   name: string;
   username: string;
   /** True when encrypted password data exists in local storage. */

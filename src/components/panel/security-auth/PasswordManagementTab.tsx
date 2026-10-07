@@ -1,4 +1,4 @@
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, GripVertical } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdAdd, MdDelete, MdEdit } from "react-icons/md";
@@ -18,6 +18,7 @@ import { invoke } from "@/lib/invoke";
 import type { SavedAccount, SavedConnection } from "@/types/global";
 import { CopyButton } from "./CopyButton";
 import { SecretUnlockFooter } from "./SecretUnlockFooter";
+import { useSecretListSorting } from "./useSecretListSorting";
 
 interface PasswordManagementTabProps {
   onCountChange?: (count: number) => void;
@@ -213,7 +214,9 @@ export function PasswordManagementTab({
 
       setRevealLoadingIds((prev) => new Set(prev).add(id));
       try {
-        const value = await invoke<string | null>("get_saved_password_value", { id });
+        const value = await invoke<string | null>("get_saved_password_value", {
+          id,
+        });
         setPasswordCache((prev) => ({ ...prev, [id]: value ?? "" }));
         setRevealedIds((prev) => new Set(prev).add(id));
       } catch {
@@ -340,6 +343,15 @@ export function PasswordManagementTab({
     }
   }, [onUnlockSecrets]);
 
+  const { actionsDisabled, reordering, handleProps, rowProps } = useSecretListSorting(
+    passwords,
+    setPasswords,
+    loadPasswords,
+    editingId !== null,
+    "reorder_passwords",
+    "passwordManager.reorderFailed",
+  );
+
   const lockedHint = !secretsUnlocked
     ? t(showSecretUnlockFooter ? "secretUnlock.lockedActionHint" : "secretUnlock.unlockTitle")
     : undefined;
@@ -360,7 +372,7 @@ export function PasswordManagementTab({
               size="sm"
               className="h-7 shrink-0 px-2 text-xs text-primary"
               onClick={handleAdd}
-              disabled={editingId !== null}
+              disabled={actionsDisabled}
             >
               <MdAdd className="text-base mr-1" /> {t("passwordManager.add")}
             </Button>
@@ -370,8 +382,27 @@ export function PasswordManagementTab({
             {passwords.map((entry) => (
               <div
                 key={entry.id}
+                {...rowProps(entry.id)}
                 className="security-auth-action-row flex flex-wrap items-center gap-1.5 border-b px-3 py-2.5 transition-colors last:border-0 hover:bg-accent"
               >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                        {...handleProps(entry.id)}
+                        aria-label={t("passwordManager.dragToSort")}
+                      >
+                        <GripVertical className="h-4 w-4" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {t(reordering ? "passwordManager.reordering" : "passwordManager.dragToSort")}
+                  </TooltipContent>
+                </Tooltip>
                 <div className="min-w-24 flex-1">
                   <div className="truncate text-xs">{entry.name}</div>
                   <div className="mt-0.5 truncate text-[0.6875rem] text-muted-foreground">
@@ -409,9 +440,7 @@ export function PasswordManagementTab({
                             }
                           }}
                           disabled={
-                            editingId !== null ||
-                            revealLoadingIds.has(entry.id) ||
-                            !entry.has_password
+                            actionsDisabled || revealLoadingIds.has(entry.id) || !entry.has_password
                           }
                           aria-label={
                             revealedIds.has(entry.id)
@@ -443,7 +472,7 @@ export function PasswordManagementTab({
                           onClick={() => {
                             runUnlockedAction(() => handleEdit(entry));
                           }}
-                          disabled={editingId !== null}
+                          disabled={actionsDisabled}
                           aria-label={t("common.edit")}
                         >
                           <MdEdit className="text-base" />
@@ -462,7 +491,7 @@ export function PasswordManagementTab({
                           onClick={() => {
                             runUnlockedAction(() => setDeletingEntry(entry));
                           }}
-                          disabled={editingId !== null}
+                          disabled={actionsDisabled}
                           aria-label={t("common.delete")}
                         >
                           <MdDelete className="text-base" />
@@ -537,7 +566,9 @@ export function PasswordManagementTab({
           <DialogHeader>
             <DialogTitle>{t("passwordManager.deleteTitle")}</DialogTitle>
             <DialogDescription>
-              {t("passwordManager.deleteConfirm", { name: deletingEntry?.name })}
+              {t("passwordManager.deleteConfirm", {
+                name: deletingEntry?.name,
+              })}
             </DialogDescription>
             {deletingReferences.length > 0 ? (
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">

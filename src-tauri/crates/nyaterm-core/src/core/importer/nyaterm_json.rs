@@ -30,6 +30,7 @@ fn prepare_nyaterm_json_import(file: NyatermJsonImportFile) -> AppResult<Prepare
         let id = uuid::Uuid::new_v4().to_string();
         password_ref_map.insert(ref_name, id.clone());
         passwords.push(config::SavedPassword {
+            sort_order: 0,
             id,
             name: required_string(entry.name, "password name", "passwords")?,
             username: String::new(),
@@ -56,6 +57,7 @@ fn prepare_nyaterm_json_import(file: NyatermJsonImportFile) -> AppResult<Prepare
         let id = uuid::Uuid::new_v4().to_string();
         key_ref_map.insert(ref_name, id.clone());
         ssh_keys.push(config::SshKey {
+            sort_order: 0,
             id,
             name: required_string(entry.name, "ssh key name", "ssh_keys")?,
             key: Some(encrypt_import_secret(&entry.private_key)?),

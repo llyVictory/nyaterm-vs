@@ -14,6 +14,8 @@ static SSH_KEY_ACCESS: RwLock<()> = RwLock::new(());
 pub struct SshKey {
     #[serde(default = "uuid_v4")]
     pub id: String,
+    #[serde(default)]
+    pub sort_order: i32,
     pub name: String,
     /// Encrypted PEM content on disk.
     #[serde(default)]
@@ -61,6 +63,7 @@ pub fn load_keys(app: &impl Sized) -> AppResult<KeysConfig> {
     let mut config = KeysConfig {
         keys: storage::list_ssh_keys()?,
     };
+    sort_keys(&mut config.keys);
     for k in &mut config.keys {
         apply_key_status_flags(k);
     }
@@ -118,13 +121,49 @@ pub fn decrypt_key_cert(key: &SshKey) -> AppResult<Option<String>> {
     crypto::decrypt_optional(&key.cert)
 }
 
+pub fn sort_keys(entries: &mut [SshKey]) {
+    entries.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then(left.id.cmp(&right.id))
+    });
+}
+
+/// Editing preserves position; new entries are appended to the saved order.
+pub fn key_sort_order(config: &KeysConfig, id: &str) -> i32 {
+    config
+        .keys
+        .iter()
+        .find(|entry| entry.id == id)
+        .map(|entry| entry.sort_order)
+        .unwrap_or_else(|| {
+            config
+                .keys
+                .iter()
+                .map(|entry| entry.sort_order)
+                .max()
+                .unwrap_or(-1)
+                .saturating_add(1)
+        })
+}
+
+pub fn reorder_ssh_keys(config: &mut KeysConfig, updates: &[(String, i32)]) {
+    for (id, sort_order) in updates {
+        if let Some(entry) = config.keys.iter_mut().find(|entry| entry.id == *id) {
+            entry.sort_order = *sort_order;
+        }
+    }
+    sort_keys(&mut config.keys);
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SshKey, apply_key_status_flags};
+    use super::*;
 
     #[test]
     fn key_status_flags_track_stored_key_and_certificate_data() {
         let mut key = SshKey {
+            sort_order: 0,
             id: "key-1".to_string(),
             name: "Key 1".to_string(),
             key: Some("encrypted-key".to_string()),
@@ -148,5 +187,47 @@ mod tests {
 
         assert!(key.has_key_data);
         assert!(!key.has_cert_data);
+    }
+    #[test]
+    fn key_sorting_defaults_preserves_secrets_and_appends() {
+        let legacy: SshKey = serde_json::from_value(serde_json::json!({"id":"b","name":"B","password":"cipher-password","key":"cipher-key","cert":"cipher-cert","passphrase":"cipher-passphrase"})).unwrap();
+        assert_eq!(legacy.sort_order, 0);
+        let mut config: KeysConfig = serde_json::from_value(serde_json::json!({"keys":[
+            {"id":"b","name":"B","password":"cipher-password","key":"cipher-key","cert":"cipher-cert","passphrase":"cipher-passphrase"},
+            {"id":"a","name":"A"},
+            {"id":"c","name":"C","sort_order":4}
+        ]})).unwrap();
+        sort_keys(&mut config.keys);
+        assert_eq!(
+            config
+                .keys
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
+        assert_eq!(key_sort_order(&config, "new"), 5);
+        assert_eq!(key_sort_order(&config, "b"), 0);
+        let before = serde_json::to_value(&config.keys[1]).unwrap();
+        reorder_ssh_keys(
+            &mut config,
+            &[
+                ("b".into(), 0),
+                ("c".into(), 1),
+                ("a".into(), 2),
+                ("missing".into(), 3),
+            ],
+        );
+        assert_eq!(
+            config
+                .keys
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "c", "a"]
+        );
+        assert_eq!(serde_json::to_value(&config.keys[0]).unwrap(), before);
+        assert_eq!(key_sort_order(&config, "a"), 2);
+        assert_eq!(key_sort_order(&config, "new"), 3);
     }
 }

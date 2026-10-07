@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 pub struct SavedPassword {
     #[serde(default = "uuid_v4")]
     pub id: String,
+    #[serde(default)]
+    pub sort_order: i32,
     pub name: String,
     #[serde(default)]
     pub username: String,
@@ -76,6 +78,7 @@ pub fn load_passwords(app: &impl Sized) -> AppResult<PasswordsConfig> {
     let mut config = PasswordsConfig {
         passwords: storage::list_passwords()?,
     };
+    sort_passwords(&mut config.passwords);
     for p in &mut config.passwords {
         p.has_password = p.password.is_some();
     }
@@ -98,6 +101,41 @@ pub fn load_password_by_id(app: &impl Sized, id: &str) -> AppResult<SavedPasswor
         entry.password = crypto::decrypt(&ct).ok();
     }
     Ok(entry)
+}
+
+pub fn sort_passwords(entries: &mut [SavedPassword]) {
+    entries.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then(left.id.cmp(&right.id))
+    });
+}
+
+/// Editing preserves position; new entries are appended to the saved order.
+pub fn password_sort_order(config: &PasswordsConfig, id: &str) -> i32 {
+    config
+        .passwords
+        .iter()
+        .find(|entry| entry.id == id)
+        .map(|entry| entry.sort_order)
+        .unwrap_or_else(|| {
+            config
+                .passwords
+                .iter()
+                .map(|entry| entry.sort_order)
+                .max()
+                .unwrap_or(-1)
+                .saturating_add(1)
+        })
+}
+
+pub fn reorder_passwords(config: &mut PasswordsConfig, updates: &[(String, i32)]) {
+    for (id, sort_order) in updates {
+        if let Some(entry) = config.passwords.iter_mut().find(|entry| entry.id == *id) {
+            entry.sort_order = *sort_order;
+        }
+    }
+    sort_passwords(&mut config.passwords);
 }
 
 #[cfg(test)]
@@ -142,5 +180,47 @@ mod tests {
         assert_eq!(resolve_account_username(Some(&entry), "root"), "root");
         entry.username = "admin".to_string();
         assert_eq!(resolve_account_username(Some(&entry), "root"), "admin");
+    }
+    #[test]
+    fn password_sorting_defaults_preserves_secrets_and_appends() {
+        let legacy: SavedPassword = serde_json::from_value(serde_json::json!({"id":"b","name":"B","password":"cipher-password","key":"cipher-key","cert":"cipher-cert","passphrase":"cipher-passphrase"})).unwrap();
+        assert_eq!(legacy.sort_order, 0);
+        let mut config: PasswordsConfig = serde_json::from_value(serde_json::json!({"passwords":[
+            {"id":"b","name":"B","password":"cipher-password","key":"cipher-key","cert":"cipher-cert","passphrase":"cipher-passphrase"},
+            {"id":"a","name":"A"},
+            {"id":"c","name":"C","sort_order":4}
+        ]})).unwrap();
+        sort_passwords(&mut config.passwords);
+        assert_eq!(
+            config
+                .passwords
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
+        assert_eq!(password_sort_order(&config, "new"), 5);
+        assert_eq!(password_sort_order(&config, "b"), 0);
+        let before = serde_json::to_value(&config.passwords[1]).unwrap();
+        reorder_passwords(
+            &mut config,
+            &[
+                ("b".into(), 0),
+                ("c".into(), 1),
+                ("a".into(), 2),
+                ("missing".into(), 3),
+            ],
+        );
+        assert_eq!(
+            config
+                .passwords
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "c", "a"]
+        );
+        assert_eq!(serde_json::to_value(&config.passwords[0]).unwrap(), before);
+        assert_eq!(password_sort_order(&config, "a"), 2);
+        assert_eq!(password_sort_order(&config, "new"), 3);
     }
 }

@@ -531,6 +531,7 @@ e+JpiSq66Z6GIt0801skPh20jxOO3F52SoX1IeO5D5PXfZrfSZlw6S8c7bwyp2FHxDewRx
     #[test]
     fn saved_account_list_redacts_password_but_keeps_metadata() {
         let summary = SavedAccountSummary::from(SavedPassword {
+            sort_order: 0,
             id: "account-1".to_string(),
             name: "Production".to_string(),
             username: "admin".to_string(),
@@ -830,6 +831,7 @@ e+JpiSq66Z6GIt0801skPh20jxOO3F52SoX1IeO5D5PXfZrfSZlw6S8c7bwyp2FHxDewRx
         key_file_path: Option<&str>,
     ) -> SshKey {
         SshKey {
+            sort_order: 0,
             id: id.to_string(),
             name: format!("Key {id}"),
             key: None,
@@ -1535,6 +1537,7 @@ pub fn save_ssh_key(app: tauri::AppHandle, mut key: SshKey) -> AppResult<String>
     let target_id = key.id.clone();
     let existing = cfg.keys.iter().find(|k| k.id == target_id);
 
+    key.sort_order = config::key_sort_order(&cfg, &target_id);
     key.key = resolve_private_key_for_save(&key, existing)?;
     if key.key.is_none() {
         return Err(AppError::Config("SSH private key is required".to_string()));
@@ -1796,6 +1799,7 @@ pub fn import_quick_commands(
 #[derive(Debug, serde::Serialize)]
 pub struct SavedAccountSummary {
     id: String,
+    sort_order: i32,
     name: String,
     username: String,
     has_password: bool,
@@ -1805,6 +1809,7 @@ impl From<SavedPassword> for SavedAccountSummary {
     fn from(entry: SavedPassword) -> Self {
         Self {
             id: entry.id,
+            sort_order: entry.sort_order,
             name: entry.name,
             username: entry.username,
             has_password: entry.has_password,
@@ -1848,6 +1853,7 @@ pub fn save_password(app: tauri::AppHandle, mut entry: SavedPassword) -> AppResu
     let target_id = entry.id.clone();
     let existing = cfg.passwords.iter().find(|p| p.id == target_id);
 
+    entry.sort_order = config::password_sort_order(&cfg, &target_id);
     entry.password = resolve_account_password_update(
         entry.password.as_deref(),
         existing.and_then(|entry| entry.password.as_deref()),
@@ -1869,5 +1875,47 @@ pub fn delete_password(app: tauri::AppHandle, id: String) -> AppResult<()> {
     cfg.passwords.retain(|p| p.id != id);
     config::save_passwords(&app, &cfg)?;
     schedule_cloud_sync_notify(app.clone());
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub struct SecretSortOrderUpdate {
+    pub id: String,
+    pub sort_order: i32,
+}
+
+#[tauri::command]
+pub fn reorder_passwords(
+    app: tauri::AppHandle,
+    updates: Vec<SecretSortOrderUpdate>,
+) -> AppResult<()> {
+    let mut cfg = config::load_passwords(&app)?;
+    config::reorder_passwords(
+        &mut cfg,
+        &updates
+            .into_iter()
+            .map(|update| (update.id, update.sort_order))
+            .collect::<Vec<_>>(),
+    );
+    config::save_passwords(&app, &cfg)?;
+    schedule_cloud_sync_notify(app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_ssh_keys(
+    app: tauri::AppHandle,
+    updates: Vec<SecretSortOrderUpdate>,
+) -> AppResult<()> {
+    let mut cfg = config::load_keys(&app)?;
+    config::reorder_ssh_keys(
+        &mut cfg,
+        &updates
+            .into_iter()
+            .map(|update| (update.id, update.sort_order))
+            .collect::<Vec<_>>(),
+    );
+    config::save_keys(&app, &cfg)?;
+    schedule_cloud_sync_notify(app);
     Ok(())
 }

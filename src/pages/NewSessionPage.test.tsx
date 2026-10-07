@@ -176,6 +176,7 @@ const jumpHost: SavedConnection = {
 };
 
 const account: SavedAccount = {
+  sort_order: 0,
   id: "account-1",
   name: "Production",
   username: "admin",

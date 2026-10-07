@@ -54,7 +54,8 @@ pub use credential::{
 };
 #[allow(unused_imports)]
 pub use key::{
-    KeysConfig, SshKey, decrypt_key_cert, decrypt_key_pem, load_key_by_id, load_keys, save_keys,
+    KeysConfig, SshKey, decrypt_key_cert, decrypt_key_pem, key_sort_order, load_key_by_id,
+    load_keys, reorder_ssh_keys, save_keys,
 };
 pub use key::{ssh_key_change_epoch, ssh_key_read_guard};
 #[allow(unused_imports)]
@@ -67,8 +68,8 @@ pub use otp::{OtpConfig, OtpEntry, load_otp_entries, load_otp_entry_by_id, save_
 #[allow(unused_imports)]
 pub use password::{
     PasswordsConfig, SavedPassword, decrypt_account_password, effective_account_id,
-    load_password_by_id, load_passwords, load_saved_account, resolve_account_username,
-    save_passwords,
+    load_password_by_id, load_passwords, load_saved_account, password_sort_order,
+    reorder_passwords, resolve_account_username, save_passwords,
 };
 #[allow(unused_imports)]
 pub use proxy::{
