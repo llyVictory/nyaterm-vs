@@ -5,121 +5,471 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development commands
 
 ### Root app
+
 - `pnpm install` — install JS dependencies
 - `pnpm dev` — run the Vite frontend only
 - `pnpm tauri dev` — run the full desktop app in Tauri dev mode
-- `pnpm build` — run `tsc` and build the frontend with Vite
+- `pnpm build` — build the desktop frontend
+- `pnpm build:web` — type-check and build the frontend for Web deployment
 - `pnpm tauri build` — build the production desktop bundle
-- `pnpm lint` — run Biome checks for `src/**/*.ts` and `src/**/*.tsx`
-- `pnpm format` — apply Biome formatting to `src/**/*.ts` and `src/**/*.tsx`
-- `pnpm format:check` — check Biome formatting without writing changes
+- `pnpm test` — run frontend Vitest tests
+- `pnpm lint` — run frontend lint checks
+- `pnpm format` — apply frontend formatting
+- `pnpm format:check` — check frontend formatting
 - `pnpm i18n:check` — check locale JSON formatting
 - `pnpm i18n:fix` — rewrite locale JSON formatting
+- `pnpm i18n:keys` — check locale key consistency
 - `pnpm version-sync` — sync version numbers across app files
-- `pnpm release` — version sync + frontend build + Tauri build
+- `pnpm release` — version sync + production Tauri build
 
 ### Rust / Tauri backend
+
 - `cargo fmt --manifest-path src-tauri/Cargo.toml` — format Rust code
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets` — lint Rust code
-- `cargo test --manifest-path src-tauri/Cargo.toml` — run backend Rust tests
-- `cargo test --manifest-path src-tauri/Cargo.toml <test_name>` — run a single backend Rust test
+- `cargo test --manifest-path src-tauri/Cargo.toml` — run desktop backend tests
+- `cargo test --manifest-path src-tauri/Cargo.toml <test_name>` — run a single backend test
 - `cargo test --manifest-path src-tauri/crates/otp/Cargo.toml` — run OTP crate tests
-- `cargo test --manifest-path src-tauri/crates/otp/Cargo.toml <test_name>` — run a single OTP crate test
 
-Example single-test command:
-- `cargo test --manifest-path src-tauri/Cargo.toml normalizes_trailing_slashes_without_breaking_roots`
+### Web deployment
+
+- `pnpm web:build:server` — build the Web Rust server
+- `pnpm web:serve` — run the Web server locally
+- `pnpm test:web` — run Web backend tests
+- `pnpm test:web:e2e` — run Web deployment E2E tests
+
+Web deployment details are documented in:
+
+- `docs/web-deployment.md`
+- `deploy/web/README.md`
 
 ### Docs site
-- `pnpm --dir docs-site start` — build and serve the docs site locally for all locales (`/` and `/en/`)
-- `pnpm --dir docs-site start:zh` — run the zh-CN docs dev server with hot reload
-- `pnpm --dir docs-site start:en` — run the English docs dev server with hot reload
-- `pnpm --dir docs-site start:ko` — run the Korean docs dev server with hot reload
+
+- `pnpm --dir docs-site start` — serve all locales
+- `pnpm --dir docs-site start:zh` — run zh-CN docs dev server
+- `pnpm --dir docs-site start:en` — run English docs dev server
+- `pnpm --dir docs-site start:ko` — run Korean docs dev server
 - `pnpm --dir docs-site build` — build the docs site
 
 ## Big-picture architecture
 
-- This is a Tauri 2 desktop app: React/TypeScript frontend in `src/`, Rust backend in `src-tauri/src/`, and IPC between them via Tauri commands/events.
-- The frontend should call Rust through the typed wrapper in `src/lib/invoke.ts`, not raw scattered `invoke()` calls where a shared wrapper already exists.
-- Tauri commands are registered centrally in `src-tauri/src/lib.rs` and grouped by concern under `src-tauri/src/cmd/` (`session`, `sftp`, `connection`, `credential`, `settings`, `watcher`, `translate`, `stats`, `tunnel`, `proxy`, `otp`, `importer`, plus `app`, `backup`, `clipboard`, `cloud_sync`, `log`, and `ai`).
+NyaTerm is primarily a Tauri 2 desktop application built with React, TypeScript, and Rust.
 
-### Window model
-- `src/main.tsx` decides between two boot paths:
-  - main window: `AppProvider` + `App.tsx`
-  - child windows: `ChildAppProvider` + `ChildWindowRouter`
-- Child windows are opened from `src/lib/windowManager.ts` using `?window=` query params. Current child-window flows include settings, new-session, quick-command, and per-file auto-upload dialogs.
-- Modal child-window focus/enable state is managed in `windowManager.ts` plus `src/ChildWindowRouter.tsx`; changes here affect cross-window UX.
+The repository also supports a Web deployment runtime. The React frontend is shared, while backend access is adapted per runtime.
 
-### Frontend state model
-- `src/context/AppContext.tsx` is the main state container. It owns:
-  - tab/session workspace state
-  - persisted UI/app settings
-  - saved connections/groups loading and refresh
-  - startup session restoration from persisted `ui.open_tabs`
-- `src/context/ChildAppProvider.tsx` is a lightweight provider for child windows. It only loads/saves settings and emits cross-window events; it does not manage the full tab/session workspace.
-- `src/context/TransferContext.tsx` separately tracks file transfer progress from backend `transfer-event` notifications.
+```text
+React / TypeScript
+        |
+src/lib/backend/api.ts
+        |
+   +----+----------------+
+   |                     |
+Desktop                Web
+   |                     |
+Tauri IPC          HTTP / SSE / WS
+   |                     |
+src-tauri/src/      nyaterm-web
+   |                     |
+   +------ shared -------+
+          nyaterm-core
+```
 
-### Workspace / terminal model
-- The terminal workspace has two distinct layers that are easy to confuse:
-  - `src/lib/workspaceTabs.ts` manages the persistent logical tab model. Each tab owns a recursive pane tree (`leaf` session panes and `split` panes). This is what gets serialized into `ui.open_tabs` for startup restore.
-  - `src/lib/tabWindows.ts` manages the runtime terminal window layout: which tabs live in each split window leaf, active tab per leaf, and window split ratios for the multi-tab/multi-split UI.
-- `src/App.tsx` is the shell that composes activity bars, left/right panels, the terminal workspace, quick command / serial send bottom panels, OTP dialogs, transfer UI, recording, and lock screen.
-- `src/components/terminal/XTerminal.tsx` is the xterm.js integration point. It wires Fit/Search/WebLinks addons, shell integration, command suggestions, reconnect hooks, and listens to per-session backend events.
+For ordinary Desktop-specific work, keep the existing Tauri architecture and do not over-generalize solely for Web.
 
-### Backend runtime model
-- `src-tauri/src/lib.rs` constructs and stores the shared backend managers in Tauri state:
-  - `SessionManager`
-  - `TunnelManager`
-  - `RecordingManager`
-  - `PendingAuthManager`
-  - `HostKeyVerifyManager`
-  - `QuickCommandsStore`
-  - `CloudSyncManager`
-  - `AgentApprovalManager` (gates AI agent command execution)
-- Tauri commands are registered centrally in `src-tauri/src/lib.rs`; newer backend capability areas now include app, backup, clipboard, cloud sync, logging, and AI in addition to sessions/SFTP/settings/importers.
-- `src-tauri/src/core/session.rs` contains `SessionManager`, which is the central registry for active sessions, command routing, command history, fuzzy history search, and session lifecycle events.
-- Session implementations live under `src-tauri/src/core/`:
-  - `ssh/` for SSH transport, auth, OSC/CWD tracking, tunnels, and SFTP
-  - `pty.rs` for local terminal sessions
-  - `telnet.rs` for Telnet sessions
-  - `serial.rs` for serial sessions
-  - `recording.rs` for terminal recording
-  - `watcher.rs` for file-watch driven flows
-  - `importer.rs` for Xshell / MobaXterm / WindTerm import
-  - `cloud_sync.rs` for sync/backup runtime and conflict events
-  - `portable_snapshot.rs` for defining what sync/backup payloads include
-  - `ai/` for provider calls, streaming responses, structured command cards, agent execution/approval, prompt redaction, and audit/history storage
-- Backend session I/O is event-driven. The Rust side emits session-specific and app-wide events such as `terminal-output-{id}`, `cwd-changed-{id}`, `session-closed-{id}`, `sessions-changed`, `connections-changed`, `command-history-changed`, `transfer-event`, `otp-request`, `cloud-sync-status-changed`, `cloud-sync-history-changed`, and `cloud-sync-conflict`.
+When changing shared frontend backend abstractions or shared Rust core logic, consider both runtimes.
 
-### SSH / auth / transfer details
-- SSH logic is split across `src-tauri/src/core/ssh/`:
-  - `client.rs` handles russh client setup, keepalive config, proxy-aware connection setup, and TOFU-style `known_hosts` verification (host-key prompts are coordinated through `HostKeyVerifyManager`)
-  - `auth.rs` handles saved auth loading plus keyboard-interactive / OTP flows through `PendingAuthManager` and the `otp-request` event
-  - `io.rs` streams terminal output and emits CWD updates
-  - `sftp.rs` implements remote file operations and emits transfer progress events consumed by `TransferContext`
-  - `tunnel.rs` manages local / remote / dynamic SSH tunnel behavior
-- SFTP commands exposed to the frontend are in `src-tauri/src/cmd/sftp.rs`; the file explorer and transfer UI sit on top of these commands and events.
-- File watcher / auto-upload flows bridge backend and child windows: remote files are downloaded locally, watched by `src-tauri/src/core/watcher.rs`, then uploaded back through the auto-upload UI flow.
+### Frontend backend abstraction
 
-### Persistence model
-- App data lives under `~/.nyaterm/`, but the primary store is now `~/.nyaterm/nyaterm.redb` rather than a set of standalone JSON files.
-- Important redb JSON documents include `settings`, `sessions`, `keys`, `passwords`, `otp`, `quick-command`, `tunnels`, `proxies`, `history`, `cloud-sync`, `cloud-sync-state`, `ai-history`, and `ai-audit`.
-- Important text documents stored through the same layer include `known_hosts` and `master.key`.
-- Sensitive values are encrypted before being written; cloud-sync credentials and other secret-bearing config need to stay within the existing crypto/storage helpers.
-- When changing settings or workspace persistence, update both the frontend defaults (`AppContext` / `ChildAppProvider`) and the Rust persistence/migration code (`src-tauri/src/config/settings/mod.rs`, `src-tauri/src/config/ui.rs`, and related `src-tauri/src/storage.rs` / cloud-sync snapshot code when applicable).
-- The app also contains legacy Dragonfly migration paths; if you change persistence formats, check that import/migration behavior still makes sense for `~/.dragonfly/` data.
+Shared frontend code should normally access backend functionality through `src/lib/backend/`.
+
+Important files:
+
+- `src/lib/backend/api.ts` — common `invoke`, `listen`, and `emit` entry point
+- `src/lib/backend/runtime.ts` — runtime detection and capability checks
+- `src/lib/backend/tauri.ts` — Desktop/Tauri adapter
+- `src/lib/backend/http.ts` — Web HTTP/SSE/WebSocket adapter
+- `src/lib/backend/platform/` — runtime-specific platform API wrappers
+
+Avoid adding scattered direct `@tauri-apps/api` calls where an existing shared adapter should be used.
+
+Do not assume a shared React component implies identical Desktop and Web capabilities. Check `runtime.ts` before changing capability gating.
+
+### Desktop backend
+
+The main Desktop backend lives under:
+
+```text
+src-tauri/src/
+```
+
+Tauri commands are registered centrally in `src-tauri/src/lib.rs` and grouped by concern under `src-tauri/src/cmd/`.
+
+Desktop-specific functionality includes areas such as:
+
+- native windows
+- Local Shell
+- Serial
+- RDP
+- tray
+- native file integration
+- global shortcuts
+- updater
+- OS-specific integrations
+
+### Shared Rust core
+
+Reusable backend/domain logic shared by Desktop and Web is located under:
+
+```text
+src-tauri/crates/nyaterm-core/
+```
+
+When backend behavior genuinely applies to both runtimes, prefer sharing it through `nyaterm-core` instead of duplicating implementations.
+
+Do not move Desktop-only behavior into the shared core merely for architectural symmetry.
+
+### Web backend
+
+The Web server lives under:
+
+```text
+src-tauri/crates/nyaterm-web/
+```
+
+It provides browser-compatible backend access using HTTP, SSE, and WebSocket transports.
+
+Web support is intentionally a subset of the Desktop application. Do not assume every Desktop capability has or needs an equivalent Web implementation.
+
+## Window model
+
+`src/main.tsx` decides between the main application and child-page/window flows.
+
+The main application uses the normal app provider and `App.tsx`.
+
+Child flows use `ChildAppProvider` and `ChildWindowRouter`.
+
+Desktop child windows are coordinated through `src/lib/windowManager.ts`.
+
+Native Tauri window APIs are Desktop-specific. When changing shared window-related code, ensure browser mode does not accidentally call native window APIs.
+
+## Frontend state model
+
+`src/context/AppContext.tsx` and `src/context/AppProvider.tsx` are central to application state.
+
+They cover areas such as:
+
+- tab/session workspace state
+- UI and application settings
+- saved connections and groups
+- startup workspace restoration
+
+`src/context/ChildAppProvider.tsx` is the lighter provider used by child-page/window flows.
+
+`src/context/TransferContext.tsx` tracks file transfer state and backend transfer notifications.
+
+## Workspace / terminal model
+
+The terminal workspace has two distinct layers:
+
+- `src/lib/workspaceTabs.ts` manages the persistent logical tab and pane model
+- `src/lib/tabWindows.ts` manages the runtime multi-tab / split-window layout
+
+Do not confuse persistent workspace state with runtime terminal layout.
+
+`src/App.tsx` is the main application shell.
+
+`src/components/terminal/XTerminal.tsx` is the central xterm.js integration point.
+
+Terminal issues may involve:
+
+```text
+transport
+-> backend session I/O
+-> IPC / Web transport
+-> frontend event handling
+-> buffering / backpressure
+-> xterm rendering
+-> user interaction
+```
+
+Do not attribute terminal performance or correctness problems to the network, Rust, WebView, or xterm without tracing the actual path.
+
+## Backend runtime model
+
+Desktop backend state and managers are constructed in `src-tauri/src/lib.rs`.
+
+Backend functionality is grouped under `src-tauri/src/core/` and related command modules.
+
+Relevant areas include:
+
+- SSH
+- SFTP
+- Local PTY
+- Telnet
+- Serial
+- RDP
+- VNC
+- tunnels
+- recording
+- AI
+- monitoring
+- sync / backup
+- plugins
+- storage
+
+When investigating async Rust behavior, check:
+
+- task ownership
+- channels
+- cancellation
+- locks
+- reconnect
+- shutdown
+- session lifecycle
+
+## SSH / auth / transfer details
+
+SSH-related work should consider:
+
+- connection lifecycle
+- authentication
+- saved credentials
+- keyboard-interactive / OTP
+- host-key verification
+- known hosts
+- proxies
+- jump hosts
+- tunnels
+- SFTP
+- reconnect
+- session ownership
+
+Do not bypass host-key verification or credential encryption.
+
+File-transfer behavior differs between Desktop and Web. Desktop may use native paths, file watchers, native dialogs, and child windows, while Web uses browser-compatible upload/download and internal editing flows.
+
+## AI Assistant
+
+The AI Assistant includes Ask and Agent-style workflows.
+
+Relevant areas include:
+
+- streaming
+- provider compatibility
+- terminal context
+- session mentions
+- command cards
+- command risk levels
+- approvals
+- approved execution
+- cancellation
+- history
+- audit
+- prompt redaction
+
+High-risk commands must continue to use the existing approval mechanism.
+
+Web currently supports a more limited AI capability set than Desktop. Do not expose Desktop Agent/MCP behavior in Web merely because shared UI is available.
+
+## Persistence model
+
+Desktop data normally lives under:
+
+```text
+~/.nyaterm/
+```
+
+The primary store is `nyaterm.redb`.
+
+Sensitive values are encrypted before storage.
+
+When changing persistence, consider:
+
+- backward compatibility
+- migrations
+- backup/import/export
+- cloud-sync snapshots
+- existing legacy migration paths
+
+Web uses its own data directory configured through `NYATERM_WEB_DATA_DIR`. Do not assume Web data lives under the Desktop user's `~/.nyaterm/`.
+
+Security-sensitive code must not:
+
+- store passwords or secrets in plaintext
+- log credentials or private keys
+- bypass master-password or server-key protections
+- weaken host-key verification
+- break compatibility with existing encrypted data
+
+## Plugins
+
+Plugin-related code spans:
+
+```text
+plugins/
+src/components/plugins/
+src/lib/plugins.ts
+src/lib/pluginBridge.ts
+src/lib/pluginIpc.ts
+src-tauri/crates/nyaterm-plugin-runtime/
+```
+
+Web currently supports only a subset of plugin functionality.
+
+Do not assume native plugin installation or execution is browser-compatible.
 
 ## Project-specific guidance
 
-- If a task touches UI, prefer shadcn/ui patterns and components. The repo has an explicit Cursor rule for this in `.cursor/rules/ui.mdc`.
-- shadcn is configured in `components.json`, and shared UI components live in `src/components/ui/`.
-- When changing user-facing UI text, update both locale files:
-  - `src/i18n/locales/en.json`
-  - `src/i18n/locales/zh-CN.json`
-  - `src/i18n/locales/zh-TW.json`
-  - `src/i18n/locales/ko.json`
-- The root app currently has no dedicated frontend unit test runner configured in `package.json`; the automated tests in this repo are Rust tests under `src-tauri/` and `src-tauri/crates/otp/`.
-- Frontend linting includes a no-`console` check before Biome (`pnpm lint` runs `scripts/check-no-console.mjs` and `biome check src/`).
-- Vite uses the `@` alias for `src/`.
-- Tauri dev/build behavior is configured in `src-tauri/tauri.conf.json`; the dev server runs on port `1420` with HMR on `1421`.
-- There is a separate Docusaurus docs app in `docs-site/`. The most useful repo docs for implementation context are in `docs-site/docs/development/` (`architecture.md`, `frontend.md`, `backend.md`, `setup.md`, `contributing.md`).
-- Repo docs and recent history use Conventional Commits (`feat:`, `fix:`, `perf:`, `chore:`).
+### UI
+
+Prefer existing shadcn/ui patterns and components.
+
+Shared UI components live under:
+
+```text
+src/components/ui/
+```
+
+### Internationalization
+
+When changing user-facing text, update all supported locale files:
+
+- `src/i18n/locales/en.json`
+- `src/i18n/locales/zh-CN.json`
+- `src/i18n/locales/zh-TW.json`
+- `src/i18n/locales/ko.json`
+
+### Frontend tests
+
+The root frontend uses Vitest.
+
+Tests are colocated throughout `src/` using `*.test.ts` and `*.test.tsx`.
+
+Add or update focused tests when changing reusable frontend logic.
+
+### Frontend linting
+
+`pnpm lint` includes the repository no-console check.
+
+Prefer the existing logger infrastructure over direct `console.*` calls.
+
+### Vite
+
+Vite uses the `@` alias for `src/`.
+
+### Docs
+
+There is a separate Docusaurus app under `docs-site/`.
+
+Useful implementation documentation is under `docs-site/docs/development/`.
+
+For Web deployment behavior, prefer the current implementation and `docs/web-deployment.md` over assumptions based on older architecture notes.
+
+## Code modification principles
+
+This is a long-lived project.
+
+When modifying code:
+
+- understand the current implementation before changing it
+- prefer small, targeted changes
+- avoid unrelated refactors
+- preserve existing module boundaries
+- reuse existing abstractions
+- avoid introducing complex architecture merely to remove minor duplication
+- consider backward compatibility for config, databases, backups, and persisted state
+- consider Windows, macOS, and Linux differences
+- preserve Desktop behavior when changing shared Web-facing code
+- consider both runtimes when modifying shared backend abstractions or `nyaterm-core`
+- consider cancellation, teardown, and ownership in async Rust
+- do not remove compatibility logic without understanding why it exists
+
+## Validation principles
+
+Choose the smallest meaningful validation set.
+
+Frontend changes may use:
+
+```sh
+pnpm test
+pnpm lint
+pnpm build:web
+```
+
+Desktop Rust changes may use:
+
+```sh
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo test --manifest-path src-tauri/Cargo.toml <relevant_test>
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+```
+
+Web backend changes may use:
+
+```sh
+pnpm test:web
+pnpm build:web
+```
+
+Use `pnpm test:web:e2e` when the change affects actual Web deployment, transport, or browser integration.
+
+Do not run the heaviest full build by default for every small change.
+
+If validation fails because of the environment or an unrelated existing issue, report what was run, what passed, what failed, and whether the failure appears related to the change.
+
+Do not claim tests or builds passed unless they were actually executed successfully.
+
+## Source analysis principles
+
+For implementation questions:
+
+1. identify whether the problem belongs to React UI, frontend state, backend adapter, Tauri IPC, Web transport, Rust backend, transport, or persistence
+2. find the actual entry point and call sites
+3. read the real implementation before drawing conclusions
+4. follow the actual call chain
+5. inspect Git history when compatibility logic is involved
+6. for async code, inspect task ownership, channels, locks, cancellation, and lifecycle
+7. do not invent files, functions, types, commands, or behavior from names alone
+
+Typical Desktop flow:
+
+```text
+User action
+-> React component / hook
+-> backend adapter
+-> Tauri command / event
+-> Rust backend
+-> transport / storage
+-> frontend state update
+-> UI
+```
+
+Typical Web flow:
+
+```text
+User action
+-> React component / hook
+-> backend adapter
+-> HTTP / SSE / WebSocket
+-> nyaterm-web
+-> shared core / service
+-> frontend state update
+-> UI
+```
+
+Always verify the actual implementation in the current source tree.
+
+## Git conventions
+
+Repository history generally follows Conventional Commit-style subjects such as:
+
+```text
+feat:
+fix:
+perf:
+refactor:
+test:
+chore:
+docs:
+```
+
+Keep commits focused and consistent with recent repository history.
