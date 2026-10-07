@@ -33,10 +33,13 @@ def version_parts(version):
     return tuple(int(match[i]) for i in (1, 2, 3)), prerelease
 
 
-def release_metadata(ref, package_version, repository):
-    if not ref.startswith("refs/tags/v"):
-        raise ValueError("Dispatch against a version tag (refs/tags/v<SemVer>).")
-    version = ref.removeprefix("refs/tags/v")
+def release_metadata(ref, package_version, repository, event_name="push"):
+    test_only = ref == "refs/heads/main" and event_name == "workflow_dispatch"
+    if not test_only and not ref.startswith("refs/tags/v"):
+        raise ValueError(
+            "Select main for a manual test, or a version tag for a release."
+        )
+    version = package_version if test_only else ref.removeprefix("refs/tags/v")
     _, prerelease = version_parts(version)
     if version != package_version:
         raise ValueError(
@@ -51,6 +54,7 @@ def release_metadata(ref, package_version, repository):
         "version": version,
         "image_tag": image_tag,
         "stable": str(prerelease is None).lower(),
+        "publish": str(not test_only).lower(),
         "image": f"ghcr.io/{owner}/nyaterm-web",
     }
 
@@ -199,11 +203,16 @@ def main():
             os.environ["GITHUB_REF"],
             json.loads(Path("package.json").read_text())["version"],
             os.environ["GITHUB_REPOSITORY"],
+            os.environ["GITHUB_EVENT_NAME"],
         )
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             for key, value in metadata.items():
                 output.write(f"{key}={value}\n")
-        print(f"Validated Web release {metadata['version']}")
+        mode = "release" if metadata["publish"] == "true" else "test (no publishing)"
+        message = f"Validated Web {mode}: {metadata['version']}"
+        print(message)
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+            summary.write(message + "\n")
     elif args.command == "check-manifest":
         digest = verify_manifest(
             Path("manifest.json").read_bytes(),

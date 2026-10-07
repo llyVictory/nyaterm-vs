@@ -24,6 +24,7 @@ class VersionTests(unittest.TestCase):
                 self.assertEqual(metadata["version"], version)
                 self.assertEqual(metadata["image_tag"], version)
                 self.assertEqual(metadata["stable"], stable)
+                self.assertEqual(metadata["publish"], "true")
                 self.assertEqual(metadata["image"], "ghcr.io/nyakang/nyaterm-web")
 
     def test_build_metadata_is_preserved_in_version_and_encoded_in_tag(self):
@@ -37,6 +38,25 @@ class VersionTests(unittest.TestCase):
         for ref in ["refs/heads/main", "refs/tags/1.2.12", "refs/tags/v1.2.11"]:
             with self.subTest(ref=ref), self.assertRaises(ValueError):
                 release.release_metadata(ref, "1.2.12", "nyakang/nyaterm")
+
+    def test_manual_main_runs_without_publishing(self):
+        metadata = release.release_metadata(
+            "refs/heads/main", "1.2.12", "nyakang/nyaterm", "workflow_dispatch"
+        )
+        self.assertEqual(metadata["version"], "1.2.12")
+        self.assertEqual(metadata["publish"], "false")
+
+    def test_manual_tag_still_publishes(self):
+        metadata = release.release_metadata(
+            "refs/tags/v1.2.12", "1.2.12", "nyakang/nyaterm", "workflow_dispatch"
+        )
+        self.assertEqual(metadata["publish"], "true")
+
+    def test_other_branches_cannot_be_manually_released(self):
+        with self.assertRaises(ValueError):
+            release.release_metadata(
+                "refs/heads/feature", "1.2.12", "nyakang/nyaterm", "workflow_dispatch"
+            )
 
     def test_invalid_semver_fails(self):
         for version in [

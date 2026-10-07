@@ -22,23 +22,24 @@ jobs:
       image_tag: ${{ steps.metadata.outputs.image_tag }}
       image: ${{ steps.metadata.outputs.image }}
       stable: ${{ steps.metadata.outputs.stable }}
+      publish: ${{ steps.metadata.outputs.publish }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Test release policy
         run: python3 -m unittest discover -s .github/scripts -p 'test_web_release.py'
-      - name: Validate version tag
+      - name: Resolve release or manual test mode
         id: metadata
         run: python3 .github/scripts/web-release.py metadata
-      - name: Verify tag commit belongs to main
+      - name: Verify selected commit belongs to main
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main:refs/remotes/origin/main
-          tag_commit=$(git rev-parse "${GITHUB_REF}^{commit}")
-          if [ "$tag_commit" != "$(git rev-parse HEAD)" ] || ! git merge-base --is-ancestor "$tag_commit" origin/main; then
-            echo "::error::The checked-out tag commit must belong to origin/main."
+          ref_commit=$(git rev-parse "${GITHUB_REF}^{commit}")
+          if [ "$ref_commit" != "$(git rev-parse HEAD)" ] || ! git merge-base --is-ancestor "$ref_commit" origin/main; then
+            echo "::error::The checked-out commit must belong to origin/main."
             exit 1
           fi
 
@@ -111,22 +112,32 @@ jobs:
         env:
           NYATERM_SMOKE_IMAGE: nyaterm-web:smoke
         run: node .github/scripts/web-release-smoke.mjs
+      - name: Record manual test result
+        if: needs.prepare.outputs.publish != 'true'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          echo "Manual main test passed: linux/$ARCH, version $VERSION. No image was published." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-go@v6
+        if: needs.prepare.outputs.publish == 'true'
         with:
           go-version: stable
           cache: false
       - name: Install crane
+        if: needs.prepare.outputs.publish == 'true'
         env:
           GOBIN: ${{ runner.temp }}/web-tools
         run: |
           go install github.com/google/go-containerregistry/cmd/crane@v0.20.3
           echo "$GOBIN" >> "$GITHUB_PATH"
       - uses: docker/login-action@v3
+        if: needs.prepare.outputs.publish == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push tested image by digest
+        if: needs.prepare.outputs.publish == 'true'
         env:
           ARCH: ${{ matrix.arch }}
         shell: bash
@@ -144,6 +155,7 @@ jobs:
             echo "Image: $IMAGE@$digest"
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        if: needs.prepare.outputs.publish == 'true'
         with:
           name: web-release-digest-${{ matrix.arch }}
           path: digests/
@@ -159,6 +171,7 @@ jobs:
   publish:
     name: Publish multi-architecture version
     needs: [prepare, build]
+    if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -209,7 +222,7 @@ jobs:
   latest:
     name: Promote newer stable version to latest
     needs: [prepare, publish]
-    if: needs.prepare.outputs.stable == 'true'
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.stable == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -47,6 +47,8 @@ docker compose -f deploy/web/docker-compose.yml down
 
 [Build and Release Web](../../.github/workflows/build-web-release.yml) 在推送 `v<SemVer>` 标签时自动构建，也可在 Actions 中选择版本标签手动补发。标签版本必须与 `package.json` 一致，且提交属于 `main`。镜像发版与桌面发版独立，不等待 GitHub Release 公开。
 
+测试 workflow 时，在 **Actions → Build and Release Web → Run workflow** 中选择 `main`。此模式运行完整部署 E2E、amd64 / arm64 构建及容器冒烟测试，不登录 GHCR、不发布镜像，也不更新 `latest`；结果显示在 Actions 摘要中。手动选择版本标签仍执行正常发版。Workflow 需先合入默认分支，才会出现在手动运行列表中。
+
 完整版本标签不带 `v`，如 `1.2.12`、`1.3.0-beta.1`。SemVer 构建元数据中的 `+` 在镜像标签中编码为 `_`，OCI 版本标签仍保留原始版本。预发布、旧版本及同版本补发均不会更新 `latest`，也不发布 major/minor 浮动标签。版本和架构 digest 可在 Actions 摘要中查看。
 
 首次发布后，维护者需在 GitHub 的 `nyaterm-web` package 设置中确认可见性为 **Public**，以支持匿名拉取。Workflow 使用仓库的 `GITHUB_TOKEN` 发布，无需额外注册表密码；仓库及组织策略须允许 GitHub Actions 写入该 package。

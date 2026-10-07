@@ -62,6 +62,8 @@ docker compose -f deploy/web/docker-compose.image.yml up -d
 
 `latest` 仅由更高稳定版本更新；预发布及旧版本补发不会使它回退。首次发布后维护者需确认 GHCR package 为 Public，才能匿名拉取。发版触发条件、版本标签规则和补发入口见 [镜像发版说明](../deploy/web/README.md#镜像发版)。
 
+如需先测试发版 workflow，可在 Actions 中手动选择 `main`，运行完整部署验收及双架构构建；此模式不发布镜像或修改 `latest`。选择版本标签则正常发版。
+
 官方镜像构建路径固定为 `/`，运行时不能仅修改 `NYATERM_WEB_BASE_PATH` 来改为子路径；子路径部署需使用原源码构建方式。镜像 Compose 沿用原来的 `8080:8080`，使用本机反向代理时应改为 `127.0.0.1:8080:8080`。
 
 ### 从源码构建
