@@ -28,6 +28,7 @@ use tower::ServiceExt;
 
 struct Echo {
     output_cancel: CancellationToken,
+    output_task: Option<tokio::task::JoinHandle<()>>,
     resize: mpsc::UnboundedSender<(u32, u32)>,
     channels: HashMap<ChannelId, Channel<server::Msg>>,
     sftp_channels: std::collections::HashSet<ChannelId>,
@@ -39,6 +40,7 @@ impl Clone for Echo {
     fn clone(&self) -> Self {
         Self {
             output_cancel: CancellationToken::new(),
+            output_task: None,
             resize: self.resize.clone(),
             channels: HashMap::new(),
             sftp_channels: Default::default(),
@@ -160,7 +162,7 @@ impl server::Handler for Echo {
         if data == b"start-continuous-output" {
             let h = s.handle();
             let cancel = self.output_cancel.clone();
-            tokio::spawn(async move {
+            self.output_task = Some(tokio::spawn(async move {
                 loop {
                     tokio::select! {
                         _ = cancel.cancelled() => break,
@@ -169,10 +171,21 @@ impl server::Handler for Echo {
                         }
                     }
                 }
-            });
+            }));
         } else if data == b"stop-continuous-output" {
             self.output_cancel.cancel();
-            s.data(id, b"continuous-output-stopped".to_vec())?;
+            let task = self.output_task.take();
+            let h = s.handle();
+            tokio::spawn(async move {
+                if let Some(task) = task {
+                    task.await.unwrap();
+                }
+                // Queue the acknowledgement after all continuous output. Using
+                // Session::data here would overtake data queued via the handle.
+                h.data(id, b"continuous-output-stopped".to_vec())
+                    .await
+                    .unwrap();
+            });
         } else if data == b"large-and-close" {
             let h = s.handle();
             tokio::spawn(async move {
@@ -634,6 +647,7 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     let ssh_task = tokio::spawn(async move {
         Echo {
             output_cancel: CancellationToken::new(),
+            output_task: None,
             resize,
             files: ssh_files,
             attributes: ssh_attributes,
