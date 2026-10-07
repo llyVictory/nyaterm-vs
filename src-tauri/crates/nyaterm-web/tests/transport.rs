@@ -117,6 +117,13 @@ impl server::Handler for Echo {
     }
     async fn shell_request(&mut self, id: ChannelId, s: &mut Session) -> Result<(), Self::Error> {
         s.channel_success(id)?;
+        let mut channel = self.channels.remove(&id).unwrap();
+        tokio::spawn(async move {
+            // Handler callbacks implement the echo, but russh also queues data
+            // and window notifications on the channel. Drain them so continuous
+            // output cannot fill this queue and stall the SSH session loop.
+            while channel.wait().await.is_some() {}
+        });
         Ok(())
     }
     async fn exec_request(
@@ -636,6 +643,8 @@ async fn authenticated_ssh_vertical_slice_and_security() {
         ],
         auth_rejection_time: Duration::ZERO,
         auth_rejection_time_initial: Some(Duration::ZERO),
+        // Exercise receiver backpressure even on platforms with fast reconnects.
+        channel_buffer_size: 4,
         ..Default::default()
     });
     let files = Arc::new(std::sync::Mutex::new(HashMap::new()));
