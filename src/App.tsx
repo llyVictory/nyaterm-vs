@@ -1,4 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
+import { supports } from "@/lib/backend/runtime";
+import { listen } from "@/lib/backend/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -222,7 +223,8 @@ function App() {
   } = useApp();
   const uiConfig = appSettings.ui;
   const portable = runtimeInfo.portable;
-  const remoteStatsEnabled = uiConfig.show_remote_stats ?? true;
+  const remoteStatsEnabled =
+    supports("remoteMonitoring") && (uiConfig.show_remote_stats ?? true);
   const updateAutoIconForSessionStart = useCallback(
     (connectionId: string | null | undefined, sessionId: string) => {
       void updateConnectionAutoIconAfterSessionStart({
@@ -239,7 +241,7 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+    import("@/lib/backend/platform/window").then(({ getCurrentWindow }) => {
       const currentWindow = getCurrentWindow();
       setOwnerMainWindowLabel(currentWindow.label);
       currentWindow.show();
@@ -377,7 +379,13 @@ function App() {
       setFloatingPanels(next);
       if (lastFloatingSide !== side) return;
       setLastFloatingSide(
-        side === "left" ? (next.right ? "right" : null) : next.left ? "left" : null,
+        side === "left"
+          ? next.right
+            ? "right"
+            : null
+          : next.left
+            ? "left"
+            : null,
       );
     },
     [floatingPanels, lastFloatingSide],
@@ -548,17 +556,25 @@ function App() {
     let disposed = false;
     let unlistenResize: (() => void) | undefined;
     let unlistenFocus: (() => void) | undefined;
-    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
-      if (disposed) return;
-      const currentWindow = getCurrentWindow();
-      const syncFullscreen = async () => {
-        const fullscreen = await currentWindow.isFullscreen().catch(() => false);
-        if (!disposed) setNativeFullscreen(fullscreen);
-      };
-      await syncFullscreen();
-      unlistenResize = await currentWindow.onResized(() => void syncFullscreen());
-      unlistenFocus = await currentWindow.onFocusChanged(() => void syncFullscreen());
-    });
+    void import("@/lib/backend/platform/window").then(
+      async ({ getCurrentWindow }) => {
+        if (disposed) return;
+        const currentWindow = getCurrentWindow();
+        const syncFullscreen = async () => {
+          const fullscreen = await currentWindow
+            .isFullscreen()
+            .catch(() => false);
+          if (!disposed) setNativeFullscreen(fullscreen);
+        };
+        await syncFullscreen();
+        unlistenResize = await currentWindow.onResized(
+          () => void syncFullscreen(),
+        );
+        unlistenFocus = await currentWindow.onFocusChanged(
+          () => void syncFullscreen(),
+        );
+      },
+    );
     return () => {
       disposed = true;
       unlistenResize?.();
@@ -575,7 +591,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    import("@tauri-apps/api/window")
+    import("@/lib/backend/platform/window")
       .then(({ getCurrentWindow }) => {
         if (cancelled) return;
         return getCurrentWindow().setTitle(windowTitle);
@@ -624,7 +640,10 @@ function App() {
         failureContext?: string;
         runtimeModeOverride?: SshRuntimeMode;
         propagateError?: boolean;
-        onPending?: (pending: { tabId: string; createRequestId: string }) => void;
+        onPending?: (pending: {
+          tabId: string;
+          createRequestId: string;
+        }) => void;
         onSuccess?: (sessionId: string) => void;
       },
     ) => {
@@ -738,52 +757,72 @@ function App() {
     let unlistenOpen: (() => void) | undefined;
     let unlistenCancel: (() => void) | undefined;
 
-    void listen<McpSessionOpenRequest>("mcp-session-open-request", ({ payload }) => {
-      if (disposed || !eventTargetsCurrentWindow(payload.targetWindowLabel)) return;
-      void (async () => {
-        const connections = savedConnections.some((item) => item.id === payload.connectionId)
-          ? savedConnections
-          : await invoke<SavedConnection[]>("get_saved_connections");
-        if (cancelledMcpSessionOpenRequestsRef.current.delete(payload.requestId)) return;
-        const connection = connections.find((item) => item.id === payload.connectionId);
-        if (!connection || connection.type === "rdp" || connection.type === "vnc") {
+    void listen<McpSessionOpenRequest>(
+      "mcp-session-open-request",
+      ({ payload }) => {
+        if (disposed || !eventTargetsCurrentWindow(payload.targetWindowLabel))
+          return;
+        void (async () => {
+          const connections = savedConnections.some(
+            (item) => item.id === payload.connectionId,
+          )
+            ? savedConnections
+            : await invoke<SavedConnection[]>("get_saved_connections");
+          if (
+            cancelledMcpSessionOpenRequestsRef.current.delete(payload.requestId)
+          )
+            return;
+          const connection = connections.find(
+            (item) => item.id === payload.connectionId,
+          );
+          if (
+            !connection ||
+            connection.type === "rdp" ||
+            connection.type === "vnc"
+          ) {
+            await invoke("respond_mcp_session_open", {
+              requestId: payload.requestId,
+              sessionId: null,
+              error:
+                "The saved connection does not exist or is not a supported terminal connection.",
+            });
+            return;
+          }
+
+          let openedSessionId: string | null = null;
+          await connectSavedConnection(connection, {
+            failureContext: "MCP session open failed",
+            propagateError: true,
+            onPending: (pending) => {
+              mcpSessionOpenRequestsRef.current.set(payload.requestId, pending);
+            },
+            onSuccess: (sessionId) => {
+              openedSessionId = sessionId;
+            },
+          });
           await invoke("respond_mcp_session_open", {
             requestId: payload.requestId,
-            sessionId: null,
-            error: "The saved connection does not exist or is not a supported terminal connection.",
+            sessionId: openedSessionId,
+            error: openedSessionId
+              ? null
+              : "The MCP session-open request did not create a session.",
           });
-          return;
-        }
-
-        let openedSessionId: string | null = null;
-        await connectSavedConnection(connection, {
-          failureContext: "MCP session open failed",
-          propagateError: true,
-          onPending: (pending) => {
-            mcpSessionOpenRequestsRef.current.set(payload.requestId, pending);
-          },
-          onSuccess: (sessionId) => {
-            openedSessionId = sessionId;
-          },
-        });
-        await invoke("respond_mcp_session_open", {
-          requestId: payload.requestId,
-          sessionId: openedSessionId,
-          error: openedSessionId ? null : "The MCP session-open request did not create a session.",
-        });
-      })()
-        .catch((error) => {
-          void invoke("respond_mcp_session_open", {
-            requestId: payload.requestId,
-            sessionId: null,
-            error: getErrorMessage(error),
-          }).catch(() => {});
-        })
-        .finally(() => {
-          mcpSessionOpenRequestsRef.current.delete(payload.requestId);
-          cancelledMcpSessionOpenRequestsRef.current.delete(payload.requestId);
-        });
-    }).then((dispose) => {
+        })()
+          .catch((error) => {
+            void invoke("respond_mcp_session_open", {
+              requestId: payload.requestId,
+              sessionId: null,
+              error: getErrorMessage(error),
+            }).catch(() => {});
+          })
+          .finally(() => {
+            mcpSessionOpenRequestsRef.current.delete(payload.requestId);
+            cancelledMcpSessionOpenRequestsRef.current.delete(
+              payload.requestId,
+            );
+          });
+      },
+    ).then((dispose) => {
       if (disposed) dispose();
       else unlistenOpen = dispose;
     });
@@ -1424,7 +1463,7 @@ function App() {
           : sendSessionInput(sessionId, data, options);
 
       void sendInput.catch(() => {});
-      import("@tauri-apps/api/event").then(({ emit }) => {
+      import("@/lib/backend/api").then(({ emit }) => {
         emit(`focus-terminal-${sessionId}`);
       });
     },
@@ -1659,24 +1698,27 @@ function App() {
 
   const handleQuitApplication = useCallback(() => {
     setShowQuitConfirm(false);
-    void requestFileDocumentClose(collectFileDocumentPaneIds(tabs), async () => {
-      await persistWorkspaceLayoutNow().catch((error) => {
-        logger.error({
-          domain: "settings.persistence",
-          event: "workspace_layout.persist_before_quit_failed",
-          message: "Failed to persist workspace layout before quit",
-          error,
+    void requestFileDocumentClose(
+      collectFileDocumentPaneIds(tabs),
+      async () => {
+        await persistWorkspaceLayoutNow().catch((error) => {
+          logger.error({
+            domain: "settings.persistence",
+            event: "workspace_layout.persist_before_quit_failed",
+            message: "Failed to persist workspace layout before quit",
+            error,
+          });
         });
-      });
-      await invoke<void>("quit_application");
-    });
+        await invoke<void>("quit_application");
+      },
+    );
   }, [persistWorkspaceLayoutNow, requestFileDocumentClose, tabs]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
     let unlistenCloseRequested: (() => void) | undefined;
 
-    import("@tauri-apps/api/window")
+    import("@/lib/backend/platform/window")
       .then(({ getCurrentWindow }) => {
         const currentWindow = getCurrentWindow();
         return currentWindow.onCloseRequested(async (event) => {
@@ -1702,23 +1744,26 @@ function App() {
             return;
           }
 
-          await requestFileDocumentClose(collectFileDocumentPaneIds(tabs), async () => {
-            await persistWorkspaceLayoutNow().catch((error) => {
-              logger.error({
-                domain: "settings.persistence",
-                event: "workspace_layout.persist_before_close_failed",
-                message: "Failed to persist workspace layout before close",
-                error,
+          await requestFileDocumentClose(
+            collectFileDocumentPaneIds(tabs),
+            async () => {
+              await persistWorkspaceLayoutNow().catch((error) => {
+                logger.error({
+                  domain: "settings.persistence",
+                  event: "workspace_layout.persist_before_close_failed",
+                  message: "Failed to persist workspace layout before close",
+                  error,
+                });
               });
-            });
-            allowProgrammaticWindowCloseRef.current = true;
-            await currentWindow.close().catch(() => {
-              allowProgrammaticWindowCloseRef.current = false;
-            });
-            window.setTimeout(() => {
-              allowProgrammaticWindowCloseRef.current = false;
-            }, 1000);
-          });
+              allowProgrammaticWindowCloseRef.current = true;
+              await currentWindow.close().catch(() => {
+                allowProgrammaticWindowCloseRef.current = false;
+              });
+              window.setTimeout(() => {
+                allowProgrammaticWindowCloseRef.current = false;
+              }, 1000);
+            },
+          );
         });
       })
       .then((unlisten) => {
@@ -1757,7 +1802,7 @@ function App() {
       return;
     }
 
-    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+    void import("@/lib/backend/platform/window").then(({ getCurrentWindow }) =>
       getCurrentWindow().close(),
     );
   }, [appSettings.general.confirm_on_close, appSettings.general.minimize_to_tray, tabs.length]);
@@ -2072,7 +2117,7 @@ function App() {
       toast.info(t("tabCtx.reconnecting"));
 
       try {
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_reconnecting_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2106,7 +2151,7 @@ function App() {
           return;
         }
         const errorMessage = getErrorMessage(error);
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_disconnected_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2172,7 +2217,7 @@ function App() {
       toast.info(t("tabCtx.reconnecting"));
 
       try {
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_reconnecting_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2206,7 +2251,7 @@ function App() {
           return;
         }
         const errorMessage = getErrorMessage(error);
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_disconnected_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2355,7 +2400,7 @@ function App() {
       }
 
       try {
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_reconnecting_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2388,7 +2433,7 @@ function App() {
           return;
         }
         const errorMessage = getErrorMessage(error);
-        if (pane.connectionId) {
+        if (supports("nativeWindows") && pane.connectionId) {
           await invoke("mark_tunnels_disconnected_for_connection", {
             connectionId: pane.connectionId,
           }).catch(() => {});
@@ -2601,12 +2646,14 @@ function App() {
   }, [activePane]);
 
   const handleToggleNativeFullscreen = useCallback(() => {
-    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
-      const currentWindow = getCurrentWindow();
-      const fullscreen = await currentWindow.isFullscreen();
-      await currentWindow.setFullscreen(!fullscreen);
-      setNativeFullscreen(!fullscreen);
-    });
+    void import("@/lib/backend/platform/window").then(
+      async ({ getCurrentWindow }) => {
+        const currentWindow = getCurrentWindow();
+        const fullscreen = await currentWindow.isFullscreen();
+        await currentWindow.setFullscreen(!fullscreen);
+        setNativeFullscreen(!fullscreen);
+      },
+    );
   }, []);
 
   useGlobalShortcuts(
@@ -3222,16 +3269,19 @@ function App() {
     });
   }, []);
 
-  const handleExternalMatchConnection = useCallback((connection: SavedConnection) => {
-    setExternalMatchDialog((current) => {
-      current?.resolve({
-        kind: "saved",
-        connection,
-        runtimeModeOverride: current.runtimeModeOverride,
+  const handleExternalMatchConnection = useCallback(
+    (connection: SavedConnection) => {
+      setExternalMatchDialog((current) => {
+        current?.resolve({
+          kind: "saved",
+          connection,
+          runtimeModeOverride: current.runtimeModeOverride,
+        });
+        return null;
       });
-      return null;
-    });
-  }, []);
+    },
+    [],
+  );
 
   const handleExternalMatchTemporary = useCallback((config: TemporaryLinkConfig) => {
     setExternalMatchDialog((current) => {

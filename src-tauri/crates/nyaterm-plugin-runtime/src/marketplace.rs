@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 pub const REPOSITORY_ID: &str = "nyaterm-official";
 pub const CATALOG_URL: &str =
-    "https://raw.githubusercontent.com/nyakang/nyaterm-plugins/main/catalog/index.json";
+    "https://raw.githubusercontent.com/nyakang/nyaterm-plugins/main/public/v1/plugins.json";
 pub const MAX_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 pub const TARGETS: &[&str] = &[
     "universal",

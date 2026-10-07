@@ -1,6 +1,12 @@
-import { getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { getVersion } from "@/lib/backend/platform/app";
+import { openUrl } from "@/lib/backend/platform/opener";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { MdCheckCircle, MdError, MdRestartAlt } from "react-icons/md";
 import ReactMarkdown from "react-markdown";
@@ -78,7 +84,9 @@ function MarkdownContent({ content }: { content: string }) {
               {children}
             </ol>
           ),
-          li: ({ children }: MarkdownNodeProps) => <li className="pl-0.5">{children}</li>,
+          li: ({ children }: MarkdownNodeProps) => (
+            <li className="pl-0.5">{children}</li>
+          ),
           hr: () => <hr className="my-3 border-border/70" />,
           a: ({ children, href }: MarkdownNodeProps) => (
             <button

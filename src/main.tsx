@@ -1,5 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserGate } from "./lib/backend/BrowserGate";
+import { runtime } from "./lib/backend/runtime";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
@@ -8,9 +10,9 @@ import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource-variable/noto-sans-sc";
 import "./index.css";
-import { PluginProvider } from "./context/PluginContext";
 import { PluginApprovalHost } from "./components/plugins/PluginApprovalHost";
 import { PluginCommandHost } from "./components/plugins/PluginCommandHost";
+import { PluginProvider } from "./context/PluginContext";
 import {
   applyThemeToDOM,
   THEME_CACHE_KEY,
@@ -22,6 +24,7 @@ import {
   signalChildWindowLoadFailed,
   signalChildWindowLoadStarted,
 } from "./lib/childWindowLifecycle";
+import { installBrowserErrorLogging } from "./lib/logger";
 import { DEFAULT_THEME_ID, themes } from "./lib/themes";
 import { installWebviewReloadGuard } from "./lib/webviewReloadGuard";
 
@@ -43,19 +46,19 @@ try {
 } catch {}
 
 installWebviewReloadGuard();
+installBrowserErrorLogging();
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 const params = new URLSearchParams(window.location.search);
 const windowType = params.get("window");
+const RuntimeGate = runtime === "web" ? BrowserGate : React.Fragment;
 
 if (windowType) {
   void signalChildWindowLoadStarted().catch(() => {});
   // Child window: lightweight provider stack, no full App
   // These entry points are independent and should load in parallel; serial awaits would add an
   // unnecessary chunk round trip to every child-window open.
-  const childRoot = ReactDOM.createRoot(
-    document.getElementById("root") as HTMLElement,
-  );
+  const childRoot = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
   // Commit an inline-background loading shell before loading provider and page chunks. This lets
   // the parent reveal a stable surface without reintroducing the macOS white or empty window.
   childRoot.render(
@@ -84,14 +87,16 @@ if (windowType) {
 
     childRoot.render(
       <React.StrictMode>
-        <ErrorBoundary>
-          <ChildAppProvider>
-            <ThemeProvider>
-              <ChildWindowRouter windowType={windowType} />
-              <Toaster />
-            </ThemeProvider>
-          </ChildAppProvider>
-        </ErrorBoundary>
+        <RuntimeGate>
+          <ErrorBoundary>
+            <ChildAppProvider>
+              <ThemeProvider>
+                <ChildWindowRouter windowType={windowType} />
+                <Toaster />
+              </ThemeProvider>
+            </ChildAppProvider>
+          </ErrorBoundary>
+        </RuntimeGate>
       </React.StrictMode>,
     );
   } catch {
@@ -132,7 +137,7 @@ if (windowType) {
     { default: ErrorBoundary },
     { Toaster },
   ] = await Promise.all([
-    import("@tauri-apps/api/window"),
+    import("@/lib/backend/platform/window"),
     import("./lib/windowManager"),
     import("./context/AppProvider"),
     import("./App"),
@@ -143,18 +148,20 @@ if (windowType) {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <ErrorBoundary>
-        <AppProvider>
-          <ThemeProvider>
-            <PluginProvider>
-              <App />
-              <PluginApprovalHost />
-              <PluginCommandHost />
-            </PluginProvider>
-            <Toaster />
-          </ThemeProvider>
-        </AppProvider>
-      </ErrorBoundary>
+      <RuntimeGate>
+        <ErrorBoundary>
+          <AppProvider>
+            <ThemeProvider>
+              <PluginProvider>
+                <App />
+                <PluginApprovalHost />
+                <PluginCommandHost />
+              </PluginProvider>
+              <Toaster />
+            </ThemeProvider>
+          </AppProvider>
+        </ErrorBoundary>
+      </RuntimeGate>
     </React.StrictMode>,
   );
 }

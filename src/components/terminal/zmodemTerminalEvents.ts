@@ -31,7 +31,12 @@ export type ZmodemEventPayload =
       local_path?: string;
       direction: ZmodemWireDirection;
     }
-  | { type: "complete"; direction: ZmodemWireDirection; fileCount?: number; file_count?: number }
+  | {
+      type: "complete";
+      direction: ZmodemWireDirection;
+      fileCount?: number;
+      file_count?: number;
+    }
   | { type: "failed"; reason: string };
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
@@ -65,8 +70,12 @@ interface CurrentZmodemTransferFile {
 
 type NormalizedZmodemPayload =
   | { type: "detected"; direction: ZmodemDirection }
-  | (Extract<ZmodemEventPayload, { type: "progress" }> & { direction: ZmodemDirection })
-  | (Extract<ZmodemEventPayload, { type: "complete" }> & { direction: ZmodemDirection })
+  | (Extract<ZmodemEventPayload, { type: "progress" }> & {
+      direction: ZmodemDirection;
+    })
+  | (Extract<ZmodemEventPayload, { type: "complete" }> & {
+      direction: ZmodemDirection;
+    })
   | { type: "failed"; reason: string };
 
 function normalizeZmodemDirection(direction: string): ZmodemDirection | null {
@@ -202,13 +211,13 @@ export function createZmodemEventHandler(
 
   const revealDownloadedFile = async (localPath: string) => {
     try {
-      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      const { revealItemInDir } = await import("@/lib/backend/platform/opener");
       await revealItemInDir(localPath);
     } catch {
       try {
         const [{ openPath }, { dirname }] = await Promise.all([
-          import("@tauri-apps/plugin-opener"),
-          import("@tauri-apps/api/path"),
+          import("@/lib/backend/platform/opener"),
+          import("@/lib/backend/platform/path"),
         ]);
         const parentPath = await dirname(localPath);
         if (!parentPath) return;

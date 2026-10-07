@@ -1,0 +1,62 @@
+[package]
+name = "nyaterm-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+
+[features]
+test-support = []
+desktop-importer = ["dep:keyring", "dep:crypto_secretbox", "dep:rusty-leveldb"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+thiserror = "2"
+redb = "4.1.0"
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = "0.10"
+sha1 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+md-5 = "0.10"
+urlencoding = "2"
+rand = "0.8"
+nyaterm-gpu = { path = "../nyaterm-gpu" }
+zip = "8"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+font-kit = "0.14.3"
+nucleo-matcher = "0.3"
+regex = "1"
+tracing = "0.1"
+ssh-key = { version = "0.6", features = ["ed25519", "std"] }
+russh = { path = "../../vendor/russh/russh", default-features = false, features = ["des", "dsa", "flate2", "ring", "rsa"] }
+russh-sftp = { path = "../../vendor/russh-sftp" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "io-util", "time", "fs"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
+futures-util = "0.3"
+zeroize = "1"
+time = { version = "0.3", features = ["formatting", "macros"] }
+genai = { version = "0.6.5", default-features = false, features = ["native-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["socks", "json", "form", "query", "native-tls"] }
+
+encoding_rs = "0.8"
+strip-ansi-escapes = "0.2"
+vnc-rs = { path = "../../vendor/vnc-rs" }
+tokio-socks = "0.5.2"
+async-http-proxy = { version = "1.2.5", features = ["runtime-tokio", "basic-auth"] }
+
+
+aes = "0.8"
+cbc = "0.1"
+pbkdf2 = "0.12"
+sha3 = "0.10"
+quick-xml = "0.40"
+crypto_secretbox = { version = "0.1", optional = true }
+rusty-leveldb = { version = "4.0", optional = true }
+keyring = { version = "3.6", optional = true, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"
+

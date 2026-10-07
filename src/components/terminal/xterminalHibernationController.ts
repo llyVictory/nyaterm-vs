@@ -4,14 +4,12 @@ import {
   resumeDynamicTitlePublication,
 } from "@/lib/dynamicTabTitles";
 import { invoke } from "@/lib/invoke";
+import { runtime } from "@/lib/backend/runtime";
 import type { TerminalReconnectSnapshot } from "@/lib/terminalReconnectHistory";
 import { XTERM_PERFORMANCE_CONFIG } from "@/lib/xtermPerformance";
 import type { SessionType } from "@/types/global";
 import type { TerminalOutputDrain } from "./terminalOutputDrain";
-import type {
-  HibernationLogEvent,
-  HibernationPhase,
-} from "./xterminalInternalTypes";
+import type { HibernationLogEvent, HibernationPhase } from "./xterminalInternalTypes";
 
 interface MutableRef<T> {
   current: T;
@@ -120,29 +118,25 @@ export function createXTerminalHibernationController({
 }: CreateXTerminalHibernationControllerParams) {
   const timers = { ...defaultTimers(), ...timerOverrides };
 
-  const getOutputIdleMs = () =>
-    Math.max(0, timers.now() - lastOutputActivityAtRef.current);
+  const getOutputIdleMs = () => Math.max(0, timers.now() - lastOutputActivityAtRef.current);
 
   const hasOutputIdleTimedOut = () =>
     getOutputIdleMs() >= XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs;
 
   const canHibernateRenderer = (options: { allowPending?: boolean } = {}) => {
+    if (runtime === "web") return false;
     const phase = hibernationPhaseRef.current;
     if (
       !isTerminalAlive() ||
       visibleRef.current ||
       (!options.allowPending && hibernationPendingRef.current) ||
       (phase !== "idle" &&
-        !(
-          options.allowPending &&
-          (phase === "preparing" || phase === "detached")
-        ))
+        !(options.allowPending && (phase === "preparing" || phase === "detached")))
     ) {
       return false;
     }
     if (sessionTypeRef.current === "Local") return false;
-    if (!["SSH", "Telnet", "Serial"].includes(sessionTypeRef.current))
-      return false;
+    if (!["SSH", "Telnet", "Serial"].includes(sessionTypeRef.current)) return false;
     if (terminal.buffer.active.type === "alternate") return false;
     if (showSearchBar || activeMode === "history") return false;
     if (aiCapturingRef.current || zmodemActiveRef.current) return false;
@@ -182,6 +176,7 @@ export function createXTerminalHibernationController({
 
   const scheduleHibernate = () => {
     if (
+      runtime === "web" ||
       visibleRef.current ||
       hibernateTimerRef.current !== null ||
       hibernationPhaseRef.current !== "idle"
@@ -189,8 +184,7 @@ export function createXTerminalHibernationController({
       return;
     }
     const idleMs = getOutputIdleMs();
-    const remainingMs =
-      XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs - idleMs;
+    const remainingMs = XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs - idleMs;
     const delayMs = Math.max(0, remainingMs);
     const epoch = hibernationEpochRef.current + 1;
     hibernationEpochRef.current = epoch;
@@ -207,16 +201,12 @@ export function createXTerminalHibernationController({
 
   const cancelRecentOutputHibernate = (epoch: number) => {
     hibernationPhaseRef.current = "idle";
-    logHibernation(
-      "cancel",
-      "Skipped terminal hibernation after recent output activity",
-      {
-        epoch,
-        reason: "recent_output_activity",
-        idle_ms: getOutputIdleMs(),
-        required_idle_ms: XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs,
-      },
-    );
+    logHibernation("cancel", "Skipped terminal hibernation after recent output activity", {
+      epoch,
+      reason: "recent_output_activity",
+      idle_ms: getOutputIdleMs(),
+      required_idle_ms: XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs,
+    });
     scheduleHibernate();
   };
 
@@ -229,11 +219,10 @@ export function createXTerminalHibernationController({
     }
     if (!canHibernateRenderer()) {
       hibernationPhaseRef.current = "idle";
-      logHibernation(
-        "cancel",
-        "Skipped terminal hibernation after eligibility check",
-        { epoch, reason: "eligibility_changed" },
-      );
+      logHibernation("cancel", "Skipped terminal hibernation after eligibility check", {
+        epoch,
+        reason: "eligibility_changed",
+      });
       return;
     }
 
@@ -246,20 +235,14 @@ export function createXTerminalHibernationController({
 
     try {
       updateOutputDrainMode();
-      logHibernation(
-        "drain_start",
-        "Draining terminal output before hibernation",
-        { epoch },
-      );
-      const drainedBeforeDetach =
-        await flushFrameGateAndDrain("hibernate_before_detach");
+      logHibernation("drain_start", "Draining terminal output before hibernation", { epoch });
+      const drainedBeforeDetach = await flushFrameGateAndDrain("hibernate_before_detach");
       if (epoch !== hibernationEpochRef.current) {
         hibernationPhaseRef.current = "idle";
-        logHibernation(
-          "cancel",
-          "Cancelled terminal hibernation before backend detach",
-          { epoch, reason: "epoch_changed" },
-        );
+        logHibernation("cancel", "Cancelled terminal hibernation before backend detach", {
+          epoch,
+          reason: "epoch_changed",
+        });
         return;
       }
       if (!hasOutputIdleTimedOut()) {
@@ -268,44 +251,31 @@ export function createXTerminalHibernationController({
       }
       if (!canHibernateRenderer({ allowPending: true })) {
         hibernationPhaseRef.current = "idle";
-        logHibernation(
-          "cancel",
-          "Cancelled terminal hibernation before backend detach",
-          { epoch, reason: "eligibility_changed" },
-        );
+        logHibernation("cancel", "Cancelled terminal hibernation before backend detach", {
+          epoch,
+          reason: "eligibility_changed",
+        });
         return;
       }
       if (!drainedBeforeDetach) {
         hibernationPhaseRef.current = "idle";
         resumeDynamicTitlePublication(sessionId);
-        logHibernation(
-          "drain_timeout",
-          "Timed out draining terminal output before hibernation",
-          {
-            epoch,
-            queue_bytes: outputDrain.getQueueBytes(),
-            pending_bytes: outputDrain.getPendingBytes(),
-          },
-        );
+        logHibernation("drain_timeout", "Timed out draining terminal output before hibernation", {
+          epoch,
+          queue_bytes: outputDrain.getQueueBytes(),
+          pending_bytes: outputDrain.getPendingBytes(),
+        });
         return;
       }
-      logHibernation(
-        "drain_complete",
-        "Drained terminal output before backend detach",
-        {
-          epoch,
-        },
-      );
+      logHibernation("drain_complete", "Drained terminal output before backend detach", {
+        epoch,
+      });
 
       await invoke("detach_session_renderer", { sessionId });
       detachedHibernateEpochRef.current = epoch;
       hibernationPhaseRef.current = "detached";
       updateOutputDrainMode();
-      logHibernation(
-        "detached",
-        "Detached terminal renderer from backend output",
-        { epoch },
-      );
+      logHibernation("detached", "Detached terminal renderer from backend output", { epoch });
 
       if (
         epoch !== hibernationEpochRef.current ||
@@ -315,15 +285,12 @@ export function createXTerminalHibernationController({
       ) {
         await restoreDetachedRenderer(
           epoch,
-          hasOutputIdleTimedOut()
-            ? "eligibility_changed"
-            : "recent_output_activity",
+          hasOutputIdleTimedOut() ? "eligibility_changed" : "recent_output_activity",
         );
         return;
       }
 
-      const drainedAfterDetach =
-        await flushFrameGateAndDrain("hibernate_after_detach");
+      const drainedAfterDetach = await flushFrameGateAndDrain("hibernate_after_detach");
       if (
         epoch !== hibernationEpochRef.current ||
         !isTerminalAlive() ||
@@ -332,22 +299,16 @@ export function createXTerminalHibernationController({
       ) {
         await restoreDetachedRenderer(
           epoch,
-          hasOutputIdleTimedOut()
-            ? "eligibility_changed"
-            : "recent_output_activity",
+          hasOutputIdleTimedOut() ? "eligibility_changed" : "recent_output_activity",
         );
         return;
       }
       if (!drainedAfterDetach) {
-        logHibernation(
-          "drain_timeout",
-          "Timed out draining terminal output after backend detach",
-          {
-            epoch,
-            queue_bytes: outputDrain.getQueueBytes(),
-            pending_bytes: outputDrain.getPendingBytes(),
-          },
-        );
+        logHibernation("drain_timeout", "Timed out draining terminal output after backend detach", {
+          epoch,
+          queue_bytes: outputDrain.getQueueBytes(),
+          pending_bytes: outputDrain.getPendingBytes(),
+        });
         await restoreDetachedRenderer(epoch, "drain_timeout");
         return;
       }
@@ -366,12 +327,7 @@ export function createXTerminalHibernationController({
     } catch (error) {
       hibernationSnapshotRef.current = null;
       hibernationPhaseRef.current = "failed";
-      logHibernation(
-        "fail",
-        "Failed to hibernate terminal renderer",
-        { epoch },
-        error,
-      );
+      logHibernation("fail", "Failed to hibernate terminal renderer", { epoch }, error);
       await restoreDetachedRenderer(epoch, "error");
     } finally {
       hibernationPendingRef.current = false;
@@ -379,8 +335,7 @@ export function createXTerminalHibernationController({
         hibernationPhaseRef.current === "preparing" ||
         (hibernationPhaseRef.current === "detached" &&
           detachedHibernateEpochRef.current !== epoch) ||
-        (hibernationPhaseRef.current === "failed" &&
-          detachedHibernateEpochRef.current === null)
+        (hibernationPhaseRef.current === "failed" && detachedHibernateEpochRef.current === null)
       ) {
         hibernationPhaseRef.current = "idle";
       }
@@ -404,14 +359,10 @@ export function createXTerminalHibernationController({
     if (phase !== "preparing" && phase !== "detached") return;
 
     hibernationEpochRef.current += 1;
-    logHibernation(
-      "cancel",
-      "Cancelled terminal hibernation after output activity",
-      {
-        reason: "recent_output_activity",
-        phase,
-      },
-    );
+    logHibernation("cancel", "Cancelled terminal hibernation after output activity", {
+      reason: "recent_output_activity",
+      phase,
+    });
 
     if (phase === "preparing") {
       hibernationPhaseRef.current = "idle";
@@ -424,17 +375,11 @@ export function createXTerminalHibernationController({
 
     const detachedEpoch = detachedHibernateEpochRef.current;
     if (detachedEpoch !== null) {
-      void restoreDetachedRenderer(detachedEpoch, "recent_output_activity").then(
-        () => {
-          if (
-            !visibleRef.current &&
-            hibernationPhaseRef.current === "idle" &&
-            isTerminalAlive()
-          ) {
-            scheduleHibernate();
-          }
-        },
-      );
+      void restoreDetachedRenderer(detachedEpoch, "recent_output_activity").then(() => {
+        if (!visibleRef.current && hibernationPhaseRef.current === "idle" && isTerminalAlive()) {
+          scheduleHibernate();
+        }
+      });
     }
   };
 

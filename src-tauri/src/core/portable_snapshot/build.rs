@@ -43,12 +43,3 @@ pub fn build_portable_snapshot(
     snapshot.payload_hash = calculate_payload_hash(&snapshot)?;
     Ok(snapshot)
 }
-
-pub(crate) fn sync_settings_payload_changed(
-    previous: &config::AppSettings,
-    next: &config::AppSettings,
-) -> AppResult<bool> {
-    let previous = PortableAppSettings::from_app_settings(previous, &PortableSnapshotKind::Sync);
-    let next = PortableAppSettings::from_app_settings(next, &PortableSnapshotKind::Sync);
-    Ok(serde_json::to_vec(&previous)? != serde_json::to_vec(&next)?)
-}

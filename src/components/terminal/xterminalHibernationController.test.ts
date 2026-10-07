@@ -5,13 +5,16 @@ import { XTERM_PERFORMANCE_CONFIG } from "@/lib/xtermPerformance";
 import type { SessionType } from "@/types/global";
 import type { TerminalOutputDrain } from "./terminalOutputDrain";
 import { createXTerminalHibernationController } from "./xterminalHibernationController";
-import type {
-  HibernationLogEvent,
-  HibernationPhase,
-} from "./xterminalInternalTypes";
+import type { HibernationLogEvent, HibernationPhase } from "./xterminalInternalTypes";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
+  runtime: "desktop" as "desktop" | "web",
+}));
+vi.mock("@/lib/backend/runtime", () => ({
+  get runtime() {
+    return mocks.runtime;
+  },
 }));
 
 vi.mock("@/lib/invoke", () => ({ invoke: mocks.invoke }));
@@ -67,8 +70,7 @@ function createHarness(
   const updateOutputDrainMode = vi.fn();
   const repaintVisibleTerminal = vi.fn();
   const beginSnapshotRestore = vi.fn();
-  const flushFrameGateAndDrain =
-    options.flushFrameGateAndDrain ?? vi.fn(async () => true);
+  const flushFrameGateAndDrain = options.flushFrameGateAndDrain ?? vi.fn(async () => true);
 
   const clearHibernateTimer = () => {
     if (hibernateTimerRef.current !== null) {
@@ -169,13 +171,25 @@ function createHarness(
 
 describe("createXTerminalHibernationController", () => {
   beforeEach(() => {
+    mocks.runtime = "desktop";
     mocks.invoke.mockReset();
     mocks.invoke.mockResolvedValue(undefined);
   });
 
+  it("keeps the Web renderer attached while applying background output policy", async () => {
+    mocks.runtime = "web";
+    const harness = createHarness();
+    harness.advance(XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs * 2);
+    await harness.controller.hibernateRenderer(0);
+    await settle();
+    expect(harness.timers.size).toBe(0);
+    expect(harness.updateOutputDrainMode).toHaveBeenCalled();
+    expect(harness.hibernatedRef.current).toBe(false);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
   it("hibernates a hidden terminal after a full output-idle timeout", async () => {
-    const { advance, hibernatedRef, hibernationPhaseRef, setHibernated } =
-      createHarness();
+    const { advance, hibernatedRef, hibernationPhaseRef, setHibernated } = createHarness();
 
     advance(XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs);
     await settle();
@@ -215,19 +229,13 @@ describe("createXTerminalHibernationController", () => {
       advance(60_000);
       controller.noteOutputActivity();
       await settle();
-      expect(mocks.invoke).not.toHaveBeenCalledWith(
-        "detach_session_renderer",
-        expect.anything(),
-      );
+      expect(mocks.invoke).not.toHaveBeenCalledWith("detach_session_renderer", expect.anything());
     }
 
     advance(XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs - 1);
     await settle();
 
-    expect(mocks.invoke).not.toHaveBeenCalledWith(
-      "detach_session_renderer",
-      expect.anything(),
-    );
+    expect(mocks.invoke).not.toHaveBeenCalledWith("detach_session_renderer", expect.anything());
   });
 
   it("does not hibernate when output arrives at 119 seconds", async () => {
@@ -238,10 +246,7 @@ describe("createXTerminalHibernationController", () => {
     advance(1_000);
     await settle();
 
-    expect(mocks.invoke).not.toHaveBeenCalledWith(
-      "detach_session_renderer",
-      expect.anything(),
-    );
+    expect(mocks.invoke).not.toHaveBeenCalledWith("detach_session_renderer", expect.anything());
   });
 
   it("hibernates only after output stops for another full idle timeout", async () => {
@@ -251,10 +256,7 @@ describe("createXTerminalHibernationController", () => {
     controller.noteOutputActivity();
     advance(XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs - 1);
     await settle();
-    expect(mocks.invoke).not.toHaveBeenCalledWith(
-      "detach_session_renderer",
-      expect.anything(),
-    );
+    expect(mocks.invoke).not.toHaveBeenCalledWith("detach_session_renderer", expect.anything());
 
     advance(1);
     await settle();
@@ -266,10 +268,9 @@ describe("createXTerminalHibernationController", () => {
   });
 
   it("never hibernates a visible terminal from output idleness", async () => {
-    const { advance, controller, repaintVisibleTerminal, timers } =
-      createHarness({
-        visible: true,
-      });
+    const { advance, controller, repaintVisibleTerminal, timers } = createHarness({
+      visible: true,
+    });
 
     expect(timers.size).toBe(0);
     expect(repaintVisibleTerminal).toHaveBeenCalled();
@@ -277,10 +278,7 @@ describe("createXTerminalHibernationController", () => {
     advance(XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs * 2);
     await settle();
 
-    expect(mocks.invoke).not.toHaveBeenCalledWith(
-      "detach_session_renderer",
-      expect.anything(),
-    );
+    expect(mocks.invoke).not.toHaveBeenCalledWith("detach_session_renderer", expect.anything());
   });
 
   it("cancels preparing hibernation when output activity arrives", async () => {
@@ -297,10 +295,7 @@ describe("createXTerminalHibernationController", () => {
     firstDrain.resolve(true);
     await settle();
 
-    expect(mocks.invoke).not.toHaveBeenCalledWith(
-      "detach_session_renderer",
-      expect.anything(),
-    );
+    expect(mocks.invoke).not.toHaveBeenCalledWith("detach_session_renderer", expect.anything());
     expect(hibernationPhaseRef.current).toBe("idle");
     expect(timers.size).toBe(1);
   });
@@ -311,10 +306,9 @@ describe("createXTerminalHibernationController", () => {
       .fn()
       .mockResolvedValueOnce(true)
       .mockReturnValueOnce(afterDetachDrain.promise);
-    const { advance, controller, hibernatedRef, hibernationPhaseRef } =
-      createHarness({
-        flushFrameGateAndDrain,
-      });
+    const { advance, controller, hibernatedRef, hibernationPhaseRef } = createHarness({
+      flushFrameGateAndDrain,
+    });
 
     advance(XTERM_PERFORMANCE_CONFIG.lifecycle.deepHibernateDelayMs);
     await settle();

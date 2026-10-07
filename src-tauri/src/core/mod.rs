@@ -43,7 +43,7 @@ pub use quick_commands::{
 pub use rdp::RdpSessionManager;
 pub use recording::{
     ExistingFileBehavior, InputOrigin, InputSensitivity, RecordingContext, RecordingManager,
-    RecordingMode, RecordingProfile, RecordingStatus, RotationPolicy, TerminalHistorySearchRequest,
+    RecordingMode, RecordingProfile, RecordingStatus, TerminalHistorySearchRequest,
     TerminalHistorySearchResponse,
 };
 pub use session::{

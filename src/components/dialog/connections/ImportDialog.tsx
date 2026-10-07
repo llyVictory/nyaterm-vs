@@ -1,5 +1,3 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { type ComponentType, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdDataObject, MdOpenInNew, MdTerminal } from "react-icons/md";
@@ -27,6 +25,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
 import { useConfigTransfer } from "@/hooks/useConfigTransfer";
+import { pickBrowserFile } from "@/lib/backend/browserArtifacts";
+import { importBrowserConnections } from "@/lib/backend/configTransfer";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { openUrl } from "@/lib/backend/platform/opener";
+import { runtime } from "@/lib/backend/runtime";
 import { invoke } from "@/lib/invoke";
 import { logger } from "@/lib/logger";
 
@@ -124,13 +127,21 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
   const [windtermMasterPassword, setWindtermMasterPassword] = useState("");
   const [windtermImporting, setWindtermImporting] = useState(false);
   const [confirmBackupRestore, setConfirmBackupRestore] = useState(false);
+  const [browserImporting, setBrowserImporting] = useState(false);
   const docsUrl = i18n.language.toLowerCase().startsWith("zh")
     ? SESSION_IMPORT_DOC_URLS.zh
     : SESSION_IMPORT_DOC_URLS.en;
 
   const renderSourceIcon = (source: ImportSource) => {
     if (typeof source.icon === "string") {
-      return <img src={source.icon} alt={source.name} className="h-10 w-10" draggable={false} />;
+      return (
+        <img
+          src={`${import.meta.env.BASE_URL}${source.icon.replace(/^\//, "")}`}
+          alt={source.name}
+          className="h-10 w-10"
+          draggable={false}
+        />
+      );
     }
 
     const Icon = source.icon;
@@ -165,6 +176,36 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
   };
 
   const handleSelect = async (source: ImportSource) => {
+    if (runtime === "web") {
+      if (browserImporting || source.picker === "directory" || source.id === "ssh_config") return;
+      setBrowserImporting(true);
+      try {
+        const file = await pickBrowserFile(
+          (source.extensions ?? []).map((ext) => `.${ext}`).join(","),
+        );
+        if (!file) return;
+        const result = await importBrowserConnections(source.id, file);
+        finishSessionImport(result.imported);
+        for (const warning of result.warnings)
+          if (warning === "credentials_not_in_export") toast.info(t("web.importCredentialsHint"));
+        onClose();
+      } catch (error) {
+        logger.error({
+          domain: "settings.persistence",
+          event: "connections.import_failed",
+          message: "Browser connection import failed",
+          error,
+        });
+        toast.error(
+          String(error).includes("WindTerm profile resources")
+            ? t("web.windtermResourcesRequired")
+            : t("savedConnections.importFailed", { error: String(error) }),
+        );
+      } finally {
+        setBrowserImporting(false);
+      }
+      return;
+    }
     onClose();
 
     if (source.id === "ssh_config") {
@@ -267,7 +308,7 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <Dialog open={open} onOpenChange={(v) => !v && !browserImporting && onClose()}>
         <DialogContent className="w-[min(480px,calc(100vw-2rem))] sm:max-w-[480px] p-6">
           <DialogHeader>
             <DialogTitle className="text-sm">{t("savedConnections.importDialogTitle")}</DialogTitle>
@@ -282,7 +323,12 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
                 <button
                   key={source.id}
                   type="button"
-                  className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border p-3 text-center transition-colors hover:border-[var(--df-primary)] hover:bg-[color-mix(in_srgb,var(--df-primary)_8%,transparent)] cursor-pointer"
+                  disabled={
+                    browserImporting ||
+                    (runtime === "web" &&
+                      (source.picker === "directory" || source.id === "ssh_config"))
+                  }
+                  className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border p-3 text-center transition-colors hover:border-[var(--df-primary)] hover:bg-[color-mix(in_srgb,var(--df-primary)_8%,transparent)] cursor-pointer disabled:cursor-default disabled:opacity-50"
                   style={{ borderColor: "var(--df-border)" }}
                   onClick={() => handleSelect(source)}
                 >
@@ -295,7 +341,10 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
                       className="text-[0.6rem] leading-tight text-center break-all"
                       style={{ color: "var(--df-text-dimmed)" }}
                     >
-                      {source.hint}
+                      {runtime === "web" &&
+                      (source.picker === "directory" || source.id === "ssh_config")
+                        ? t("web.desktopOnly")
+                        : source.hint}
                     </span>
                   )}
                 </button>
@@ -332,7 +381,7 @@ export default function ImportDialog({ open, onClose }: ImportDialogProps) {
               }}
             >
               <img
-                src="/icons/app/nyaterm.svg"
+                src={`${import.meta.env.BASE_URL}icons/app/nyaterm.svg`}
                 alt=""
                 className="h-8 w-8 shrink-0"
                 draggable={false}

@@ -1,4 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import type { NotesChangedEvent } from "@/types/notes";
 
 export const NOTES_CHANGED_EVENT = "notes-changed";

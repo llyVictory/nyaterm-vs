@@ -1,10 +1,12 @@
-import { emit, listen } from "@tauri-apps/api/event";
-import { downloadDir, join, tempDir } from "@tauri-apps/api/path";
+import { runtime, requireCapability, supports } from "@/lib/backend/runtime";
+import { downloadBrowserFile, uploadBrowserFiles } from "@/lib/backend/files";
+import { emit, listen } from "@/lib/backend/api";
+import { downloadDir, join, tempDir } from "@/lib/backend/platform/path";
 import {
   open as openDialog,
   save as saveDialog,
-} from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+} from "@/lib/backend/platform/dialog";
+import { openPath } from "@/lib/backend/platform/opener";
 import {
   type CSSProperties,
   memo,
@@ -119,7 +121,10 @@ import type {
   SessionInfo,
   SessionType,
 } from "@/types/global";
-import { resolveFileEditorOpenTarget, resolveInternalEditorDisplay } from "./editorOpenMode";
+import {
+  resolveFileEditorOpenTarget,
+  resolveInternalEditorDisplay,
+} from "./editorOpenMode";
 import { FileExplorerDialogs } from "./FileExplorerDialogs";
 import {
   clearDirectoryChildrenCacheForPath,
@@ -1138,7 +1143,9 @@ function FileExplorerPane({
       listenSessionsChanged: (handler) => listen("sessions-changed", handler),
       readSessions: () => invoke<SessionInfo[]>("list_sessions"),
       onSessions: (sessions) => {
-        const session = sessions.find((session) => session.id === activeSessionId);
+        const session = sessions.find(
+          (session) => session.id === activeSessionId,
+        );
         setCwdTrackingActive(canTrackTerminalCwd(session));
         setRemoteFileBrowserEnabled(
           hasLocalSession ? true : (session?.remote_file_browser_enabled ?? true),
@@ -2857,11 +2864,7 @@ function FileExplorerPane({
         invalidateTreeDirectories([parentPath]);
       }
       if (
-        isSameExplorerDirectory(
-          parentPath,
-          currentPathRef.current,
-          backend,
-        )
+        isSameExplorerDirectory(parentPath, currentPathRef.current, backend)
       ) {
         await loadDirectory(parentPath, {
           history: "preserve",
@@ -3096,14 +3099,14 @@ function FileExplorerPane({
     const movedCurrentDirectory = moveDialogData?.items.find(
       (item) =>
         item.isDirectory &&
-        isSameExplorerDirectory(
-          item.oldPath,
-          currentPathRef.current,
-          backend,
-        ),
+        isSameExplorerDirectory(item.oldPath, currentPathRef.current, backend),
     );
     const nextCurrentPath = movedCurrentDirectory
-      ? buildMoveTargetPath(targetDirectory, movedCurrentDirectory.name, backend)
+      ? buildMoveTargetPath(
+          targetDirectory,
+          movedCurrentDirectory.name,
+          backend,
+        )
       : null;
     setSelectedFiles(new Set());
     lastSelectedRef.current = null;
@@ -3144,6 +3147,15 @@ function FileExplorerPane({
       pathResolver?.(entry) ?? getEntryFullPath(entry);
 
     try {
+      if (runtime === "web") {
+        if (entries.some((entry) => entry.is_dir))
+          requireCapability("recursiveTransfers");
+        for (const entry of entries) {
+          if (entry.is_dir) requireCapability("recursiveTransfers");
+          await downloadBrowserFile(activeSessionId, resolveEntryPath(entry));
+        }
+        return;
+      }
       const askEach = appSettings.transfer.ask_save_location;
       const downloads: Array<{
         sessionId: string;
@@ -3221,6 +3233,7 @@ function FileExplorerPane({
         ids: activeSessionId ? { session_id: activeSessionId } : undefined,
         error: e,
       });
+      if (runtime === "web") toast.error(getErrorMessage(e));
     }
   };
 
@@ -3249,6 +3262,13 @@ function FileExplorerPane({
     if (!target) return;
 
     try {
+      if (await uploadBrowserFiles(target.sessionId, target.remoteDir, (result, requestedPath) => {
+        if (result.status === "skipped") toast.info(t("fileExplorer.webUploadSkipped", { path: result.path }));
+        else if (result.path !== requestedPath) toast.info(t("fileExplorer.webUploadRenamed", { path: result.path }));
+      })) {
+        await loadDirectory(directoryPath);
+        return;
+      }
       const localPaths = await openDialog({ multiple: true, directory: false });
       if (!localPaths) return;
       const pathList = (
@@ -3271,6 +3291,7 @@ function FileExplorerPane({
         ids: { session_id: target.sessionId },
         error,
       });
+      if (runtime === "web") toast.error(getErrorMessage(error));
     }
   };
 
@@ -3300,6 +3321,7 @@ function FileExplorerPane({
         ids: { session_id: target.sessionId },
         error,
       });
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -3340,6 +3362,10 @@ function FileExplorerPane({
     fullPath = getEntryFullPath(entry),
   ) => {
     if (!activeSessionId || entry.is_dir) return;
+    if (runtime === "web") {
+      await downloadBrowserFile(activeSessionId, fullPath);
+      return;
+    }
     if (explorerBackendRef.current === "local") {
       try {
         await openPath(
@@ -3410,7 +3436,11 @@ function FileExplorerPane({
 
     const backend = explorerBackendRef.current;
     const path = fullPath;
-    if (resolveInternalEditorDisplay(appSettings.transfer.internal_editor_display) === "window") {
+    if (
+      resolveInternalEditorDisplay(
+        appSettings.transfer.internal_editor_display,
+      ) === "window"
+    ) {
       try {
         await openRemoteFileEditor({
           sessionId: activeSessionId,
@@ -3422,6 +3452,13 @@ function FileExplorerPane({
           target: fileWindowTarget,
         });
       } catch (error) {
+        logger.error({
+          domain: "ui.error",
+          event: "editor.open_failed",
+          message: "File editor window open failed",
+          ids: { session_id: activeSessionId },
+          error,
+        });
         toast.error(
           getErrorMessage(error) || t("fileExplorer.openInternalFailed"),
         );
@@ -3447,14 +3484,16 @@ function FileExplorerPane({
       if (result.status === "unsupported") {
         toast.info(
           t(
-            result.reason === "binary"
-              ? "fileExplorer.binaryOpenExternal"
-              : "fileExplorer.unsupportedEncodingOpenExternal",
+            runtime === "web"
+              ? "fileExplorer.webUnsupportedDownload"
+              : result.reason === "binary"
+                ? "fileExplorer.binaryOpenExternal"
+                : "fileExplorer.unsupportedEncodingOpenExternal",
           ),
         );
-      await handleOpenExternal(entry, fullPath);
-      return;
-    }
+        await handleOpenExternal(entry, fullPath);
+        return;
+      }
 
       openFileDocument({
         sessionId: activeSessionId,
@@ -3472,6 +3511,13 @@ function FileExplorerPane({
         },
       });
     } catch (error) {
+      logger.error({
+        domain: "ui.error",
+        event: "editor.open_failed",
+        message: "File open failed",
+        ids: { session_id: activeSessionId },
+        error,
+      });
       toast.error(
         getErrorMessage(error) || t("fileExplorer.openInternalFailed"),
       );
@@ -3482,7 +3528,12 @@ function FileExplorerPane({
     entry: FileEntry,
     fullPath = getEntryFullPath(entry),
   ) => {
-    if (resolveFileEditorOpenTarget(appSettings.transfer) !== "external") {
+    if (
+      resolveFileEditorOpenTarget(
+        appSettings.transfer,
+        supports("nativeFiles"),
+      ) !== "external"
+    ) {
       await handleOpenInternal(entry, fullPath);
       return;
     }
@@ -3570,7 +3621,12 @@ function FileExplorerPane({
         treeState.toggleDirectory(row);
       }
     },
-    [loadDirectory, treeState.activateDirectory, treeState.getDirectorySnapshot, treeState.toggleDirectory],
+    [
+      loadDirectory,
+      treeState.activateDirectory,
+      treeState.getDirectorySnapshot,
+      treeState.toggleDirectory,
+    ],
   );
 
   const handleTreePreview = (row: FileExplorerTreeRow) => {
@@ -3703,17 +3759,20 @@ function FileExplorerPane({
     );
   };
 
-  const handleTreeProperties = useCallback((row: FileExplorerTreeRow) => {
-    if (!activeSessionId) return;
-    setPropertiesDialogData({
-      sessionId: activeSessionId,
-      backend: explorerBackend,
-      fullPath: row.path,
-      rawPathToken: row.rawPathToken,
-      name: row.entry.name,
-      is_dir: row.entry.is_dir,
-    });
-  }, [activeSessionId, explorerBackend]);
+  const handleTreeProperties = useCallback(
+    (row: FileExplorerTreeRow) => {
+      if (!activeSessionId) return;
+      setPropertiesDialogData({
+        sessionId: activeSessionId,
+        backend: explorerBackend,
+        fullPath: row.path,
+        rawPathToken: row.rawPathToken,
+        name: row.entry.name,
+        is_dir: row.entry.is_dir,
+      });
+    },
+    [activeSessionId, explorerBackend],
+  );
 
   const handleTreeAIAction = (
     row: FileExplorerTreeRow,
@@ -3769,12 +3828,7 @@ function FileExplorerPane({
         targetSessionId,
       );
     },
-    [
-      activeSessionId,
-      currentPath,
-      explorerBackend,
-      onSendEntriesToTarget,
-    ],
+    [activeSessionId, currentPath, explorerBackend, onSendEntriesToTarget],
   );
 
   const handleDialogRefresh = useCallback(async () => {
@@ -3973,7 +4027,13 @@ function FileExplorerPane({
       {canBrowseFiles && (
         <FileExplorerToolbar
           isTreeView={isTreeView}
-          selectedCount={isTreeView ? selectedTreeRows.length : selectedRealFiles.length}
+          selectedCount={
+            isTreeView ? selectedTreeRows.length : selectedRealFiles.length
+          }
+          selectionHasDirectory={(isTreeView
+            ? selectedTreeRows.map((row) => row.entry)
+            : selectedRealFiles
+          ).some((entry) => entry.is_dir)}
           isFileSearchActive={isFileSearchActive}
           isFileSearchExpanded={isFileSearchExpanded}
           showHiddenFiles={showHiddenFiles}
@@ -3981,16 +4041,24 @@ function FileExplorerPane({
           fileSearchQuery={fileSearchQuery}
           fileSearchInputRef={fileSearchInputRef}
           onNewFile={() =>
-            handleNewFile(isTreeView ? getTreeOperationDirectoryPath() : undefined)
+            handleNewFile(
+              isTreeView ? getTreeOperationDirectoryPath() : undefined,
+            )
           }
           onNewFolder={() =>
-            handleNewFolder(isTreeView ? getTreeOperationDirectoryPath() : undefined)
+            handleNewFolder(
+              isTreeView ? getTreeOperationDirectoryPath() : undefined,
+            )
           }
           onUploadFiles={() =>
-            handleUploadFiles(isTreeView ? getTreeOperationDirectoryPath() : undefined)
+            handleUploadFiles(
+              isTreeView ? getTreeOperationDirectoryPath() : undefined,
+            )
           }
           onUploadFolder={() =>
-            handleUploadFolder(isTreeView ? getTreeOperationDirectoryPath() : undefined)
+            handleUploadFolder(
+              isTreeView ? getTreeOperationDirectoryPath() : undefined,
+            )
           }
           onUploadFolderContents={() =>
             handleUploadFolderContents(
@@ -4299,6 +4367,10 @@ function FileExplorerPane({
                           onOpenExternal={handleOpenExternal}
                           onRefresh={() => void refreshCurrentDirectory()}
                           showTransferActions={canUseRemoteTransfer}
+                          downloadDisabled={
+                            !supports("recursiveTransfers") &&
+                            selectedRealFiles.some((file) => file.is_dir)
+                          }
                           onUpload={handleUploadFiles}
                           onUploadFolder={handleUploadFolder}
                           onUploadFolderContents={handleUploadFolderContents}
@@ -4486,16 +4558,22 @@ function FileExplorerPane({
                       <MdUpload className="mr-2 h-4 w-4" />
                       {t("fileExplorer.upload")}
                     </ContextMenuItem>
-                    <ContextMenuItem onClick={() => void handleUploadFolder()}>
-                      <MdDriveFolderUpload className="mr-2 h-4 w-4" />
-                      {t("fileExplorer.uploadFolder")}
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onClick={() => void handleUploadFolderContents()}
-                    >
-                      <MdDriveFolderUpload className="mr-2 h-4 w-4" />
-                      {t("fileExplorer.uploadFolderContents")}
-                    </ContextMenuItem>
+                    {supports("recursiveTransfers") && (
+                      <>
+                        <ContextMenuItem
+                          onClick={() => void handleUploadFolder()}
+                        >
+                          <MdDriveFolderUpload className="mr-2 h-4 w-4" />
+                          {t("fileExplorer.uploadFolder")}
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => void handleUploadFolderContents()}
+                        >
+                          <MdDriveFolderUpload className="mr-2 h-4 w-4" />
+                          {t("fileExplorer.uploadFolderContents")}
+                        </ContextMenuItem>
+                      </>
+                    )}
                   </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />

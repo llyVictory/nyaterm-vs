@@ -1,5 +1,15 @@
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { randomUUID } from "@/lib/uuid";
+import { supports } from "@/lib/backend/runtime";
+import { emit, listen, type UnlistenFn } from "@/lib/backend/api";
+import {
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { LuMessageSquarePlus, LuQuote } from "react-icons/lu";
 import {
@@ -110,8 +120,12 @@ function isGenaiModel(model: AIModelConfigItem | null | undefined) {
   return (model?.backend ?? "genai") === "genai";
 }
 
-function getEnabledGenaiModels(settings: { models?: AIModelConfigItem[] | null }) {
-  return (settings.models ?? []).filter((model) => model.enabled && isGenaiModel(model));
+function getEnabledGenaiModels(settings: {
+  models?: AIModelConfigItem[] | null;
+}) {
+  return (settings.models ?? []).filter(
+    (model) => model.enabled && isGenaiModel(model),
+  );
 }
 
 function resolveRunMode(mode: AIMode, agentKind: AIAgentKind | null | undefined): AIRunMode {
@@ -187,9 +201,13 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
   const prismStyle = useMemo(() => buildPrismThemeFromColors(theme.colors), [theme.colors]);
   const mode = aiSettings.default_mode ?? "ask";
   const agentKind = aiSettings.default_agent_kind ?? "nyaterm";
-  const configuredRunMode = resolveRunMode(mode, agentKind);
-  const codexAgentEnabled = aiSettings.codex?.enabled ?? false;
-  const claudeCodeAgentEnabled = aiSettings.claude_code?.enabled ?? false;
+  const configuredRunMode = supports("aiAgents")
+    ? resolveRunMode(mode, agentKind)
+    : "ask";
+  const codexAgentEnabled =
+    supports("aiAgents") && (aiSettings.codex?.enabled ?? false);
+  const claudeCodeAgentEnabled =
+    supports("aiAgents") && (aiSettings.claude_code?.enabled ?? false);
   const runMode =
     (configuredRunMode === "codex_agent" && !codexAgentEnabled) ||
     (configuredRunMode === "claude_code_agent" && !claudeCodeAgentEnabled)
@@ -737,7 +755,7 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
 
       setDetectedError(null);
       const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const requestStreamId = `ai-stream-${crypto.randomUUID()}`;
+      const requestStreamId = `ai-stream-${randomUUID()}`;
       let resolvedSessionId = requestSessionId ?? `pending-${requestStreamId}`;
       const userMessage = createLocalMessage("user", userInput, resolvedSessionId);
       const assistantMessage: AIMessage = {
@@ -1101,7 +1119,7 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
             };
         const categoryId = existingCategory?.id ?? newCategory?.id;
         const command: QuickCommand = {
-          id: `ai-${crypto.randomUUID()}`,
+          id: `ai-${randomUUID()}`,
           label: card.title,
           command: card.command,
           category_id: categoryId,
@@ -1440,7 +1458,9 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
               {desc}
             </span>
           </span>
-          {selected ? <MdCheck className="mt-0.5 shrink-0 text-primary" /> : null}
+          {selected ? (
+            <MdCheck className="mt-0.5 shrink-0 text-primary" />
+          ) : null}
         </button>
       );
     },
@@ -2023,8 +2043,16 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
                     </SelectTrigger>
                     <SelectContent position="popper">
                       <SelectItem value="ask">{t("ai.modeAsk")}</SelectItem>
-                      <SelectItem value="nyaterm_agent">{t("ai.modeNyatermAgent")}</SelectItem>
-                      <SelectItem value="codex_agent" disabled={!codexAgentEnabled}>
+                      <SelectItem
+                        value="nyaterm_agent"
+                        disabled={!supports("aiAgents")}
+                      >
+                        {t("ai.modeNyatermAgent")}
+                      </SelectItem>
+                      <SelectItem
+                        value="codex_agent"
+                        disabled={!codexAgentEnabled}
+                      >
                         {t("ai.modeCodexAgent")}
                       </SelectItem>
                       <SelectItem value="claude_code_agent" disabled={!claudeCodeAgentEnabled}>

@@ -1,4 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import { useEffect, useRef, useState } from "react";
 import {
   getOpenModalChildWindowLabels,
@@ -110,7 +110,7 @@ export function useModalChildWindows() {
   useEffect(() => {
     let unlistenFocusChanged: (() => void) | undefined;
 
-    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+    import("@/lib/backend/platform/window").then(({ getCurrentWindow }) => {
       getCurrentWindow()
         .onFocusChanged(({ payload: focused }) => {
           if (!focused || modalChildWindowCount === 0) return;

@@ -329,6 +329,10 @@ AUR 软件包：[`nyaterm-bin`](https://aur.archlinux.org/packages/nyaterm-bin)
 > `nyaterm-bin` 为社区维护的 AUR 二进制包。如果 AUR 版本暂未同步到最新发布版，可以从 [Releases](https://github.com/nyakang/nyaterm/releases) 下载官方安装包。
 
 
+## Web / Docker 部署
+
+Web Beta 通过单个容器提供浏览器界面与 API，面向一个可信管理员。构建与 Compose 命令见 [deploy/web/](./deploy/web/README.md)，配置和能力范围见 [部署指南](./docs/web-deployment.md)。
+
 ## 开发环境要求
 
 - Node.js 18+
@@ -358,6 +362,7 @@ pnpm tauri dev
 │   ├── src/core/           # SSH、SFTP、PTY、Telnet、串口、AI、备份逻辑
 │   ├── src/config/         # 持久化配置模型
 │   └── crates/otp/         # 本地 OTP 实现
+├── deploy/web/             # Web Dockerfile、Compose 与部署入口
 ├── docs-site/              # Docusaurus 文档站点
 ├── public/                 # 静态资源
 └── scripts/                # 检查、版本同步与演示辅助脚本

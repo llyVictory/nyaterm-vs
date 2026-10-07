@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { supports } from "@/lib/backend/runtime";
 import { useTranslation } from "react-i18next";
 import { MdFolder, MdInsertDriveFile, MdRefresh } from "react-icons/md";
 import { toast } from "sonner";
@@ -90,11 +91,7 @@ function parsePermissionsToOctal(perms: string): string {
   return `${special}${u}${g}${o}`;
 }
 
-export default function PropertiesDialog({
-  data,
-  onClose,
-  onSuccess,
-}: PropertiesDialogProps) {
+export default function PropertiesDialog({ data, onClose, onSuccess }: PropertiesDialogProps) {
   const { t } = useTranslation();
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,15 +103,12 @@ export default function PropertiesDialog({
   const [symlinkTarget, setSymlinkTarget] = useState("");
   const [recursive, setRecursive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const initialOctal = properties
-    ? parsePermissionsToOctal(properties.permissions)
-    : "0644";
+  const initialOctal = properties ? parsePermissionsToOctal(properties.permissions) : "0644";
   const initialOwner = properties?.owner || properties?.uid || "";
   const initialGroup = properties?.group || properties?.gid || "";
   const initialSymlinkTarget = properties?.symlink_target ?? "";
   const canEditAttributes = data.backend === "remote";
-  const canEditSymlinkTarget =
-    data.backend === "remote" && properties?.is_symlink === true;
+  const canEditSymlinkTarget = data.backend === "remote" && properties?.is_symlink === true;
 
   useEffect(() => {
     let isMounted = true;
@@ -173,8 +167,7 @@ export default function PropertiesDialog({
       group: nextGroup !== initialGroup ? nextGroup : null,
       recursive: data.is_dir && recursive,
     };
-    const symlinkTargetChanged =
-      canEditSymlinkTarget && symlinkTarget !== initialSymlinkTarget;
+    const symlinkTargetChanged = canEditSymlinkTarget && symlinkTarget !== initialSymlinkTarget;
     const attributesChanged = !!(update.mode || update.owner || update.group);
 
     if (!attributesChanged && !symlinkTargetChanged) {
@@ -202,9 +195,7 @@ export default function PropertiesDialog({
       }
       toast.success(
         t(
-          symlinkTargetChanged
-            ? "fileExplorer.symlinkTargetSaved"
-            : "fileExplorer.propertiesSaved",
+          symlinkTargetChanged ? "fileExplorer.symlinkTargetSaved" : "fileExplorer.propertiesSaved",
         ),
       );
       await onSuccess?.();
@@ -247,29 +238,19 @@ export default function PropertiesDialog({
   };
 
   return (
-    <Dialog
-      disablePointerDismissal
-      open
-      onOpenChange={(v) => !v && !isSaving && onClose()}
-    >
+    <Dialog disablePointerDismissal open onOpenChange={(v) => !v && !isSaving && onClose()}>
       <DialogContent className="w-[min(460px,calc(100vw-2rem))] sm:max-w-[460px] p-0 gap-0">
         <DialogHeader className="pl-5 pr-12 py-3 border-b">
           <DialogTitle className="text-sm flex items-center gap-2 min-w-0">
             {data.is_dir ? (
-              <MdFolder
-                className="text-lg shrink-0"
-                style={{ color: "#eab308" }}
-              />
+              <MdFolder className="text-lg shrink-0" style={{ color: "#eab308" }} />
             ) : (
               <MdInsertDriveFile
                 className="text-lg shrink-0"
                 style={{ color: "var(--df-primary)" }}
               />
             )}
-            <span
-              className="truncate"
-              title={t("fileExplorer.propertiesOf", { name: data.name })}
-            >
+            <span className="truncate" title={t("fileExplorer.propertiesOf", { name: data.name })}>
               {t("fileExplorer.propertiesOf", { name: data.name })}
             </span>
           </DialogTitle>
@@ -307,10 +288,7 @@ export default function PropertiesDialog({
                       key: "location",
                       label: t("fileExplorer.location"),
                       value: (
-                        <span
-                          className="break-all select-all font-mono"
-                          title={getLocation()}
-                        >
+                        <span className="break-all select-all font-mono" title={getLocation()}>
                           {getLocation()}
                         </span>
                       ),
@@ -326,9 +304,7 @@ export default function PropertiesDialog({
                                 className="h-8 min-w-0 w-full font-mono text-xs"
                                 value={symlinkTarget}
                                 disabled={isSaving}
-                                onChange={(event) =>
-                                  setSymlinkTarget(event.target.value)
-                                }
+                                onChange={(event) => setSymlinkTarget(event.target.value)}
                               />
                             ),
                           },
@@ -342,20 +318,12 @@ export default function PropertiesDialog({
                     {
                       key: "mtime",
                       label: t("fileExplorer.mtime"),
-                      value: (
-                        <span className="font-mono">
-                          {formatTime(properties.mtime)}
-                        </span>
-                      ),
+                      value: <span className="font-mono">{formatTime(properties.mtime)}</span>,
                     },
                     {
                       key: "atime",
                       label: t("fileExplorer.atime"),
-                      value: (
-                        <span className="font-mono">
-                          {formatTime(properties.atime)}
-                        </span>
-                      ),
+                      value: <span className="font-mono">{formatTime(properties.atime)}</span>,
                     },
                     {
                       key: "owner",
@@ -364,9 +332,7 @@ export default function PropertiesDialog({
                         <span>
                           {properties.owner || "-"}{" "}
                           {properties.uid && (
-                            <span className="font-mono opacity-70">
-                              [{properties.uid}]
-                            </span>
+                            <span className="font-mono opacity-70">[{properties.uid}]</span>
                           )}
                         </span>
                       ),
@@ -378,21 +344,15 @@ export default function PropertiesDialog({
                         <span>
                           {properties.group || "-"}{" "}
                           {properties.gid && (
-                            <span className="font-mono opacity-70">
-                              [{properties.gid}]
-                            </span>
+                            <span className="font-mono opacity-70">[{properties.gid}]</span>
                           )}
                         </span>
                       ),
                     },
                   ].map((row) => (
                     <div key={row.key} className="flex min-w-0 items-start">
-                      <span className="w-24 shrink-0 text-muted-foreground">
-                        {row.label}:
-                      </span>
-                      <span className="min-w-0 flex-1 break-words">
-                        {row.value}
-                      </span>
+                      <span className="w-24 shrink-0 text-muted-foreground">{row.label}:</span>
+                      <span className="min-w-0 flex-1 break-words">{row.value}</span>
                     </div>
                   ))}
                 </div>
@@ -408,9 +368,7 @@ export default function PropertiesDialog({
                   </h3>
                   <div className="space-y-3 text-xs">
                     <label className="grid grid-cols-[5.5rem_1fr] items-center gap-3">
-                      <span className="text-muted-foreground">
-                        {t("fileExplorer.owner")}:
-                      </span>
+                      <span className="text-muted-foreground">{t("fileExplorer.owner")}:</span>
                       <Input
                         className="h-8 text-xs"
                         value={ownerInput}
@@ -420,9 +378,7 @@ export default function PropertiesDialog({
                       />
                     </label>
                     <label className="grid grid-cols-[5.5rem_1fr] items-center gap-3">
-                      <span className="text-muted-foreground">
-                        {t("fileExplorer.group")}:
-                      </span>
+                      <span className="text-muted-foreground">{t("fileExplorer.group")}:</span>
                       <Input
                         className="h-8 text-xs"
                         value={groupInput}
@@ -448,15 +404,9 @@ export default function PropertiesDialog({
                       <thead className="bg-muted text-muted-foreground">
                         <tr>
                           <th className="font-normal px-3 py-2 w-16"></th>
-                          <th className="font-normal px-2 py-2 text-center w-14">
-                            R
-                          </th>
-                          <th className="font-normal px-2 py-2 text-center w-14">
-                            W
-                          </th>
-                          <th className="font-normal px-2 py-2 text-center w-14">
-                            X
-                          </th>
+                          <th className="font-normal px-2 py-2 text-center w-14">R</th>
+                          <th className="font-normal px-2 py-2 text-center w-14">W</th>
+                          <th className="font-normal px-2 py-2 text-center w-14">X</th>
                           <th className="font-normal px-2 py-2 text-center">
                             {t("fileExplorer.special")}
                           </th>
@@ -489,13 +439,8 @@ export default function PropertiesDialog({
                             alt: true,
                           },
                         ].map((row) => (
-                          <tr
-                            key={row.idx}
-                            className={`border-t ${row.alt ? "bg-muted/30" : ""}`}
-                          >
-                            <td className="px-3 py-2 text-muted-foreground">
-                              {row.label}
-                            </td>
+                          <tr key={row.idx} className={`border-t ${row.alt ? "bg-muted/30" : ""}`}>
+                            <td className="px-3 py-2 text-muted-foreground">{row.label}</td>
                             <td className="px-2 py-2 text-center">
                               <Checkbox
                                 checked={hasBit(row.idx, 4)}
@@ -529,11 +474,7 @@ export default function PropertiesDialog({
                                   checked={hasBit(row.sIdx, row.sBit)}
                                   disabled={isSaving}
                                   onCheckedChange={(checked) =>
-                                    updateBit(
-                                      row.sIdx,
-                                      row.sBit,
-                                      checked === true,
-                                    )
+                                    updateBit(row.sIdx, row.sBit, checked === true)
                                   }
                                 />
                                 {row.sLabel}
@@ -550,9 +491,7 @@ export default function PropertiesDialog({
                       {t("fileExplorer.octal")}:
                     </span>
                     <div className="flex items-center">
-                      <span className="text-xs font-mono mr-2 opacity-50">
-                        0
-                      </span>
+                      <span className="text-xs font-mono mr-2 opacity-50">0</span>
                       <Input
                         className="w-[60px] text-center font-mono text-xs h-7"
                         style={{ letterSpacing: "2px" }}
@@ -567,15 +506,13 @@ export default function PropertiesDialog({
                     </div>
                   </div>
 
-                  {data.is_dir && (
+                  {data.is_dir && supports("recursiveTransfers") && (
                     <label className="mt-4 flex items-start gap-2 text-xs">
                       <Checkbox
                         className="mt-0.5"
                         checked={recursive}
                         disabled={isSaving}
-                        onCheckedChange={(checked) =>
-                          setRecursive(checked === true)
-                        }
+                        onCheckedChange={(checked) => setRecursive(checked === true)}
                       />
                       <span className="leading-5 text-muted-foreground">
                         {t("fileExplorer.applyRecursively")}
@@ -606,9 +543,7 @@ export default function PropertiesDialog({
               onClick={handleSave}
               disabled={isSaving || loading || !!error}
             >
-              {isSaving && (
-                <MdRefresh className="text-[0.875rem] animate-spin" />
-              )}
+              {isSaving && <MdRefresh className="text-[0.875rem] animate-spin" />}
               {t("dialog.save")}
             </Button>
           )}

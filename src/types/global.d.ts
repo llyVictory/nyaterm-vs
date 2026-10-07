@@ -42,7 +42,7 @@ export interface AppRuntimeInfo {
 export interface AppSupportInfo {
   os: string;
   architecture: string;
-  runtime: "portable" | "installed";
+  runtime: "portable" | "installed" | "web";
   packageManager?: string | null;
   conpty?: {
     available: boolean;
@@ -55,22 +55,10 @@ export interface AppSupportInfo {
 }
 
 /** AI Agent command execution wrapper profile. */
-export type AIExecutionProfile =
-  | "auto"
-  | "posix"
-  | "powershell"
-  | "cmd"
-  | "send_only"
-  | "disabled";
+export type AIExecutionProfile = "auto" | "posix" | "powershell" | "cmd" | "send_only" | "disabled";
 export type SshProfile = "standard" | "network_device";
 export type SshRuntimeMode = "standard" | "terminal" | "sftp";
-export type SshTerminalType =
-  | "xterm-256color"
-  | "xterm"
-  | "vt100"
-  | "vt220"
-  | "ansi"
-  | "linux";
+export type SshTerminalType = "xterm-256color" | "xterm" | "vt100" | "vt220" | "ansi" | "linux";
 
 /** A group of sessions whose terminal input is broadcast to all members. */
 export interface SyncGroup {
@@ -87,16 +75,14 @@ export interface SyncGroup {
 export type PaneSplitDirection = "horizontal" | "vertical";
 
 /** Connection type discriminator matching Rust ConnectionType. */
-export type ConnectionTypeTag =
-  | "ssh"
-  | "local_terminal"
-  | "telnet"
-  | "serial"
-  | "rdp"
-  | "vnc";
+export type ConnectionTypeTag = "ssh" | "local_terminal" | "telnet" | "serial" | "rdp" | "vnc";
 
 /** Metadata for a connected or disconnected session. */
 export interface SessionInfo {
+  /** Web session lease associated with a persisted workspace pane. */
+  workspace_pane_id?: string;
+  ready?: boolean;
+  attached?: boolean;
   id: string;
   name: string;
   session_type: WorkspaceSessionType;
@@ -197,11 +183,7 @@ export interface FileDocumentPane extends WorkspacePaneBase {
   };
 }
 
-export type SessionPane =
-  | TerminalSessionPane
-  | RdpSessionPane
-  | VncSessionPane
-  | FileDocumentPane;
+export type SessionPane = TerminalSessionPane | RdpSessionPane | VncSessionPane | FileDocumentPane;
 
 /** Split node containing two child panes. */
 export interface SplitPane {
@@ -289,9 +271,7 @@ export interface SshAgentForwardingIdentity {
   custom_endpoint_index?: number;
 }
 
-export type SshAgentForwardingEndpointErrorCode =
-  | "connect_failed"
-  | "identity_enumeration_failed";
+export type SshAgentForwardingEndpointErrorCode = "connect_failed" | "identity_enumeration_failed";
 
 export interface SshAgentForwardingEndpointError {
   custom_endpoint_index: number;
@@ -662,12 +642,7 @@ export interface VncReconnectSettings {
 }
 
 export type RecordingMode = "transcript" | "raw";
-export type RecordingState =
-  | "starting"
-  | "recording"
-  | "degraded"
-  | "failed"
-  | "stopping";
+export type RecordingState = "starting" | "recording" | "degraded" | "failed" | "stopping";
 export type ExistingFileBehavior = "unique" | "append" | "overwrite";
 export type RotationPolicy =
   | { type: "session" }
@@ -791,11 +766,7 @@ export type RightPanelId =
   | "recording"
   | "syncBackupHistory";
 
-export type ActivityBarZone =
-  | "left_top"
-  | "left_bottom"
-  | "right_top"
-  | "right_bottom";
+export type ActivityBarZone = "left_top" | "left_bottom" | "right_top" | "right_bottom";
 
 export interface ActivityBarLayout {
   left_top: string[];
@@ -811,13 +782,7 @@ export interface ActivityBarLayout {
 /** Layout preferences: panel widths, active panels, theme. */
 export type QuickCommandViewMode = "list" | "compact" | "tile";
 export type QuickCommandSortMode = "created" | "name" | "useCount" | "custom";
-export type HeaderStatusMode =
-  | "session"
-  | "resources"
-  | "host"
-  | "datetime"
-  | "gpu"
-  | "npu";
+export type HeaderStatusMode = "session" | "resources" | "host" | "datetime" | "gpu" | "npu";
 
 export type RestorableTerminalWindowNode =
   | {
@@ -1167,10 +1132,7 @@ export interface QuickCommandsConfig {
   categories: QuickCommandCategory[];
 }
 
-export type QuickCommandImportSource =
-  | "windterm_quickbar"
-  | "xshell_xts"
-  | "nyaterm_json";
+export type QuickCommandImportSource = "windterm_quickbar" | "xshell_xts" | "nyaterm_json";
 
 export interface QuickCommandImportResult {
   imported_commands: number;
@@ -1752,12 +1714,7 @@ export type RiskReasonCode =
   | "unknownCommand"
   | "ordinaryWrite"
   | "readOnlyDiagnostic";
-export type AgentStepStatus =
-  | "running"
-  | "completed"
-  | "needs_approval"
-  | "rejected"
-  | "failed";
+export type AgentStepStatus = "running" | "completed" | "needs_approval" | "rejected" | "failed";
 
 export interface AgentStepAction {
   kind: AgentActionKind;

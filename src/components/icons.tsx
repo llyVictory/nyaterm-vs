@@ -62,7 +62,8 @@ import {
 } from "react-icons/si";
 import type { FileEntry, RemoteStatsSystem } from "@/types/global";
 
-function createLocalSvgIcon(src: string): IconType {
+function createLocalSvgIcon(path: string): IconType {
+  const src = `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
   const LocalSvgIcon: IconType = ({ className, size, style, title }) => {
     const dimension = size ?? "1em";
 
@@ -444,7 +445,10 @@ export const SEARCH_ICONS: Record<string, QuickIconDef> = {
 
 export type SearchIconName = keyof typeof SEARCH_ICONS;
 
-export function getFileIcon(entry: FileEntry): { icon: ElementType; color: string } {
+export function getFileIcon(entry: FileEntry): {
+  icon: ElementType;
+  color: string;
+} {
   if (entry.is_symlink) return { icon: MdLink, color: "#67e8f9" }; // cyan-300
   if (entry.is_dir) return { icon: MdFolder, color: "#fbbf24" }; // amber-400
 

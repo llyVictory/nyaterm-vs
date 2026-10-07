@@ -41,7 +41,13 @@
     "fmt:rust:check": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "i18n:check": "prettier --check src/i18n/locales/*.json",
     "i18n:fix": "prettier --write src/i18n/locales/*.json",
-    "postinstall": "node scripts/patch-xterm-webgl-clear-model.cjs && node scripts/patch-xterm-wide-char-selection.cjs && node scripts/patch-xterm-foreground-intense.cjs"
+    "postinstall": "node scripts/patch-xterm-webgl-clear-model.cjs && node scripts/patch-xterm-wide-char-selection.cjs && node scripts/patch-xterm-foreground-intense.cjs",
+    "build:web": "tsc && vite build",
+    "web:build:server": "cargo build --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --release --locked",
+    "web:serve": "cargo run --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked",
+    "test:web": "cargo test --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --locked",
+    "i18n:keys": "node scripts/check-i18n-keys.mjs",
+    "test:web:e2e": "node scripts/web-e2e.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -91,6 +97,7 @@
     "cmdk": "^1.1.1",
     "i18next": "^25.8.11",
     "input-otp": "^1.4.2",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.575.0",
     "motion": "^12.34.3",
     "next-themes": "^0.4.6",
@@ -111,6 +118,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.2",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/react": "^16.3.2",

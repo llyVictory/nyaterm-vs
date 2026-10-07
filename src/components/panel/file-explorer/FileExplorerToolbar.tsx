@@ -1,3 +1,4 @@
+import { supports } from "@/lib/backend/runtime";
 import type { ComponentProps, RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -24,14 +25,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type ToolbarIconButtonProps = ComponentProps<typeof Button> & {
   label: string;
 };
 
-function ToolbarIconButton({ label, children, ...props }: ToolbarIconButtonProps) {
+function ToolbarIconButton({
+  label,
+  children,
+  ...props
+}: ToolbarIconButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -57,6 +66,7 @@ function ToolbarDivider() {
 interface FileExplorerToolbarProps {
   isTreeView: boolean;
   selectedCount: number;
+  selectionHasDirectory?: boolean;
   isFileSearchActive: boolean;
   isFileSearchExpanded: boolean;
   showHiddenFiles: boolean;
@@ -85,6 +95,7 @@ interface FileExplorerToolbarProps {
 export function FileExplorerToolbar({
   isTreeView,
   selectedCount,
+  selectionHasDirectory = false,
   isFileSearchActive,
   isFileSearchExpanded,
   showHiddenFiles,
@@ -114,7 +125,10 @@ export function FileExplorerToolbar({
   return (
     <div
       className="nyaterm-wallpaper-transparent-surface relative flex items-center px-1.5 py-1 border-b gap-0.5"
-      style={{ backgroundColor: "var(--df-bg-panel)", borderColor: "var(--df-border)" }}
+      style={{
+        backgroundColor: "var(--df-bg-panel)",
+        borderColor: "var(--df-border)",
+      }}
     >
       <ToolbarIconButton
         label={t("fileExplorer.newFile")}
@@ -154,21 +168,27 @@ export function FileExplorerToolbar({
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent side="top">{t("fileExplorer.upload")}</TooltipContent>
+              <TooltipContent side="top">
+                {t("fileExplorer.upload")}
+              </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="start" className="min-w-44">
               <DropdownMenuItem onClick={onUploadFiles}>
                 <MdUpload className="mr-2 h-4 w-4" />
                 {t("fileExplorer.upload")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={onUploadFolder}>
-                <MdDriveFolderUpload className="mr-2 h-4 w-4" />
-                {t("fileExplorer.uploadFolder")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onUploadFolderContents}>
-                <MdDriveFolderUpload className="mr-2 h-4 w-4" />
-                {t("fileExplorer.uploadFolderContents")}
-              </DropdownMenuItem>
+              {supports("recursiveTransfers") && (
+                <>
+                  <DropdownMenuItem onClick={onUploadFolder}>
+                    <MdDriveFolderUpload className="mr-2 h-4 w-4" />
+                    {t("fileExplorer.uploadFolder")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onUploadFolderContents}>
+                    <MdDriveFolderUpload className="mr-2 h-4 w-4" />
+                    {t("fileExplorer.uploadFolderContents")}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           <ToolbarIconButton
@@ -177,7 +197,10 @@ export function FileExplorerToolbar({
             size="icon"
             className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
             onClick={onDownloadSelected}
-            disabled={selectedCount === 0}
+            disabled={
+              selectedCount === 0 ||
+              (!supports("recursiveTransfers") && selectionHasDirectory)
+            }
           >
             <MdDownload className="h-4 w-4" />
           </ToolbarIconButton>
@@ -251,7 +274,11 @@ export function FileExplorerToolbar({
           className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
           onClick={onToggleViewMode}
         >
-          {isTreeView ? <MdViewList className="h-4 w-4" /> : <MdAccountTree className="h-4 w-4" />}
+          {isTreeView ? (
+            <MdViewList className="h-4 w-4" />
+          ) : (
+            <MdAccountTree className="h-4 w-4" />
+          )}
         </ToolbarIconButton>
         {!isTreeView && (
           <ToolbarIconButton
@@ -260,7 +287,9 @@ export function FileExplorerToolbar({
             size="icon"
             className={cn(
               "h-7 w-7 rounded-md hover:text-foreground",
-              isFileSearchActive ? "bg-primary/10 text-primary" : "text-muted-foreground",
+              isFileSearchActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground",
             )}
             onClick={onExpandSearch}
           >
@@ -269,13 +298,17 @@ export function FileExplorerToolbar({
         )}
         <ToolbarIconButton
           label={
-            showHiddenFiles ? t("fileExplorer.hideHiddenFiles") : t("fileExplorer.showHiddenFiles")
+            showHiddenFiles
+              ? t("fileExplorer.hideHiddenFiles")
+              : t("fileExplorer.showHiddenFiles")
           }
           variant="ghost"
           size="icon"
           className={cn(
             "h-7 w-7 rounded-md hover:text-foreground",
-            showHiddenFiles ? "bg-primary/10 text-primary" : "text-muted-foreground",
+            showHiddenFiles
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground",
           )}
           onClick={onToggleHiddenFiles}
         >
@@ -320,7 +353,11 @@ export function FileExplorerToolbar({
           <button
             type="button"
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--df-text-dimmed)] transition-colors hover:bg-[var(--df-bg-hover)] hover:text-[var(--df-text)]"
-            aria-label={fileSearchQuery ? t("fileExplorer.clearSearch") : t("common.close")}
+            aria-label={
+              fileSearchQuery
+                ? t("fileExplorer.clearSearch")
+                : t("common.close")
+            }
             onClick={() => {
               if (fileSearchQuery) {
                 onSearchQueryChange("");

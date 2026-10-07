@@ -1,4 +1,5 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { supports } from "@/lib/backend/runtime";
+import { open } from "@/lib/backend/platform/dialog";
 import { Puzzle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -42,10 +43,17 @@ import { PluginMarketplace } from "./PluginMarketplace";
 export function PluginsPanel({ sessionId }: { sessionId: string | null }) {
   const { t } = useTranslation();
   return (
-    <Tabs defaultValue="marketplace" className="h-full min-h-0 gap-0">
+    <Tabs
+      defaultValue={supports("nativePlugins") ? "marketplace" : "installed"}
+      className="h-full min-h-0 gap-0"
+    >
       <TabsList className="m-3 shrink-0">
-        <TabsTrigger value="marketplace">{t("plugins.store.marketplace")}</TabsTrigger>
-        <TabsTrigger value="installed">{t("plugins.store.installedTab")}</TabsTrigger>
+        <TabsTrigger value="marketplace" disabled={!supports("nativePlugins")}>
+          {t("plugins.store.marketplace")}
+        </TabsTrigger>
+        <TabsTrigger value="installed">
+          {t("plugins.store.installedTab")}
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="marketplace" className="min-h-0 overflow-auto">
         <PluginMarketplace />
@@ -122,7 +130,11 @@ function InstalledPluginsPanel({ sessionId }: { sessionId: string | null }) {
           <Puzzle size={16} />
           {t("plugins.title")}
         </h3>
-        <Button size="sm" disabled={busy || locked} onClick={inspect}>
+        <Button
+          size="sm"
+          disabled={busy || locked || !supports("nativePlugins")}
+          onClick={inspect}
+        >
           {t("plugins.install")}
         </Button>
       </div>
@@ -135,7 +147,9 @@ function InstalledPluginsPanel({ sessionId }: { sessionId: string | null }) {
           </Button>
         </div>
       )}
-      {!loaded && <p className="text-sm text-muted-foreground">{t("plugins.loading")}</p>}
+      {!loaded && (
+        <p className="text-sm text-muted-foreground">{t("plugins.loading")}</p>
+      )}
       {loaded && !plugins.length && !error && (
         <p className="rounded-md border p-5 text-sm text-muted-foreground">
           {t("plugins.noInstalled")}
@@ -151,7 +165,9 @@ function InstalledPluginsPanel({ sessionId }: { sessionId: string | null }) {
               <Badge variant={plugin.enabled ? "default" : "secondary"}>
                 {t(plugin.enabled ? "plugins.enabled" : "plugins.disabled")}
               </Badge>
-              {manifest.backend && <Badge variant="outline">{t("plugins.native")}</Badge>}
+              {manifest.backend && (
+                <Badge variant="outline">{t("plugins.native")}</Badge>
+              )}
               <Badge variant="outline">
                 {t(
                   plugin.versions[plugin.activeVersion]?.provenance?.source === "marketplace"
@@ -167,7 +183,8 @@ function InstalledPluginsPanel({ sessionId }: { sessionId: string | null }) {
             </div>
             <p className="break-words text-sm text-muted-foreground">{manifest.description}</p>
             <p className="break-all text-xs text-muted-foreground">
-              {plugin.id} · {t("plugins.publisher", { name: manifest.publisher })}
+              {plugin.id} ·{" "}
+              {t("plugins.publisher", { name: manifest.publisher })}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Select
@@ -293,7 +310,8 @@ function InstalledPluginsPanel({ sessionId }: { sessionId: string | null }) {
           {preview && (
             <div className="space-y-3 text-sm">
               <p className="font-medium">
-                {preview.package.manifest.name} {preview.package.manifest.version}
+                {preview.package.manifest.name}{" "}
+                {preview.package.manifest.version}
               </p>
               <p>{preview.package.manifest.description}</p>
               <p className="break-all text-muted-foreground">
@@ -369,7 +387,9 @@ function InstalledPluginsPanel({ sessionId }: { sessionId: string | null }) {
             {Boolean(grantManifest?.contributions.probes?.length) && (
               <div className="space-y-2">
                 <p className="text-sm">{t("plugins.probeTrust")}</p>
-                {!probeScripts && <p className="text-sm">{t("plugins.loading")}</p>}
+                {!probeScripts && (
+                  <p className="text-sm">{t("plugins.loading")}</p>
+                )}
                 {grantManifest?.contributions.probes?.map((probe) => (
                   <details key={probe.id} className="rounded-md border p-2" open>
                     <summary className="text-sm font-medium">

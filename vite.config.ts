@@ -12,6 +12,12 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+  base: process.env.NYATERM_WEB_BASE_PATH || "/",
+  define: {
+    __APP_VERSION__: JSON.stringify(
+      process.env.npm_package_version || "1.2.12",
+    ),
+  },
 
   optimizeDeps: {
     entries: ["index.html"],
@@ -20,7 +26,9 @@ export default defineConfig(async () => ({
   css: {
     transformer: "lightningcss",
     lightningcss: {
-      targets: browserslistToTargets(browserslist("safari >= 14, chrome >= 105")),
+      targets: browserslistToTargets(
+        browserslist("safari >= 14, chrome >= 105"),
+      ),
     },
   },
 
@@ -33,7 +41,12 @@ export default defineConfig(async () => ({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
-    exclude: [...configDefaults.exclude, "**/src-tauri/vendor/**", "**/temp/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "**/src-tauri/vendor/**",
+      "**/temp/**",
+      "**/e2e/**",
+    ],
   },
 
   clearScreen: false,

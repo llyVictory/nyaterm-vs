@@ -1,6 +1,18 @@
-import { listen } from "@tauri-apps/api/event";
-import { ChevronDownIcon, FolderPlusIcon, MoreHorizontalIcon } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { runtime } from "@/lib/backend/runtime";
+import { randomUUID } from "@/lib/uuid";
+import { listen } from "@/lib/backend/api";
+import {
+  ChevronDownIcon,
+  FolderPlusIcon,
+  MoreHorizontalIcon,
+} from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { MdAdd, MdDelete, MdDriveFileMove, MdEdit, MdLan, MdRouter } from "react-icons/md";
 import { toast } from "sonner";
@@ -59,7 +71,11 @@ import type {
 
 type NetworkTab = "proxy" | "tunnel";
 type GroupDialogState = { tab: NetworkTab; group: NetworkGroup | null } | null;
-type DeleteGroupState = { tab: NetworkTab; group: NetworkGroup; itemCount: number } | null;
+type DeleteGroupState = {
+  tab: NetworkTab;
+  group: NetworkGroup;
+  itemCount: number;
+} | null;
 type GroupedSection<T> = {
   id: string;
   label: string;
@@ -259,8 +275,12 @@ function TunnelRow({
           </div>
           <TunnelRuntimeBadge state={runtimeState} enabled={tunnel.is_open} />
         </div>
-        <div className="mt-0.5 truncate text-xs" style={{ color: "var(--df-text-dimmed)" }}>
-          {connectionOption?.connection.name ?? t("network.connectionMissing")} · {typeLabel}
+        <div
+          className="mt-0.5 truncate text-xs"
+          style={{ color: "var(--df-text-dimmed)" }}
+        >
+          {connectionOption?.connection.name ?? t("network.connectionMissing")}{" "}
+          · {typeLabel}
         </div>
         <div className="mt-0.5 text-[0.6875rem]" style={{ color: "var(--df-text-muted)" }}>
           {endpoint}
@@ -307,7 +327,13 @@ function getTunnelRuntimeStatus(enabled: boolean, state?: TunnelRuntimeState): T
   return enabled ? "disconnected" : "stopped";
 }
 
-function TunnelRuntimeBadge({ state, enabled }: { state?: TunnelRuntimeState; enabled: boolean }) {
+function TunnelRuntimeBadge({
+  state,
+  enabled,
+}: {
+  state?: TunnelRuntimeState;
+  enabled: boolean;
+}) {
   const { t } = useTranslation();
   const status = getTunnelRuntimeStatus(enabled, state);
   const label =
@@ -485,7 +511,9 @@ function GroupNameDialog({
               }
             }}
           />
-          {error ? <div className="text-xs text-destructive">{error}</div> : null}
+          {error ? (
+            <div className="text-xs text-destructive">{error}</div>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
@@ -537,7 +565,7 @@ export default function NetworkPanel() {
   const { t } = useTranslation();
   const { appSettings, savedConnections, savedGroups, updateUi } = useApp();
   const activeTab: NetworkTab =
-    appSettings.ui.network_panel_active_tab === "proxy" ? "proxy" : "tunnel";
+    runtime === "web" || appSettings.ui.network_panel_active_tab === "proxy" ? "proxy" : "tunnel";
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
   const [proxies, setProxies] = useState<ProxyConfig[]>([]);
@@ -616,6 +644,7 @@ export default function NetworkPanel() {
   }, []);
 
   const loadTunnelGroups = useCallback(async () => {
+    if (runtime === "web") return;
     try {
       const next = await invoke<NetworkGroup[]>("get_tunnel_groups");
       setTunnelGroups(next);
@@ -627,13 +656,14 @@ export default function NetworkPanel() {
   const loadProxies = useCallback(async () => {
     try {
       const next = await invoke<ProxyConfig[]>("get_proxies");
-      setProxies(next);
+      setProxies(runtime === "web" ? next.filter((proxy) => proxy.protocol !== "proxycommand") : next);
     } catch (error) {
       toast.error(String(error));
     }
   }, []);
 
   const loadTunnels = useCallback(async () => {
+    if (runtime === "web") return;
     try {
       const next = await invoke<TunnelConfig[]>("get_tunnels");
       setTunnels(next);
@@ -643,6 +673,7 @@ export default function NetworkPanel() {
   }, []);
 
   const loadTunnelRuntimeStates = useCallback(async () => {
+    if (runtime === "web") return;
     try {
       const next = await invoke<TunnelRuntimeState[]>("get_tunnel_runtime_states");
       setTunnelRuntimeStates(Object.fromEntries(next.map((state) => [state.tunnelId, state])));
@@ -758,7 +789,7 @@ export default function NetworkPanel() {
         const groups = groupDialog.tab === "proxy" ? proxyGroups : tunnelGroups;
         const group = groupDialog.group
           ? { ...groupDialog.group, name }
-          : { id: crypto.randomUUID(), name, sort_order: groups.length };
+          : { id: randomUUID(), name, sort_order: groups.length };
         await invoke(groupDialog.tab === "proxy" ? "save_proxy_group" : "save_tunnel_group", {
           group,
         });
@@ -823,10 +854,10 @@ export default function NetworkPanel() {
           }}
           className="w-full"
         >
-          <TabsList className="grid h-8 w-full grid-cols-2">
-            <TabsTrigger value="tunnel" className="text-xs">
+          <TabsList className={`grid h-8 w-full ${runtime === "web" ? "grid-cols-1" : "grid-cols-2"}`}>
+            {runtime === "desktop" && <TabsTrigger value="tunnel" className="text-xs">
               {t("network.tunnels")}
-            </TabsTrigger>
+            </TabsTrigger>}
             <TabsTrigger value="proxy" className="text-xs">
               {t("network.proxy")}
             </TabsTrigger>

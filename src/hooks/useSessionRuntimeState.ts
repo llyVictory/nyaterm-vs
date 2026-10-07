@@ -1,4 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
+import { supports } from "@/lib/backend/runtime";
+import { listen } from "@/lib/backend/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@/lib/invoke";
 import { logger } from "@/lib/logger";
@@ -17,6 +18,7 @@ export function useSessionRuntimeState(
   const [liveSessionsById, setLiveSessionsById] = useState<Map<string, SessionInfo> | null>(null);
 
   const refreshRecordingStatuses = useCallback(async () => {
+    if (!supports("recording")) return;
     try {
       const statuses = await invoke<RecordingStatus[]>("list_recording_statuses");
       setRecordingStatuses(statuses);
@@ -76,7 +78,7 @@ export function useSessionRuntimeState(
   }, []);
 
   useEffect(() => {
-    if (!settingsLoaded) return;
+    if (!settingsLoaded || !supports("recording")) return;
     void invoke("set_recording_memory_limit", {
       maxBytes: Math.max(1, memoryLimitBytes || 5 * 1024 * 1024),
     }).catch((error) => {

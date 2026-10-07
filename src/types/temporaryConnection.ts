@@ -1,4 +1,4 @@
-import type { SshConfig, SshRuntimeMode } from "@/types/global";
+import type { ConnectionNetwork, SshConfig, SshRuntimeMode } from "@/types/global";
 
 export type { SshRuntimeMode };
 
@@ -14,6 +14,8 @@ export interface TemporarySshLinkConfig extends SshConfig {
 }
 
 export interface TemporaryTelnetLinkConfig {
+  network?: ConnectionNetwork;
+  encoding?: string;
   protocol: "telnet";
   name: string;
   host: string;

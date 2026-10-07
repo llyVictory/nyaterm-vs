@@ -1,4 +1,4 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@/lib/backend/api";
 import { logger } from "./logger";
 
 export interface InvokeHealthSnapshot {
@@ -162,7 +162,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
         args: argsSummary,
       },
     });
-    const result = await tauriInvoke<T>(cmd, args);
+    const result = await tauriInvoke<T>(cmd, args, { requestId });
     logger.debug({
       domain: "tauri.invoke",
       event: "command.success",

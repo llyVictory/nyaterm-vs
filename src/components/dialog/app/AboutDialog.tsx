@@ -1,5 +1,5 @@
-import { getName, getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { getName, getVersion } from "@/lib/backend/platform/app";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -87,7 +87,7 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
             : conpty.lastUsed
               ? t("about.conptyLastUsed", {
                   source: conpty.lastUsed === "bundled" ? bundledLabel : systemLabel,
-              })
+                })
               : t("about.conptyNotStarted");
 
   const packageManagerDisplay = supportInfo?.packageManager
@@ -100,7 +100,11 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
     }
 
     const runtimeLabel =
-      supportInfo.runtime === "portable" ? t("about.portable") : t("about.installed");
+      supportInfo.runtime === "web"
+        ? "Web"
+        : supportInfo.runtime === "portable"
+          ? t("about.portable")
+          : t("about.installed");
     const text = [
       "NyaTerm Support Information",
       `Version: ${appVersion}`,
@@ -128,9 +132,11 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
   const architectureDisplay =
     supportInfo?.architecture ?? (supportInfoFailed ? t("about.unknown") : t("common.loading"));
   const runtimeDisplay = supportInfo
-    ? supportInfo.runtime === "portable"
-      ? t("about.portable")
-      : t("about.installed")
+    ? supportInfo.runtime === "web"
+      ? "Web"
+      : supportInfo.runtime === "portable"
+        ? t("about.portable")
+        : t("about.installed")
     : supportInfoFailed
       ? t("about.unknown")
       : t("common.loading");

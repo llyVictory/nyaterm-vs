@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { getRemoteParentDirectory } from "@/components/panel/file-explorer/model";
 import type { EnqueueUploadRequest } from "@/context/TransferContext";
 import { invoke } from "@/lib/invoke";
@@ -67,7 +68,7 @@ async function resolveDuplicateChoice(params: {
       return "proceed";
     case "ask":
       return showTransferDuplicatePrompt({
-        requestId: crypto.randomUUID(),
+        requestId: randomUUID(),
         sessionId,
         remotePath,
         fileName,

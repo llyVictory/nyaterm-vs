@@ -1,3 +1,4 @@
+import { supportsPanel } from "./backend/runtime";
 import type { TerminalWindowNode } from "@/lib/tabWindows";
 import { collectSessionPanes } from "@/lib/workspaceTabs";
 import { parsePluginPanelId } from "@/lib/plugins";
@@ -86,7 +87,10 @@ export function normalizePanelOpenMode(
 }
 
 export function canUseFloatingPanel(id: string): boolean {
-  return (ACTIVITY_BAR_PANEL_ITEM_IDS.has(id) || Boolean(parsePluginPanelId(id))) && !NON_PANEL_IDS.has(id);
+  return (
+    (ACTIVITY_BAR_PANEL_ITEM_IDS.has(id) || Boolean(parsePluginPanelId(id))) &&
+    !NON_PANEL_IDS.has(id)
+  );
 }
 
 const MONITOR_PANEL_VISIBILITY: Record<string, (ui: UiConfig) => boolean> = {
@@ -173,7 +177,7 @@ export function getItemSide(
 }
 
 export function isActivityItemAvailable(id: string, ui: UiConfig): boolean {
-  return MONITOR_PANEL_VISIBILITY[id]?.(ui) ?? true;
+  return supportsPanel(id) && (MONITOR_PANEL_VISIBILITY[id]?.(ui) ?? true);
 }
 
 export function reduceFloatingPanelSelect(

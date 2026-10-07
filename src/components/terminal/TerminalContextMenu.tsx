@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@/lib/backend/platform/opener";
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,6 +24,8 @@ import { PluginContextMenuItems } from "@/components/plugins/PluginContextMenuIt
 import { useTerminalAppSettings } from "@/context/AppContext";
 import { resolveDisplayKeys } from "@/hooks/useShortcutMap";
 import { openAIAssistant } from "@/lib/aiEvents";
+import { downloadBlob } from "@/lib/backend/browserArtifacts";
+import { runtime, supports } from "@/lib/backend/runtime";
 import { writeClipboardText } from "@/lib/clipboard";
 import { normalizeTerminalRightClickAction } from "@/lib/interactionSettings";
 import { invoke } from "@/lib/invoke";
@@ -127,9 +129,7 @@ export default function TerminalContextMenu({
     },
   ].filter((p) => p.free || p.configured);
   const terminalAiActions = ai.enabled
-    ? ai.terminal_ai_actions.filter(
-        (action) => action.enabled && action.name.trim(),
-      )
+    ? ai.terminal_ai_actions.filter((action) => action.enabled && action.name.trim())
     : [];
 
   // Right-click context menu: capture selection state.
@@ -221,18 +221,30 @@ export default function TerminalContextMenu({
 
   const toggleRecording = useCallback(
     (mode: RecordingMode = "transcript") => {
-      void Promise.resolve(onToggleRecording?.(sessionId, mode)).finally(() =>
-        focusTerminal(),
-      );
+      void Promise.resolve(onToggleRecording?.(sessionId, mode)).finally(() => focusTerminal());
     },
     [focusTerminal, onToggleRecording, sessionId],
   );
 
   const saveTranscript = useCallback(() => {
-    void Promise.resolve(onSaveTranscript?.(sessionId, sessionName)).finally(() =>
-      focusTerminal(),
-    );
-  }, [focusTerminal, onSaveTranscript, sessionId, sessionName]);
+    if (runtime === "web") {
+      const buffer = terminalRef.current?.buffer.active;
+      if (!buffer) return;
+      let text = "";
+      for (let index = 0; index < buffer.length; index++) {
+        const line = buffer.getLine(index);
+        if (!line) continue;
+        if (index > 0 && !line.isWrapped) text += "\n";
+        // Keep spaces at wrap boundaries; trim only at logical line ends.
+        text += line.translateToString(!buffer.getLine(index + 1)?.isWrapped);
+      }
+      const name = (sessionName || "terminal").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+      downloadBlob(`${name}.txt`, new Blob([text], { type: "text/plain;charset=utf-8" }));
+      focusTerminal();
+      return;
+    }
+    void Promise.resolve(onSaveTranscript?.(sessionId, sessionName)).finally(() => focusTerminal());
+  }, [focusTerminal, onSaveTranscript, sessionId, sessionName, terminalRef]);
 
   const openRecordingPath = useCallback(
     (command: "open_recording_file" | "show_recording_in_folder") => {
@@ -319,9 +331,7 @@ export default function TerminalContextMenu({
                       let IconComponent = null;
                       let color: string | undefined;
                       if (engine.icon && SEARCH_ICONS[engine.icon]) {
-                        const iconDef = SEARCH_ICONS[
-                          engine.icon
-                        ] as QuickIconDef;
+                        const iconDef = SEARCH_ICONS[engine.icon] as QuickIconDef;
                         IconComponent = iconDef.icon;
                         color = iconDef.color;
                       }
@@ -329,15 +339,10 @@ export default function TerminalContextMenu({
                       return (
                         <ContextMenuItem
                           key={engine.name}
-                          onClick={() =>
-                            doSearchOnline(ctxSelection.text, engine)
-                          }
+                          onClick={() => doSearchOnline(ctxSelection.text, engine)}
                         >
                           {IconComponent && (
-                            <IconComponent
-                              className="text-[0.875rem] mr-2"
-                              style={{ color }}
-                            />
+                            <IconComponent className="text-[0.875rem] mr-2" style={{ color }} />
                           )}
                           {engine.name}
                         </ContextMenuItem>
@@ -401,16 +406,12 @@ export default function TerminalContextMenu({
               <ContextMenuItem onClick={doPaste}>
                 <MdContentPaste className="text-[0.875rem] text-muted-foreground mr-2" />
                 {t("terminalCtx.paste")}
-                <ContextMenuShortcut>
-                  {dk("terminal.paste")}
-                </ContextMenuShortcut>
+                <ContextMenuShortcut>{dk("terminal.paste")}</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem onClick={doPasteSelected}>
                 <MdContentPasteGo className="text-[0.875rem] text-muted-foreground mr-2" />
                 {t("terminalCtx.pasteSelectedText")}
-                <ContextMenuShortcut>
-                  {dk("terminal.pasteSelected")}
-                </ContextMenuShortcut>
+                <ContextMenuShortcut>{dk("terminal.pasteSelected")}</ContextMenuShortcut>
               </ContextMenuItem>
             </>
           ) : (
@@ -418,9 +419,7 @@ export default function TerminalContextMenu({
               <ContextMenuItem onClick={doPaste}>
                 <MdContentPaste className="text-[0.875rem] text-muted-foreground mr-2" />
                 {t("terminalCtx.paste")}
-                <ContextMenuShortcut>
-                  {dk("terminal.paste")}
-                </ContextMenuShortcut>
+                <ContextMenuShortcut>{dk("terminal.paste")}</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem onClick={() => doFind()}>
                 <MdSearch className="text-[0.875rem] text-muted-foreground mr-2" />
@@ -441,74 +440,80 @@ export default function TerminalContextMenu({
             <ContextMenuShortcut>{dk("terminal.clearAll")}</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <PiRecordFill className="text-[0.875rem] text-muted-foreground mr-2" />
-              {t("terminalCtx.recordingLogs")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {recordingStatus ? (
-                <>
-                  <ContextMenuItem
-                    disabled={!onToggleRecording}
-                    onClick={() => toggleRecording("transcript")}
-                  >
-                    <MdStop className="text-[0.875rem] text-muted-foreground mr-2" />
-                    {t("recording.stop")}
-                    <ContextMenuShortcut>{dk("terminal.recording.toggle")}</ContextMenuShortcut>
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => openRecordingPath("open_recording_file")}>
-                    <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
-                    {t("recording.openLog")}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => openRecordingPath("show_recording_in_folder")}>
-                    <MdFolderOpen className="text-[0.875rem] text-muted-foreground mr-2" />
-                    {t("recording.showInFolder")}
-                  </ContextMenuItem>
-                </>
-              ) : (
-                <>
-                  <ContextMenuItem
-                    disabled={!onToggleRecording}
-                    onClick={() => toggleRecording("transcript")}
-                  >
-                    <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
-                    {t("recording.startTranscriptLog")}
-                    <ContextMenuShortcut>{dk("terminal.recording.toggle")}</ContextMenuShortcut>
-                  </ContextMenuItem>
-                  <ContextMenuItem disabled={!onToggleRecording} onClick={() => toggleRecording("raw")}>
-                    <PiRecordFill className="text-[0.875rem] text-muted-foreground mr-2" />
-                    {t("recording.startRawLog")}
-                  </ContextMenuItem>
-                </>
-              )}
-              <ContextMenuSeparator />
-              <ContextMenuItem disabled={!onSaveTranscript} onClick={saveTranscript}>
-                <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
-                {t("recording.saveTranscript")}
-              </ContextMenuItem>
-              <ContextMenuItem onClick={openRecordingSettings}>
-                <MdSettings className="text-[0.875rem] text-muted-foreground mr-2" />
-                {t("terminalCtx.recordingSettings")}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          {supports("recording") ? (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <PiRecordFill className="text-[0.875rem] text-muted-foreground mr-2" />
+                {t("terminalCtx.recordingLogs")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {recordingStatus ? (
+                  <>
+                    <ContextMenuItem
+                      disabled={!onToggleRecording}
+                      onClick={() => toggleRecording("transcript")}
+                    >
+                      <MdStop className="text-[0.875rem] text-muted-foreground mr-2" />
+                      {t("recording.stop")}
+                      <ContextMenuShortcut>{dk("terminal.recording.toggle")}</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => openRecordingPath("open_recording_file")}>
+                      <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
+                      {t("recording.openLog")}
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => openRecordingPath("show_recording_in_folder")}>
+                      <MdFolderOpen className="text-[0.875rem] text-muted-foreground mr-2" />
+                      {t("recording.showInFolder")}
+                    </ContextMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <ContextMenuItem
+                      disabled={!onToggleRecording}
+                      onClick={() => toggleRecording("transcript")}
+                    >
+                      <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
+                      {t("recording.startTranscriptLog")}
+                      <ContextMenuShortcut>{dk("terminal.recording.toggle")}</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={!onToggleRecording}
+                      onClick={() => toggleRecording("raw")}
+                    >
+                      <PiRecordFill className="text-[0.875rem] text-muted-foreground mr-2" />
+                      {t("recording.startRawLog")}
+                    </ContextMenuItem>
+                  </>
+                )}
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={!onSaveTranscript} onClick={saveTranscript}>
+                  <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
+                  {t("recording.saveTranscript")}
+                </ContextMenuItem>
+                <ContextMenuItem onClick={openRecordingSettings}>
+                  <MdSettings className="text-[0.875rem] text-muted-foreground mr-2" />
+                  {t("terminalCtx.recordingSettings")}
+                </ContextMenuItem>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          ) : (
+            <ContextMenuItem onClick={saveTranscript}>
+              <MdOutlineDescription className="text-[0.875rem] text-muted-foreground mr-2" />
+              {t("recording.saveTranscript")}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem onClick={doSelectAll}>
             <MdSelectAll className="text-[0.875rem] text-muted-foreground mr-2" />
             {t("terminalCtx.selectAll")}
-            <ContextMenuShortcut>
-              {dk("terminal.selectAll")}
-            </ContextMenuShortcut>
+            <ContextMenuShortcut>{dk("terminal.selectAll")}</ContextMenuShortcut>
           </ContextMenuItem>
           <PluginContextMenuItems menu="terminal" sessionId={sessionId} disabled={appLocked} />
         </ContextMenuContent>
       </ContextMenu>
       <TranslationDialog
         open={translateState.open}
-        onClose={() =>
-          setTranslateState({ open: false, text: "", provider: "" })
-        }
+        onClose={() => setTranslateState({ open: false, text: "", provider: "" })}
         text={translateState.text}
         provider={translateState.provider}
       />

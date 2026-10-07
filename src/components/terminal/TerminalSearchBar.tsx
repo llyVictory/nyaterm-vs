@@ -1,4 +1,5 @@
 import { Repeat2 } from "lucide-react";
+import { supports } from "@/lib/backend/runtime";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdClose, MdKeyboardArrowDown, MdKeyboardArrowUp } from "react-icons/md";
@@ -91,11 +92,13 @@ export default function TerminalSearchBar({
           label={t("terminalCtx.searchCurrentBuffer")}
           onClick={() => onModeChange("buffer")}
         />
-        <ModeButton
-          active={activeMode === "history"}
-          label={t("terminalCtx.searchDeepHistory")}
-          onClick={() => onModeChange("history")}
-        />
+        {supports("terminalHistory") && (
+          <ModeButton
+            active={activeMode === "history"}
+            label={t("terminalCtx.searchDeepHistory")}
+            onClick={() => onModeChange("history")}
+          />
+        )}
         <div className="flex-1" />
         {statusLabel && (
           <span
@@ -334,7 +337,10 @@ function HistoryResults({
             {expandedLineId === result.lineId && (
               <div
                 className="mt-1 space-y-0.5 whitespace-pre-wrap border-t pt-1 font-mono text-[11px]"
-                style={{ borderColor: "var(--df-border)", color: "var(--df-text-muted)" }}
+                style={{
+                  borderColor: "var(--df-border)",
+                  color: "var(--df-text-muted)",
+                }}
               >
                 {result.before.map((line, index) => (
                   <div key={`before-${result.lineId}-${index}`}>{line}</div>

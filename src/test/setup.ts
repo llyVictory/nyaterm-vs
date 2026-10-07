@@ -31,3 +31,9 @@ Object.defineProperty(window, "ResizeObserver", {
 });
 
 Element.prototype.scrollIntoView = vi.fn();
+
+// Existing unit tests exercise the Desktop transport and its Tauri mocks.
+Object.defineProperty(window, "__TAURI_INTERNALS__", {
+  configurable: true,
+  value: {},
+});

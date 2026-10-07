@@ -288,42 +288,7 @@ async fn install_remote_shell_integration<H: client::Handler>(
         .map(|_| ())
 }
 
-const CHANNEL_REQUEST_REPLY_TIMEOUT_MS: u64 = 10_000;
-
-async fn wait_channel_request_reply(
-    channel: &mut russh::Channel<client::Msg>,
-    request_name: &str,
-) -> AppResult<()> {
-    let reply = timeout(
-        Duration::from_millis(CHANNEL_REQUEST_REPLY_TIMEOUT_MS),
-        async {
-            loop {
-                match channel.wait().await {
-                    Some(ChannelMsg::Success) => return Ok(()),
-                    Some(ChannelMsg::Failure) => {
-                        return Err(AppError::Channel(format!(
-                            "{request_name} request rejected by server"
-                        )));
-                    }
-                    Some(ChannelMsg::Close | ChannelMsg::Eof) | None => {
-                        return Err(AppError::Channel(format!(
-                            "SSH channel closed before {request_name} request completed"
-                        )));
-                    }
-                    Some(_) => {}
-                }
-            }
-        },
-    )
-    .await;
-
-    match reply {
-        Ok(result) => result,
-        Err(_) => Err(AppError::Channel(format!(
-            "{request_name} request timed out"
-        ))),
-    }
-}
+use nyaterm_core::ssh::protocol::wait_channel_request_reply;
 
 async fn close_failed_interactive_channel(
     channel: &russh::Channel<client::Msg>,
@@ -1349,10 +1314,10 @@ pub(super) async fn ssh_io_loop(
                         if phase == IoPhase::Suppressing {
                             suppression_diagnostics.record_pre_ready_write(send_data.len());
                         }
-                        let _ = channel.data(&send_data[..]).await;
+                        let _ = nyaterm_core::ssh::terminal::write(&channel, &send_data[..]).await;
                     }
                     Some(SessionCommand::Resize { cols, rows }) => {
-                        let _ = channel.window_change(cols, rows, 0, 0).await;
+                        let _ = nyaterm_core::ssh::terminal::resize(&channel, cols, rows).await;
                     }
                     Some(SessionCommand::PauseOutput) => {
                         output_paused = true;

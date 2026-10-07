@@ -1,4 +1,4 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdChevronRight, MdFolderOpen } from "react-icons/md";
@@ -43,11 +43,16 @@ const BUILTIN_SHELL_PATHS: readonly string[] = isWindows
   : ["zsh", "bash", "fish"];
 
 function shellBasename(path: string) {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean).pop()?.toLowerCase() || path;
+  return (
+    path.replace(/\\/g, "/").split("/").filter(Boolean).pop()?.toLowerCase() ||
+    path
+  );
 }
 
 function matchesShellPreset(shellPath: string, preset: string) {
-  return shellPath === preset || shellBasename(shellPath) === shellBasename(preset);
+  return (
+    shellPath === preset || shellBasename(shellPath) === shellBasename(preset)
+  );
 }
 
 export function LocalTerminal({

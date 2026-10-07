@@ -1,5 +1,3 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdDataObject, MdOpenInNew, MdTerminal } from "react-icons/md";
@@ -11,6 +9,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { pickBrowserFile } from "@/lib/backend/browserArtifacts";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { openUrl } from "@/lib/backend/platform/opener";
+import { runtime } from "@/lib/backend/runtime";
 import { invoke } from "@/lib/invoke";
 import { logger } from "@/lib/logger";
 import type {
@@ -46,15 +48,20 @@ export function KeywordHighlightImportDialog({
 
     setImporting(true);
     try {
-      const selected = await openFileDialog({
-        multiple: false,
-        filters: [{ name: t("settings.keywordHighlightImportJson"), extensions: ["json"] }],
-      });
+      const selected =
+        runtime === "web"
+          ? await pickBrowserFile(".json")
+          : await openFileDialog({
+              multiple: false,
+              filters: [{ name: t("settings.keywordHighlightImportJson"), extensions: ["json"] }],
+            });
       if (!selected || Array.isArray(selected)) return;
+      if (selected instanceof File && selected.size > 1024 * 1024)
+        throw new Error("Import exceeds 1 MiB");
 
       onClose();
       const result = await invoke<KeywordHighlightImportResult>("import_keyword_highlight_rules", {
-        filePath: selected,
+        ...(selected instanceof File ? { content: await selected.text() } : { filePath: selected }),
       });
       const nextSettings = await invoke<AppSettings>("get_app_settings");
       onImportedRules?.(nextSettings.terminal.keyword_highlights ?? []);

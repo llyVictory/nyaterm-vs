@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import { toast } from "sonner";
 import { getLocalPathName } from "@/components/panel/file-explorer/model";
 import i18n from "@/i18n";
@@ -245,7 +246,7 @@ export async function probeAndResolveRemoteConflicts(
     const remotePath = remoteDir === "/" ? `/${name}` : `${remoteDir}/${name}`;
 
     const choice = await showTransferDuplicatePrompt({
-      requestId: crypto.randomUUID(),
+      requestId: randomUUID(),
       sessionId,
       remotePath,
       fileName: name,
@@ -301,7 +302,7 @@ async function resolveUnverifiedZmodemUpload(
       ? getLocalPathName(filePaths[0] ?? "", "file")
       : i18n.t("zmodem.multipleFiles", { count: filePaths.length });
   const choice = await showTransferDuplicatePrompt({
-    requestId: crypto.randomUUID(),
+    requestId: randomUUID(),
     sessionId,
     remotePath: "",
     fileName,

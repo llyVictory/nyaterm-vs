@@ -1,5 +1,4 @@
 use crate::config::{AiPermissionMode, RiskLevel};
-use serde::{Deserialize, Serialize};
 
 use super::CapabilityAccess;
 
@@ -10,17 +9,7 @@ pub enum PolicyDecision {
     Deny,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RiskReasonCode {
-    EmptyCommand,
-    IrreversiblePattern,
-    UnclassifiedCommand,
-    PrivilegedMutation,
-    UnknownCommand,
-    OrdinaryWrite,
-    ReadOnlyDiagnostic,
-}
+pub use nyaterm_core::core::capabilities::RiskReasonCode;
 
 #[derive(Debug, Clone)]
 pub struct RiskAssessment {

@@ -1,0 +1,29 @@
+name: nyaterm
+
+services:
+  nyaterm:
+    build:
+      context: ../..
+      dockerfile: deploy/web/Dockerfile
+      args:
+        NYATERM_WEB_BASE_PATH: ${NYATERM_WEB_BASE_PATH:-/}
+    ports:
+      - "8080:8080"
+    environment:
+      NYATERM_WEB_ALLOW_INSECURE_HTTP: ${NYATERM_WEB_ALLOW_INSECURE_HTTP:-false}
+      NYATERM_WEB_PUBLIC_URL: ${NYATERM_WEB_PUBLIC_URL:-http://localhost:8080/}
+      NYATERM_WEB_PASSWORD: ${NYATERM_WEB_PASSWORD:?Set a random login password of at least 32 characters}
+      NYATERM_WEB_ENCRYPTION_KEY: ${NYATERM_WEB_ENCRYPTION_KEY:?Set a persistent base64-encoded 32-byte encryption key}
+    volumes:
+      - nyaterm-data:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  nyaterm-data:

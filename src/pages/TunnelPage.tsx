@@ -1,5 +1,6 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { randomUUID } from "@/lib/uuid";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ChildWindowHeader from "@/components/layout/ChildWindowHeader";
@@ -111,7 +112,7 @@ export default function TunnelPage() {
     setSaveError("");
 
     try {
-      const payload = nextTunnel.id ? nextTunnel : { ...nextTunnel, id: crypto.randomUUID() };
+      const payload = nextTunnel.id ? nextTunnel : { ...nextTunnel, id: randomUUID() };
       await invoke("save_tunnel", { tunnel: payload });
       await emit("tunnel-saved");
       getCurrentWindow().close();

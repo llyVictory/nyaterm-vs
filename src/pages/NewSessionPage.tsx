@@ -1,6 +1,8 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { runtime, supports } from "@/lib/backend/runtime";
+import { pickBrowserImage } from "@/lib/backend/browserArtifacts";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdAdd, MdClose, MdExpandMore, MdImage } from "react-icons/md";
@@ -83,9 +85,25 @@ const DEFAULT_SFTP_SETTINGS: SftpSettings = {
 };
 const DEFAULT_SSH_AGENT_FORWARDING_CONFIG: SshAgentForwardingConfig = {
   enabled: false,
-  sources: { external_agent: false, external_agent_endpoints: [], stored_keys: true },
+  sources: {
+    external_agent: false,
+    external_agent_endpoints: [],
+    stored_keys: true,
+  },
   policy: { mode: "allowlist", fingerprints: [] },
 };
+const SESSION_TYPE_TABS = [
+  { value: "ssh", capability: "ssh", label: "SSH" },
+  {
+    value: "local",
+    capability: "localShell",
+    labelKey: "dialog.localTerminal",
+  },
+  { value: "telnet", capability: "telnet", label: "Telnet" },
+  { value: "serial", capability: "serial", labelKey: "dialog.serial" },
+  { value: "rdp", capability: "remoteDesktop", label: "RDP" },
+  { value: "vnc", capability: "vnc", label: "VNC" },
+] as const;
 
 function resolveInitialPasswordSource(
   connection: SavedConnection,
@@ -143,7 +161,10 @@ function normalizeSshAgentForwardingConfig(
       policy:
         value.policy?.mode === "all"
           ? { mode: "all" }
-          : { mode: "allowlist", fingerprints: value.policy?.fingerprints ?? [] },
+          : {
+              mode: "allowlist",
+              fingerprints: value.policy?.fingerprints ?? [],
+            },
     };
   }
 
@@ -175,6 +196,7 @@ const isValidSftpShellDetectionTimeout = (value: number) =>
 export default function NewSessionPage() {
   const { t } = useTranslation();
   const { appSettings } = useApp();
+  const sessionTypeTabs = SESSION_TYPE_TABS.filter(({ capability }) => supports(capability));
   const params = new URLSearchParams(window.location.search);
   const editId = params.get("edit") ?? undefined;
   const autoConnect = params.get("autoConnect") === "1";
@@ -252,7 +274,9 @@ export default function NewSessionPage() {
   const [postLoginDelayMs, setPostLoginDelayMs] = useState(DEFAULT_POST_LOGIN_DELAY_MS);
   const [sshBackspaceMode, setSshBackspaceMode] = useState("del");
   const [x11Forwarding, setX11Forwarding] = useState(false);
-  const [authAgentEndpoint, setAuthAgentEndpoint] = useState<SshAgentEndpoint>({ type: "auto" });
+  const [authAgentEndpoint, setAuthAgentEndpoint] = useState<SshAgentEndpoint>({
+    type: "auto",
+  });
   const [agentForwardingConfig, setAgentForwardingConfig] = useState<SshAgentForwardingConfig>(
     DEFAULT_SSH_AGENT_FORWARDING_CONFIG,
   );
@@ -300,16 +324,18 @@ export default function NewSessionPage() {
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("transcript");
 
   useEffect(() => {
-    invoke<string>("get_default_local_shell")
-      .then((value) => {
-        const resolvedShell = value.trim();
-        if (!resolvedShell) return;
-        setDefaultLocalShell(resolvedShell);
-        if (!editId) {
-          setShellPath((current) => (current === FALLBACK_LOCAL_SHELL ? resolvedShell : current));
-        }
-      })
-      .catch(() => undefined);
+    if (supports("localShell")) {
+      invoke<string>("get_default_local_shell")
+        .then((value) => {
+          const resolvedShell = value.trim();
+          if (!resolvedShell) return;
+          setDefaultLocalShell(resolvedShell);
+          if (!editId) {
+            setShellPath((current) => (current === FALLBACK_LOCAL_SHELL ? resolvedShell : current));
+          }
+        })
+        .catch(() => undefined);
+    }
     invoke<Group[]>("get_groups")
       .then(setGroups)
       .catch((e) => setError(getErrorMessage(e)));
@@ -388,6 +414,8 @@ export default function NewSessionPage() {
           setSftpSettings(normalizeSftpSettings(found.sftp));
           setRemoteDynamicTabTitle(found.dynamic_tab_title ?? false);
         } else if (found.type === "telnet") {
+          setProxyId(found.network?.proxy_id || "");
+          setJumpHostId(found.network?.proxy_jump_id || "");
           setHost(found.host || "");
           setTelnetPort(found.port || 23);
           setUsername(found.username || "");
@@ -620,24 +648,30 @@ export default function NewSessionPage() {
 
   const handleImportCustomIcon = useCallback(async () => {
     try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        filters: [
-          {
-            name: t("dialog.connectionIconFiles"),
-            extensions: CUSTOM_ICON_EXTENSIONS,
-          },
-        ],
-        title: t("dialog.selectConnectionIcon"),
-      });
+      const browserImage = runtime === "web" ? await pickBrowserImage() : null;
+      if (runtime === "web" && !browserImage) return;
+      const selected =
+        browserImage?.name ??
+        (await openDialog({
+          directory: false,
+          multiple: false,
+          filters: [
+            {
+              name: t("dialog.connectionIconFiles"),
+              extensions: CUSTOM_ICON_EXTENSIONS,
+            },
+          ],
+          title: t("dialog.selectConnectionIcon"),
+        }));
       const selectedPath = Array.isArray(selected) ? selected[0] : selected;
       if (typeof selectedPath !== "string" || !selectedPath) {
         return;
       }
 
       const importedIcon = await invoke<ConnectionCustomIcon>("import_connection_icon", {
-        path: selectedPath,
+        ...(browserImage
+          ? { dataUrl: browserImage.dataUrl, name: browserImage.name }
+          : { path: selectedPath }),
       });
       setCustomIcons((icons) => {
         const next = icons.filter((icon) => icon.id !== importedIcon.id);
@@ -988,7 +1022,10 @@ export default function NewSessionPage() {
                   ? "vnc"
                   : "serial";
       const network =
-        currentTab === "ssh" || currentTab === "rdp" || currentTab === "vnc"
+        currentTab === "ssh" ||
+        currentTab === "telnet" ||
+        currentTab === "rdp" ||
+        currentTab === "vnc"
           ? (() => {
               const nextNetwork: NonNullable<SavedConnection["network"]> = {};
               if (proxyId) {
@@ -1140,6 +1177,7 @@ export default function NewSessionPage() {
               port: telnetPort,
               username: normalizedUsername,
               auth,
+              network,
               backspace_mode: telnetBackspaceMode,
               raw_tcp_cli: telnetRawTcpCli,
               enter_mode: telnetEnterMode,
@@ -1272,25 +1310,17 @@ export default function NewSessionPage() {
         className="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
         <div className="shrink-0 px-4 pt-3 sm:px-5">
-          <TabsList className="grid h-8 w-full grid-cols-6 pointer-events-auto">
-            <TabsTrigger value="ssh" className="text-xs">
-              SSH
-            </TabsTrigger>
-            <TabsTrigger value="local" className="text-xs">
-              {t("dialog.localTerminal")}
-            </TabsTrigger>
-            <TabsTrigger value="telnet" className="text-xs">
-              Telnet
-            </TabsTrigger>
-            <TabsTrigger value="serial" className="text-xs">
-              {t("dialog.serial")}
-            </TabsTrigger>
-            <TabsTrigger value="rdp" className="text-xs">
-              RDP
-            </TabsTrigger>
-            <TabsTrigger value="vnc" className="text-xs">
-              VNC
-            </TabsTrigger>
+          <TabsList
+            className="grid h-8 w-full pointer-events-auto"
+            style={{
+              gridTemplateColumns: `repeat(${sessionTypeTabs.length}, minmax(0, 1fr))`,
+            }}
+          >
+            {sessionTypeTabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value} className="text-xs">
+                {"labelKey" in tab ? t(tab.labelKey) : tab.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </div>
 
@@ -1544,7 +1574,10 @@ export default function NewSessionPage() {
                             key={g.id}
                             type="button"
                             className={`w-full py-1.5 text-left text-xs transition-colors hover:bg-accent ${groupId === g.id ? "bg-primary/15 text-primary" : ""}`}
-                            style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: "12px" }}
+                            style={{
+                              paddingLeft: `${12 + depth * 16}px`,
+                              paddingRight: "12px",
+                            }}
                             onClick={() => {
                               setGroupId(g.id);
                               setNewGroupNamePending("");
@@ -1594,7 +1627,9 @@ export default function NewSessionPage() {
                     </div>
                     <p className="px-1 pt-1 text-[0.6875rem] leading-snug text-muted-foreground">
                       {newGroupParentLabel
-                        ? t("dialog.newGroupParentHint", { group: newGroupParentLabel })
+                        ? t("dialog.newGroupParentHint", {
+                            group: newGroupParentLabel,
+                          })
                         : t("dialog.newGroupRootHint")}
                     </p>
                   </div>
@@ -1702,6 +1737,14 @@ export default function NewSessionPage() {
 
           <TabsContent value="telnet" className="space-y-3 m-0 border-0 outline-none w-full">
             <TelnetForm
+              network={{
+                proxyId,
+                setProxyId,
+                proxies,
+                jumpHostId,
+                setJumpHostId,
+                jumpHostOptions,
+              }}
               host={host}
               setHost={setHost}
               port={telnetPort}

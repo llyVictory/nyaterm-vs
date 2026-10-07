@@ -1,5 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import { ShieldAlert } from "lucide-react";
 import {
   memo,

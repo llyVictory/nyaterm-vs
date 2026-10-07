@@ -1,3 +1,4 @@
+import { randomUUID } from "@/lib/uuid";
 import type {
   FileDocumentBackend,
   FileDocumentPane,
@@ -632,7 +633,7 @@ function restorePane(node: RestorablePaneNode): PaneNode | null {
           }
         : undefined,
       connecting: true,
-      createRequestId: crypto.randomUUID(),
+      createRequestId: randomUUID(),
     } as SessionPane;
   }
 

@@ -1,5 +1,8 @@
-import { listen } from "@tauri-apps/api/event";
-import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { randomUUID } from "@/lib/uuid";
+import { runtime } from "@/lib/backend/runtime";
+import { downloadJson } from "@/lib/backend/browserArtifacts";
+import { listen } from "@/lib/backend/api";
+import { save as saveFileDialog } from "@/lib/backend/platform/dialog";
 import { MoreHorizontalIcon } from "lucide-react";
 import {
   type DragEvent,
@@ -442,7 +445,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     (name: string) => {
       if (!newCategoryDraft) return;
       const newCategory: QuickCommandCategory = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name,
         parent_id: newCategoryDraft.parentId || undefined,
         sort_order: getNextQuickCommandCategorySortOrder(
@@ -588,6 +591,11 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
 
   const handleExportQuickCommands = useCallback(async () => {
     try {
+      if (runtime === "web") {
+        downloadJson("nyaterm-quick-commands.json", { commands, categories: savedCategories });
+        toast.success(t("quickCommands.exportSuccess"));
+        return;
+      }
       const outputPath = await saveFileDialog({
         defaultPath: "nyaterm-quick-commands.json",
         filters: [{ name: "NyaTerm JSON", extensions: ["json"] }],

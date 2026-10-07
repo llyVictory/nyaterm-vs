@@ -1,3 +1,4 @@
+import { runtime } from "@/lib/backend/runtime";
 import { ChevronsUpDownIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,7 +38,7 @@ function ProxyCombobox({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const options = proxies.map((proxy) => ({
+  const options = proxies.filter((proxy) => runtime === "desktop" || proxy.protocol !== "proxycommand").map((proxy) => ({
     id: proxy.id,
     label: proxy.name,
     searchText: [proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.username, proxy.command]

@@ -1,4 +1,11 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@/lib/backend/api";
+import {
+  browserLogsReady,
+  createBrowserRequestId,
+  onBrowserLogsReady,
+  sendBrowserLogs,
+} from "@/lib/backend/browserDiagnostics";
+import { runtime } from "@/lib/backend/runtime";
 import type { DiagnosticsLogLevel } from "@/types/global";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -54,9 +61,10 @@ const LOG_QUEUE_DROP_BATCH = 250;
 let minLevel: LogLevel = DEFAULT_LEVEL;
 const queue: FrontendLogEntry[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
-let flushInFlight = false;
+let flushInFlight: Promise<void> | undefined;
 let lifecycleFlushRegistered = false;
 let droppedLogEntryCount = 0;
+let webFlushFailures = 0;
 
 export function setLoggerLevel(level: DiagnosticsLogLevel): void {
   minLevel = level;
@@ -67,6 +75,7 @@ function shouldLog(level: LogLevel): boolean {
 }
 
 function createRequestId(): string {
+  if (runtime === "web") return createBrowserRequestId();
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
@@ -88,6 +97,10 @@ function normalizeError(error: unknown): unknown {
       name: error.name,
       message_hash: hashString(error.message),
       stack_hash: error.stack ? hashString(error.stack) : undefined,
+      ...("status" in error && typeof error.status === "number" ? { status: error.status } : {}),
+      ...("requestId" in error && typeof error.requestId === "string"
+        ? { request_id: error.requestId }
+        : {}),
     };
   }
   return error;
@@ -270,32 +283,67 @@ function prependQueueOverflowSummary(): void {
   queue.unshift(summary);
 }
 
-async function flushQueue(): Promise<void> {
-  if (flushInFlight) return;
+function flushQueue(): Promise<void> {
+  if (flushInFlight) return flushInFlight;
+  flushInFlight = flushBatch().finally(() => {
+    flushInFlight = undefined;
+    if (!queue.length || (runtime === "web" && !browserLogsReady())) return;
+    if (runtime !== "web" && queue.length >= MAX_BATCH_SIZE) void flushQueue();
+    else if (!flushTimer)
+      flushTimer = setTimeout(
+        () => {
+          flushTimer = null;
+          void flushQueue();
+        },
+        webFlushFailures ? 1000 * 2 ** (webFlushFailures - 1) : BATCH_DELAY_MS,
+      );
+  });
+  return flushInFlight;
+}
+
+async function flushBatch(): Promise<void> {
+  if (runtime === "web" && !browserLogsReady()) return;
   if (flushTimer) {
     clearTimeout(flushTimer);
     flushTimer = null;
   }
   if (queue.length === 0) return;
 
-  flushInFlight = true;
   prependQueueOverflowSummary();
-  const batch = queue.splice(0, MAX_BATCH_SIZE);
+  const batch: FrontendLogEntry[] = [];
+  let batchBytes = 32;
+  while (queue.length && batch.length < MAX_BATCH_SIZE) {
+    const bytes = new TextEncoder().encode(JSON.stringify(queue[0])).length + 1;
+    if (runtime === "web" && bytes > 48 * 1024) {
+      queue.shift();
+      droppedLogEntryCount++;
+      continue;
+    }
+    if (runtime === "web" && batchBytes + bytes > 48 * 1024) break;
+    batch.push(queue.shift() as FrontendLogEntry);
+    batchBytes += bytes;
+  }
 
   try {
-    await tauriInvoke("append_frontend_logs", { entries: batch });
+    if (runtime === "web") {
+      await sendBrowserLogs(batch, document.visibilityState === "hidden");
+      webFlushFailures = 0;
+    } else await tauriInvoke("append_frontend_logs", { entries: batch });
   } catch (error) {
+    if (runtime === "web") {
+      webFlushFailures++;
+      if (webFlushFailures <= 2) queue.unshift(...batch);
+      else {
+        droppedLogEntryCount += batch.length;
+        webFlushFailures = 0;
+      }
+      enforceQueueLimit();
+      return;
+    }
     console.error(
       `[${formatTimestamp()}] [ERROR] [ui.error/logger.flush_failed] Failed to persist frontend log batch`,
       error,
     );
-  } finally {
-    flushInFlight = false;
-    if (queue.length >= MAX_BATCH_SIZE) {
-      void flushQueue();
-    } else if (queue.length > 0) {
-      scheduleFlush();
-    }
   }
 }
 
@@ -353,11 +401,40 @@ export const logger = {
     emit("error", payload);
   },
 
-  flush(): Promise<void> {
-    return flushQueue();
+  async flush(): Promise<void> {
+    // A diagnostic export waits for queued batches, including one already in flight.
+    // Bound the drain so continuous logging or an offline transport cannot hold the UI.
+    for (let count = 0; count < 24; count++) {
+      await flushQueue();
+      if (!queue.length || webFlushFailures || (runtime === "web" && !browserLogsReady())) break;
+    }
   },
 
   createRequestId,
 };
 
 registerLifecycleFlush();
+if (runtime === "web")
+  onBrowserLogsReady(() => {
+    void flushQueue();
+  });
+
+export function installBrowserErrorLogging(): void {
+  if (runtime !== "web") return;
+  window.addEventListener("error", (event) => {
+    logger.error({
+      domain: "ui.error",
+      event: "browser.uncaught_error",
+      message: "Uncaught browser error",
+      error: event.error ?? new Error(event.message),
+    });
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    logger.error({
+      domain: "ui.error",
+      event: "browser.unhandled_rejection",
+      message: "Unhandled browser promise rejection",
+      error: event.reason instanceof Error ? event.reason : new Error(String(event.reason)),
+    });
+  });
+}

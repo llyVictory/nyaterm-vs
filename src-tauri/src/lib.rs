@@ -272,6 +272,7 @@ pub fn run() {
             cmd::rdp::respond_rdp_certificate,
             cmd::vnc::create_vnc_session,
             cmd::vnc::vnc_attach_frame_channel,
+            cmd::vnc::vnc_detach_frame_channel,
             cmd::vnc::vnc_input_batch,
             cmd::vnc::vnc_set_clipboard_text,
             cmd::vnc::vnc_reconnect,

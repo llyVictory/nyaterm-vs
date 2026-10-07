@@ -1,5 +1,5 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { invoke as tauriInvoke } from "@/lib/backend/api";
+import { emit } from "@/lib/backend/api";
 import { assertMatchingTemporaryConfig } from "@/lib/appWorkspace";
 import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
@@ -152,6 +152,7 @@ export async function createSessionForConnection(
         ownerWindowLabel: getOwnerMainWindowLabel(),
         connectionId: connection.id,
         createRequestId,
+        recordingScopeId,
       });
     case "rdp":
       return invoke<string>("create_rdp_session", {
@@ -182,6 +183,8 @@ export async function createTemporarySession(
         host: config.host,
         port: config.port,
         name: config.name,
+        ...(config.network ? { network: config.network } : {}),
+        ...(config.encoding ? { encoding: config.encoding } : {}),
         createRequestId,
         recordingScopeId,
         startupCommand: buildStartupCommandPayload(startupCommand),
@@ -254,6 +257,8 @@ export function createSessionForPane(
           host: pane.temporaryConfig.host,
           port: pane.temporaryConfig.port,
           name: pane.temporaryConfig.name,
+          ...(pane.temporaryConfig.network ? { network: pane.temporaryConfig.network } : {}),
+          ...(pane.temporaryConfig.encoding ? { encoding: pane.temporaryConfig.encoding } : {}),
           createRequestId,
           recordingScopeId: pane.id,
           startupCommand: buildStartupCommandPayload(startupCommand),
@@ -286,6 +291,7 @@ export function createSessionForPane(
         ownerWindowLabel: getOwnerMainWindowLabel(),
         connectionId: pane.connectionId,
         createRequestId,
+        recordingScopeId: pane.id,
       });
     case "RDP":
       if (!pane.connectionId) throw new Error("Missing RDP connection id");

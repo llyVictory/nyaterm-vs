@@ -1,4 +1,3 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Copy, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,6 +12,9 @@ import { PrivateKeyViewDialog } from "@/components/dialog/security-auth/PrivateK
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { pickBrowserFile } from "@/lib/backend/browserArtifacts";
+import { open as openFileDialog } from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
 import { writeClipboardText } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
@@ -278,29 +280,58 @@ export function KeyManagementTab({
   );
 
   const handlePickFile = async () => {
-    const selected = await openFileDialog({
-      multiple: false,
-      title: t("settings.selectKeyFileTitle"),
-    });
-    if (selected) {
-      setEditKeyInputMode("file");
-      setEditKeyData("");
-      setEditKeyFilePath(selected);
-      setEditKeyFileName(getPathFileName(selected));
+    try {
+      if (runtime === "web") {
+        const file = await pickBrowserFile("");
+        if (!file) return;
+        if (file.size > 1024 * 1024) throw new Error("Key file exceeds 1 MiB");
+        setEditKeyInputMode("content");
+        setEditKeyData(await file.text());
+        setEditKeyFilePath("");
+        setEditKeyFileName(file.name);
+        return;
+      }
+      const selected = await openFileDialog({
+        multiple: false,
+        title: t("settings.selectKeyFileTitle"),
+      });
+      if (selected) {
+        setEditKeyInputMode("file");
+        setEditKeyData("");
+        setEditKeyFilePath(selected);
+        setEditKeyFileName(getPathFileName(selected));
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   };
 
   const handlePickCertFile = async () => {
-    const selected = await openFileDialog({
-      multiple: false,
-      title: t("settings.selectCertFileTitle"),
-    });
-    if (selected) {
-      setEditCertExpanded(true);
-      setEditCertInputMode("file");
-      setEditCertData("");
-      setEditCertFilePath(selected);
-      setEditCertFileName(getPathFileName(selected));
+    try {
+      if (runtime === "web") {
+        const file = await pickBrowserFile("");
+        if (!file) return;
+        if (file.size > 1024 * 1024) throw new Error("Certificate file exceeds 1 MiB");
+        setEditCertExpanded(true);
+        setEditCertInputMode("content");
+        setEditCertData(await file.text());
+        setEditCertFilePath("");
+        setEditCertFileName(file.name);
+        return;
+      }
+      const selected = await openFileDialog({
+        multiple: false,
+        title: t("settings.selectCertFileTitle"),
+      });
+      if (selected) {
+        setEditCertExpanded(true);
+        setEditCertInputMode("file");
+        setEditCertData("");
+        setEditCertFilePath(selected);
+        setEditCertFileName(getPathFileName(selected));
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   };
 

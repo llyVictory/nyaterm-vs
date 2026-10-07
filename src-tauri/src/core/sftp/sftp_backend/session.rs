@@ -351,8 +351,11 @@ impl SftpBackend {
                     "SFTP subsystem request accepted"
                 );
 
-                let sftp = match SftpSession::new_with_config(channel.into_stream(), config.clone())
-                    .await
+                let sftp = match nyaterm_core::ssh::protocol::initialize_sftp(
+                    channel.into_stream(),
+                    config.clone(),
+                )
+                .await
                 {
                     Ok(sftp) => sftp,
                     Err(error) => {

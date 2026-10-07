@@ -1,14 +1,9 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useTransfer } from "@/context/TransferContext";
 import { getErrorMessage } from "@/lib/errors";
+import { supports } from "@/lib/backend/runtime";
 import { invoke } from "@/lib/invoke";
 import { showPasteConfirm } from "@/lib/pasteConfirmPrompt";
 import {
@@ -35,10 +30,7 @@ export function useFileExplorerClipboard(
 ) {
   const { t } = useTranslation();
   const { enqueueCopies, enqueueUploads, transfers } = useTransfer();
-  const clipboard = useSyncExternalStore(
-    subscribeFileClipboard,
-    getFileClipboard,
-  );
+  const clipboard = useSyncExternalStore(subscribeFileClipboard, getFileClipboard);
   const [hasLocalFiles, setHasLocalFiles] = useState(false);
   const busy = useRef(false);
   const endpoint = useRef({ sessionId, enabled, currentPath });
@@ -72,19 +64,22 @@ export function useFileExplorerClipboard(
   const copyEntries = useCallback(
     async (entries: FileClipboardEntry[], mode: FileClipboardMode) => {
       if (!sessionId || !enabled || !entries.length) return;
+      if (
+        !supports("recursiveTransfers") &&
+        mode === "copy" &&
+        entries.some((entry) => entry.isDirectory)
+      ) {
+        toast.error(t("fileExplorer.webRecursiveTransferUnavailable"));
+        return;
+      }
       const generation = beginClipboardCapture();
       try {
         // Establish an OS baseline before stamping the remote copy, so stale local files cannot win.
         await observeFileClipboard();
         const sessions = await invoke<SessionInfo[]>("list_sessions");
-        const source = sessions.find(
-          (session) => session.id === sessionId && session.connected,
-        );
+        const source = sessions.find((session) => session.id === sessionId && session.connected);
         if (!source) throw new Error(t("fileExplorer.pasteSessionUnavailable"));
-        if (
-          !isLatestClipboardCapture(generation) ||
-          endpoint.current.sessionId !== sessionId
-        )
+        if (!isLatestClipboardCapture(generation) || endpoint.current.sessionId !== sessionId)
           return;
         setFileClipboard({
           sourceSessionId: sessionId,
@@ -113,24 +108,19 @@ export function useFileExplorerClipboard(
       const sessions = await invoke<SessionInfo[]>("list_sessions");
       const target = sessions.find(
         (session) =>
-          session.id === sessionId &&
-          session.connected &&
-          session.remote_file_browser_enabled,
+          session.id === sessionId && session.connected && session.remote_file_browser_enabled,
       );
       if (!target) throw new Error(t("fileExplorer.pasteSessionUnavailable"));
       const destination = await invoke<FileProperties>("get_file_properties", {
         sessionId,
         path: targetDir,
       });
-      if (!destination.is_dir)
-        throw new Error(t("fileExplorer.pasteInvalidDestination"));
+      if (!destination.is_dir) throw new Error(t("fileExplorer.pasteInvalidDestination"));
       if (os.preferLocal || (!remote && os.paths.length)) {
-        const entries = await invoke<ResolvedLocalDropPathEntry[]>(
-          "resolve_local_drop_paths",
-          { paths: os.paths },
-        );
-        if (!entries.length)
-          throw new Error(t("fileExplorer.pasteClipboardEmpty"));
+        const entries = await invoke<ResolvedLocalDropPathEntry[]>("resolve_local_drop_paths", {
+          paths: os.paths,
+        });
+        if (!entries.length) throw new Error(t("fileExplorer.pasteClipboardEmpty"));
         if (
           !(await showPasteConfirm({
             action: "upload",
@@ -154,18 +144,14 @@ export function useFileExplorerClipboard(
         );
         return;
       }
-      if (!remote?.entries.length)
-        throw new Error(t("fileExplorer.pasteClipboardEmpty"));
+      if (!remote?.entries.length) throw new Error(t("fileExplorer.pasteClipboardEmpty"));
       const source = sessions.find(
         (session) =>
           session.id === remote.sourceSessionId &&
           session.connected &&
           session.remote_file_browser_enabled,
       );
-      if (
-        !source ||
-        (remote.sourceStartedAt && source.started_at !== remote.sourceStartedAt)
-      ) {
+      if (!source || (remote.sourceStartedAt && source.started_at !== remote.sourceStartedAt)) {
         throw new Error(t("fileExplorer.pasteSessionUnavailable"));
       }
       const pendingPaths = new Set(
@@ -183,11 +169,17 @@ export function useFileExplorerClipboard(
       );
       if (!entries.length) return;
       if (
+        !supports("recursiveTransfers") &&
+        entries.some((entry) => entry.isDirectory) &&
+        (remote.mode !== "cut" || source.id !== sessionId)
+      ) {
+        throw new Error(t("fileExplorer.webRecursiveTransferUnavailable"));
+      }
+      if (
         remote.sourceSessionId === sessionId &&
         entries.some(
           (entry) =>
-            (entry.isDirectory &&
-              isRemoteClipboardDescendant(entry.path, targetDir)) ||
+            (entry.isDirectory && isRemoteClipboardDescendant(entry.path, targetDir)) ||
             normalizeRemoteClipboardPath(entry.path) ===
               normalizeRemoteClipboardPath(`${targetDir}/${entry.name}`),
         )
@@ -202,9 +194,7 @@ export function useFileExplorerClipboard(
       );
       const missing = entries.filter((entry) => missingPaths.has(entry.path));
       if (missing.length) {
-        toast.error(
-          t("fileExplorer.pasteSourceMissing", { count: missing.length }),
-        );
+        toast.error(t("fileExplorer.pasteSourceMissing", { count: missing.length }));
         if (remote.mode === "cut")
           removeClipboardEntries(
             source.id,
@@ -240,15 +230,7 @@ export function useFileExplorerClipboard(
     } finally {
       busy.current = false;
     }
-  }, [
-    currentPath,
-    enabled,
-    enqueueCopies,
-    enqueueUploads,
-    sessionId,
-    t,
-    transfers,
-  ]);
+  }, [currentPath, enabled, enqueueCopies, enqueueUploads, sessionId, t, transfers]);
   return {
     copyEntries,
     paste,

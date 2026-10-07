@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApp } from "@/context/AppContext";
+import { supports } from "@/lib/backend/runtime";
 import {
   MAX_COMMAND_SUGGESTION_MAX_CHARS,
   MAX_COMMAND_SUGGESTION_MIN_CHARS,
@@ -80,9 +81,7 @@ export function InteractionTab() {
           desc={t("settings.terminalRightClickActionDesc")}
         >
           <Tabs
-            value={normalizeTerminalRightClickAction(
-              interaction.terminal_right_click_action,
-            )}
+            value={normalizeTerminalRightClickAction(interaction.terminal_right_click_action)}
             onValueChange={(value) =>
               updateInteraction({
                 terminal_right_click_action: normalizeTerminalRightClickAction(value),
@@ -90,15 +89,9 @@ export function InteractionTab() {
             }
           >
             <TabsList className="grid w-52 grid-cols-3">
-              <TabsTrigger value="none">
-                {t("settings.terminalRightClickNone")}
-              </TabsTrigger>
-              <TabsTrigger value="menu">
-                {t("settings.terminalRightClickMenu")}
-              </TabsTrigger>
-              <TabsTrigger value="paste">
-                {t("settings.terminalRightClickPaste")}
-              </TabsTrigger>
+              <TabsTrigger value="none">{t("settings.terminalRightClickNone")}</TabsTrigger>
+              <TabsTrigger value="menu">{t("settings.terminalRightClickMenu")}</TabsTrigger>
+              <TabsTrigger value="paste">{t("settings.terminalRightClickPaste")}</TabsTrigger>
             </TabsList>
           </Tabs>
         </SettingRow>
@@ -135,63 +128,67 @@ export function InteractionTab() {
         desc={t("settings.interactionCommandInputDesc")}
         contentClassName="space-y-5"
       >
-        <SettingRow
-          label={t("settings.commandSuggestions")}
-          desc={t("settings.commandSuggestionsDesc")}
-        >
-          <SettingSwitch
-            checked={interaction.command_suggestions_enabled}
-            onChange={(v) =>
-              updateInteraction({
-                command_suggestions_enabled: v,
-              })
-            }
-          />
-        </SettingRow>
-
-        {interaction.command_suggestions_enabled && (
+        {supports("commandSuggestions") && (
           <>
-            <SettingNumberInput
-              label={t("settings.commandSuggestionsMinChars")}
-              desc={t("settings.commandSuggestionsMinCharsDesc")}
-              value={interaction.command_suggestion_min_chars}
-              min={MIN_COMMAND_SUGGESTION_MIN_CHARS}
-              max={Math.min(
-                MAX_COMMAND_SUGGESTION_MIN_CHARS,
-                interaction.command_suggestion_max_chars,
-              )}
-              step={1}
-              controlClassName="max-w-sm"
-              onChange={(v) =>
-                updateInteraction({
-                  command_suggestion_min_chars: normalizeCommandSuggestionMinChars(
-                    v,
-                    interaction.command_suggestion_max_chars,
-                  ),
-                })
-              }
-            />
+            <SettingRow
+              label={t("settings.commandSuggestions")}
+              desc={t("settings.commandSuggestionsDesc")}
+            >
+              <SettingSwitch
+                checked={interaction.command_suggestions_enabled}
+                onChange={(v) =>
+                  updateInteraction({
+                    command_suggestions_enabled: v,
+                  })
+                }
+              />
+            </SettingRow>
 
-            <SettingNumberInput
-              label={t("settings.commandSuggestionsMaxChars")}
-              desc={t("settings.commandSuggestionsMaxCharsDesc")}
-              value={interaction.command_suggestion_max_chars}
-              min={Math.max(
-                MIN_COMMAND_SUGGESTION_MAX_CHARS,
-                interaction.command_suggestion_min_chars,
-              )}
-              max={MAX_COMMAND_SUGGESTION_MAX_CHARS}
-              step={1}
-              controlClassName="max-w-sm"
-              onChange={(v) =>
-                updateInteraction({
-                  command_suggestion_max_chars: normalizeCommandSuggestionMaxChars(
-                    v,
+            {interaction.command_suggestions_enabled && (
+              <>
+                <SettingNumberInput
+                  label={t("settings.commandSuggestionsMinChars")}
+                  desc={t("settings.commandSuggestionsMinCharsDesc")}
+                  value={interaction.command_suggestion_min_chars}
+                  min={MIN_COMMAND_SUGGESTION_MIN_CHARS}
+                  max={Math.min(
+                    MAX_COMMAND_SUGGESTION_MIN_CHARS,
+                    interaction.command_suggestion_max_chars,
+                  )}
+                  step={1}
+                  controlClassName="max-w-sm"
+                  onChange={(v) =>
+                    updateInteraction({
+                      command_suggestion_min_chars: normalizeCommandSuggestionMinChars(
+                        v,
+                        interaction.command_suggestion_max_chars,
+                      ),
+                    })
+                  }
+                />
+
+                <SettingNumberInput
+                  label={t("settings.commandSuggestionsMaxChars")}
+                  desc={t("settings.commandSuggestionsMaxCharsDesc")}
+                  value={interaction.command_suggestion_max_chars}
+                  min={Math.max(
+                    MIN_COMMAND_SUGGESTION_MAX_CHARS,
                     interaction.command_suggestion_min_chars,
-                  ),
-                })
-              }
-            />
+                  )}
+                  max={MAX_COMMAND_SUGGESTION_MAX_CHARS}
+                  step={1}
+                  controlClassName="max-w-sm"
+                  onChange={(v) =>
+                    updateInteraction({
+                      command_suggestion_max_chars: normalizeCommandSuggestionMaxChars(
+                        v,
+                        interaction.command_suggestion_min_chars,
+                      ),
+                    })
+                  }
+                />
+              </>
+            )}
           </>
         )}
 
@@ -247,7 +244,9 @@ export function InteractionTab() {
           value={normalizeTabMouseAction(interaction.tab_double_click_action)}
           controlClassName="max-w-sm"
           onValueChange={(v) =>
-            updateInteraction({ tab_double_click_action: normalizeTabMouseAction(v) })
+            updateInteraction({
+              tab_double_click_action: normalizeTabMouseAction(v),
+            })
           }
         >
           {renderTabMouseActionItems()}
@@ -259,7 +258,9 @@ export function InteractionTab() {
           value={normalizeTabMouseAction(interaction.tab_middle_click_action)}
           controlClassName="max-w-sm"
           onValueChange={(v) =>
-            updateInteraction({ tab_middle_click_action: normalizeTabMouseAction(v) })
+            updateInteraction({
+              tab_middle_click_action: normalizeTabMouseAction(v),
+            })
           }
         >
           {renderTabMouseActionItems()}
@@ -271,7 +272,9 @@ export function InteractionTab() {
           value={normalizeTabMouseAction(interaction.tab_right_click_action)}
           controlClassName="max-w-sm"
           onValueChange={(v) =>
-            updateInteraction({ tab_right_click_action: normalizeTabMouseAction(v) })
+            updateInteraction({
+              tab_right_click_action: normalizeTabMouseAction(v),
+            })
           }
         >
           {renderTabMouseActionItems()}

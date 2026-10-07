@@ -1,3 +1,4 @@
+import { supports } from "@/lib/backend/runtime";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -47,6 +48,7 @@ interface FileExplorerEntryContextMenuProps {
   activeSessionId: string | null;
   editorType: "external" | "internal";
   showTransferActions: boolean;
+  downloadDisabled?: boolean;
   terminalInputEnabled: boolean;
   sendTargetOptions: Array<{
     sessionId: string;
@@ -69,13 +71,19 @@ interface FileExplorerEntryContextMenuProps {
   onUploadFolderContents: (directoryPath: string) => void;
   onDownload: (rows: FileExplorerTreeRow[]) => void;
   onSendToPeer?: (rows: FileExplorerTreeRow[]) => void;
-  onSendToTarget?: (rows: FileExplorerTreeRow[], targetSessionId: string) => void;
+  onSendToTarget?: (
+    rows: FileExplorerTreeRow[],
+    targetSessionId: string,
+  ) => void;
   onRename: (row: FileExplorerTreeRow) => void;
   onMove: (rows: FileExplorerTreeRow[]) => void;
   onDelete: (rows: FileExplorerTreeRow[]) => void;
   onAddToFavorites: (row: FileExplorerTreeRow) => void;
   onCopyPath: (row: FileExplorerTreeRow, mode: "dir" | "name" | "full") => void;
-  onSendToTerminal?: (row: FileExplorerTreeRow, mode: "dir" | "name" | "full") => void;
+  onSendToTerminal?: (
+    row: FileExplorerTreeRow,
+    mode: "dir" | "name" | "full",
+  ) => void;
   onEnterDirectoryInTerminal?: (row: FileExplorerTreeRow) => void;
   onOpenDirectoryInNewTerminal?: (row: FileExplorerTreeRow) => void;
   onProperties: (row: FileExplorerTreeRow) => void;
@@ -188,6 +196,7 @@ export default function FileExplorerEntryContextMenu({
   activeSessionId,
   editorType,
   showTransferActions,
+  downloadDisabled = false,
   terminalInputEnabled,
   sendTargetOptions,
   getAiActions,
@@ -227,17 +236,26 @@ export default function FileExplorerEntryContextMenu({
     if (!target || target.isRoot) return [];
     return rowsContain(selectedTargets, target) ? selectedTargets : [target];
   }, [selectedTargets, target]);
-  const targetDirectory = target?.entry.is_dir ? target.path : target?.parentPath;
+  const targetDirectory = target?.entry.is_dir
+    ? target.path
+    : target?.parentPath;
   const aiActions = target ? getAiActions(target) : [];
   const isFile = !!target && !target.entry.is_dir;
-  const showOpenInternal = isFile && editorType === "external";
-  const showOpenExternal = isFile && editorType === "internal";
+  const showOpenInternal =
+    isFile && supports("nativeFiles") && editorType === "external";
+  const showOpenExternal =
+    isFile && supports("nativeFiles") && editorType === "internal";
   const showActionBar = !!onCopyEntries || !!onCutEntries || !!onPaste;
-  const hasActionableTarget = !!target && !target.isRoot && actionRows.length > 0;
+  const hasActionableTarget =
+    !!target && !target.isRoot && actionRows.length > 0;
 
   return (
     <ContextMenuContent
-      className={showActionBar ? "w-64 max-w-[calc(100vw-1rem)] min-w-0" : "min-w-[200px]"}
+      className={
+        showActionBar
+          ? "w-64 max-w-[calc(100vw-1rem)] min-w-0"
+          : "min-w-[200px]"
+      }
       onCloseAutoFocus={onCloseAutoFocus}
     >
       {showActionBar && (
@@ -260,7 +278,9 @@ export default function FileExplorerEntryContextMenu({
         <>
           <ContextMenuItem
             onClick={() =>
-              target.entry.is_dir ? onOpenDirectory(target) : onOpenDefault(target)
+              target.entry.is_dir
+                ? onOpenDirectory(target)
+                : onOpenDefault(target)
             }
           >
             <MdFileOpen className="text-[0.875rem] text-muted-foreground mr-2" />
@@ -313,26 +333,42 @@ export default function FileExplorerEntryContextMenu({
                       {t("fileExplorer.cmUpload")}
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent className="w-48">
-                      <ContextMenuItem onClick={() => onUpload(targetDirectory)}>
+                      <ContextMenuItem
+                        onClick={() => onUpload(targetDirectory)}
+                      >
                         <MdUpload className="text-[0.875rem] text-muted-foreground mr-2" />
                         {t("fileExplorer.upload")}
                       </ContextMenuItem>
-                      <ContextMenuItem onClick={() => onUploadFolder(targetDirectory)}>
-                        <MdDriveFolderUpload className="text-[0.875rem] text-muted-foreground mr-2" />
-                        {t("fileExplorer.uploadFolder")}
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() => onUploadFolderContents(targetDirectory)}
-                      >
-                        <MdDriveFolderUpload className="text-[0.875rem] text-muted-foreground mr-2" />
-                        {t("fileExplorer.uploadFolderContents")}
-                      </ContextMenuItem>
+                      {supports("recursiveTransfers") && (
+                        <>
+                          <ContextMenuItem
+                            onClick={() => onUploadFolder(targetDirectory)}
+                          >
+                            <MdDriveFolderUpload className="text-[0.875rem] text-muted-foreground mr-2" />
+                            {t("fileExplorer.uploadFolder")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() =>
+                              onUploadFolderContents(targetDirectory)
+                            }
+                          >
+                            <MdDriveFolderUpload className="text-[0.875rem] text-muted-foreground mr-2" />
+                            {t("fileExplorer.uploadFolderContents")}
+                          </ContextMenuItem>
+                        </>
+                      )}
                     </ContextMenuSubContent>
                   </ContextMenuSub>
-                  <ContextMenuItem onClick={() => onDownload(actionRows)}>
-                    <MdDownload className="text-[0.875rem] text-muted-foreground mr-2" />
-                    {t("fileExplorer.cmDownload")}
-                  </ContextMenuItem>
+                  {(supports("recursiveTransfers") ||
+                    !actionRows.some((row) => row.entry.is_dir)) && (
+                    <ContextMenuItem
+                      disabled={downloadDisabled}
+                      onClick={() => onDownload(actionRows)}
+                    >
+                      <MdDownload className="text-[0.875rem] text-muted-foreground mr-2" />
+                      {t("fileExplorer.cmDownload")}
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuSeparator />
                 </>
               )}
@@ -352,30 +388,36 @@ export default function FileExplorerEntryContextMenu({
             </ContextMenuItem>
           )}
 
-          {sendTargetOptions.length > 0 && actionRows.length > 0 && onSendToTarget && (
-            <>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <MdSend className="text-[0.875rem] text-muted-foreground mr-2" />
-                  {t("fileExplorer.sendToPeer")}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="min-w-52">
-                  {sendTargetOptions.map((sendTarget) => (
-                    <ContextMenuItem
-                      key={sendTarget.sessionId}
-                      onClick={() => onSendToTarget(actionRows, sendTarget.sessionId)}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{sendTarget.label}</span>
-                      <span className="ml-2 shrink-0 text-[0.625rem] text-muted-foreground">
-                        {sendTarget.meta}
-                      </span>
-                    </ContextMenuItem>
-                  ))}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-              <ContextMenuSeparator />
-            </>
-          )}
+          {sendTargetOptions.length > 0 &&
+            actionRows.length > 0 &&
+            onSendToTarget && (
+              <>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <MdSend className="text-[0.875rem] text-muted-foreground mr-2" />
+                    {t("fileExplorer.sendToPeer")}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="min-w-52">
+                    {sendTargetOptions.map((sendTarget) => (
+                      <ContextMenuItem
+                        key={sendTarget.sessionId}
+                        onClick={() =>
+                          onSendToTarget(actionRows, sendTarget.sessionId)
+                        }
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {sendTarget.label}
+                        </span>
+                        <span className="ml-2 shrink-0 text-[0.625rem] text-muted-foreground">
+                          {sendTarget.meta}
+                        </span>
+                      </ContextMenuItem>
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSeparator />
+              </>
+            )}
 
           {!target.isRoot && (
             <>
@@ -455,26 +497,36 @@ export default function FileExplorerEntryContextMenu({
                     onEnterDirectoryInTerminal &&
                     onOpenDirectoryInNewTerminal && (
                       <>
-                        <ContextMenuItem onClick={() => onEnterDirectoryInTerminal(target)}>
+                        <ContextMenuItem
+                          onClick={() => onEnterDirectoryInTerminal(target)}
+                        >
                           <MdFolderOpen className="text-[0.875rem] text-muted-foreground mr-2" />
                           {t("fileExplorer.cmEnterDirectory")}
                         </ContextMenuItem>
-                        <ContextMenuItem onClick={() => onOpenDirectoryInNewTerminal(target)}>
+                        <ContextMenuItem
+                          onClick={() => onOpenDirectoryInNewTerminal(target)}
+                        >
                           <MdOpenInNew className="text-[0.875rem] text-muted-foreground mr-2" />
                           {t("fileExplorer.cmOpenDirectoryNewTerminal")}
                         </ContextMenuItem>
                         <ContextMenuSeparator />
                       </>
                     )}
-                  <ContextMenuItem onClick={() => onSendToTerminal(target, "full")}>
+                  <ContextMenuItem
+                    onClick={() => onSendToTerminal(target, "full")}
+                  >
                     <MdKeyboardReturn className="text-[0.875rem] text-muted-foreground mr-2" />
                     {t("fileExplorer.cmTerminalPath")}
                   </ContextMenuItem>
-                  <ContextMenuItem onClick={() => onSendToTerminal(target, "name")}>
+                  <ContextMenuItem
+                    onClick={() => onSendToTerminal(target, "name")}
+                  >
                     <MdKeyboardArrowRight className="text-[0.875rem] text-muted-foreground mr-2" />
                     {t("fileExplorer.cmTerminalName")}
                   </ContextMenuItem>
-                  <ContextMenuItem onClick={() => onSendToTerminal(target, "dir")}>
+                  <ContextMenuItem
+                    onClick={() => onSendToTerminal(target, "dir")}
+                  >
                     <MdKeyboardDoubleArrowRight className="text-[0.875rem] text-muted-foreground mr-2" />
                     {t("fileExplorer.cmTerminalDirPath")}
                   </ContextMenuItem>

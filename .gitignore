@@ -39,3 +39,14 @@ temp/
 .claude
 .codex
 .trae
+
+# Web runtime secrets and data
+.env
+.env.*
+nyaterm-web-data/
+web-test-data/
+
+# Isolated deployment test traces and container logs
+artifacts/web-e2e/
+artifacts/web-local-e2e/
+playwright-report/

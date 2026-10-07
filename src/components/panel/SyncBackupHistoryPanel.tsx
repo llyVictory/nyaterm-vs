@@ -1,4 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
 import type { TFunction } from "i18next";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +29,13 @@ import { invoke } from "@/lib/invoke";
 import { cn } from "@/lib/utils";
 import type { CloudConflictPreview, CloudSyncHistoryEntry, CloudSyncStatus } from "@/types/global";
 
-type SyncState = "idle" | "running" | "success" | "failed" | "conflict" | "disabled";
+type SyncState =
+  | "idle"
+  | "running"
+  | "success"
+  | "failed"
+  | "conflict"
+  | "disabled";
 type EntryKind = "sync" | "backup";
 type EntryStatus = "success" | "failed" | "conflict" | "running";
 
@@ -527,7 +533,8 @@ const HistoryEntryRow = memo(function HistoryEntryRow({
 
             {entry.provider ? (
               <span>
-                {t("settings.providerLabel")} {formatCloudProvider(entry.provider)}
+                {t("settings.providerLabel")}{" "}
+                {formatCloudProvider(entry.provider)}
               </span>
             ) : null}
 

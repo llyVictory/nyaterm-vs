@@ -1,4 +1,4 @@
-import { emit } from "@tauri-apps/api/event";
+import { emit } from "@/lib/backend/api";
 import {
   type DragEvent,
   type MouseEvent,

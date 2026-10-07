@@ -1,4 +1,7 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { SessionNetworkSection } from "@/components/sessions/SessionNetworkSection";
+import type { ConnectionOption } from "@/components/network/shared";
+import type { ProxyConfig } from "@/types/global";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { Eye, EyeOff } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -36,6 +39,7 @@ type TelnetEnterMode = "crlf" | "cr" | "lf";
 type TelnetAuthMode = "none" | "password";
 
 interface TelnetFormProps {
+  network?: { proxyId: string; setProxyId: (v: string) => void; proxies: ProxyConfig[]; jumpHostId: string; setJumpHostId: (v: string) => void; jumpHostOptions: ConnectionOption[] };
   host: string;
   setHost: (v: string) => void;
   port: number;
@@ -89,6 +93,7 @@ function RequiredMark() {
 }
 
 export function TelnetForm({
+  network,
   host,
   setHost,
   port,
@@ -582,6 +587,8 @@ export function TelnetForm({
           </Tabs>
         </CollapsibleContent>
       </Collapsible>
+
+      {network && <SessionNetworkSection {...network} />}
 
       <Dialog
         disablePointerDismissal

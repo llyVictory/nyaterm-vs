@@ -1,4 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "@/lib/backend/api";
+import { supports } from "@/lib/backend/runtime";
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -52,6 +53,7 @@ export function useCommandHistory(
   minCommandLength: number,
   maxCommandLength: number,
 ) {
+  const suggestionsEnabled = enabled && supports("commandSuggestions");
   const [suggestions, setSuggestions] = useState<FuzzyResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -64,7 +66,7 @@ export function useCommandHistory(
   const selectedIndexRef = useRef(-1);
   const showSuggestionsRef = useRef(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const enabledRef = useRef(enabled);
+  const enabledRef = useRef(suggestionsEnabled);
   const minCommandLengthRef = useRef(normalizeCommandSuggestionMinChars(minCommandLength));
   const maxCommandLengthRef = useRef(normalizeCommandSuggestionMaxChars(maxCommandLength));
   const searchRequestIdRef = useRef(0);
@@ -72,8 +74,8 @@ export function useCommandHistory(
   const deletedHistoryCommandTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
+    enabledRef.current = suggestionsEnabled;
+  }, [suggestionsEnabled]);
 
   const getCursorViewportPosition = useCallback((): SuggestionCursorPosition => {
     try {
@@ -125,10 +127,10 @@ export function useCommandHistory(
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!suggestionsEnabled) {
       dismissSuggestions();
     }
-  }, [enabled, dismissSuggestions]);
+  }, [suggestionsEnabled, dismissSuggestions]);
 
   useEffect(() => {
     return () => {

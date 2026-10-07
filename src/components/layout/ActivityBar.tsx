@@ -551,6 +551,7 @@ function ActivityBarButton({
         <ContextMenuTrigger asChild>
           <TooltipTrigger asChild>
             <button
+              aria-label={item.tooltip}
               draggable={draggable}
               data-activity-drop-zone={dropZoneName}
               data-activity-drop-index={dropIndex}

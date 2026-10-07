@@ -1,4 +1,6 @@
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
+import { pickBrowserImage } from "@/lib/backend/browserArtifacts";
 import { GripVertical } from "lucide-react";
 import { motion, Reorder, useDragControls } from "motion/react";
 import {
@@ -235,17 +237,21 @@ function BackgroundImageSection({
   const hasImage = isBackgroundImageEnabled(appearance);
 
   const handleBrowse = async () => {
-    const selected = await openDialog({
-      directory: false,
-      multiple: false,
-      filters: [
-        {
-          name: t("settings.backgroundImageFiles"),
-          extensions: BACKGROUND_IMAGE_EXTENSIONS,
-        },
-      ],
-      title: t("settings.selectBackgroundImage"),
-    });
+    const browserImage = runtime === "web" ? await pickBrowserImage(1920) : null;
+    if (runtime === "web" && !browserImage) return;
+    const selected =
+      browserImage?.dataUrl ??
+      (await openDialog({
+        directory: false,
+        multiple: false,
+        filters: [
+          {
+            name: t("settings.backgroundImageFiles"),
+            extensions: BACKGROUND_IMAGE_EXTENSIONS,
+          },
+        ],
+        title: t("settings.selectBackgroundImage"),
+      }));
     const selectedPath = Array.isArray(selected) ? selected[0] : selected;
     if (typeof selectedPath !== "string" || !selectedPath) return;
 
@@ -311,7 +317,9 @@ function BackgroundImageSection({
           disabled={!hasImage}
           controlClassName="max-w-sm"
           onValueChange={(value) =>
-            onChange({ background_image_fit: normalizeBackgroundImageFit(value) })
+            onChange({
+              background_image_fit: normalizeBackgroundImageFit(value),
+            })
           }
         >
           {BACKGROUND_IMAGE_FITS.map((fit) => (
@@ -477,7 +485,9 @@ const FontSelectControl = memo(function FontSelectControl({
           <SelectItem
             value={item.font}
             disabled
-            style={{ fontFamily: previewFontFamily(item.font, previewFallback) }}
+            style={{
+              fontFamily: previewFontFamily(item.font, previewFallback),
+            }}
           >
             {item.font}
             {showUnknownMarker && " (Custom/Missing)"}

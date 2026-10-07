@@ -1,38 +1,24 @@
-//! Import sessions from Xshell (.xts), MobaXterm (.mxtsessions), WindTerm (.sessions),
-//! SecureCRT (.xml), FinalShell conn directories, NyaTerm JSON files, and Electerm bookmarks.
-
-use crate::config::{
-    self, AiExecutionProfile, ConnectionAuth, ConnectionType, Group, SavedConnection,
-};
-use crate::error::{AppError, AppResult};
-#[cfg(not(test))]
-use crate::utils::crypto;
-use serde::Deserialize;
-use std::collections::HashMap;
-use std::io::Read;
-use std::path::Path;
+use crate::error::AppResult;
 use tauri::Emitter;
-
-#[cfg(not(test))]
-fn encrypt_import_secret(plaintext: &str) -> AppResult<String> {
-    crypto::encrypt(plaintext)
+pub fn import_sessions(
+    app: tauri::AppHandle,
+    file_path: String,
+    windterm_master_password: Option<String>,
+) -> AppResult<usize> {
+    let count =
+        nyaterm_core::core::importer::import_sessions(&app, file_path, windterm_master_password)?;
+    if count > 0 {
+        let _ = app.emit("connections-changed", ());
+    }
+    Ok(count)
 }
-
-#[cfg(test)]
-fn encrypt_import_secret(plaintext: &str) -> AppResult<String> {
-    Ok(format!("test-encrypted:{plaintext}"))
+pub fn import_termius_sessions(
+    app: tauri::AppHandle,
+    indexed_db_path: Option<String>,
+) -> AppResult<usize> {
+    let count = nyaterm_core::core::importer::import_termius_sessions(&app, indexed_db_path)?;
+    if count > 0 {
+        let _ = app.emit("connections-changed", ());
+    }
+    Ok(count)
 }
-
-include!("types.rs");
-include!("text.rs");
-include!("common.rs");
-include!("xshell.rs");
-include!("mobaxterm.rs");
-include!("windterm.rs");
-include!("securecrt.rs");
-include!("finalshell.rs");
-include!("nyaterm_json.rs");
-include!("electerm.rs");
-include!("termius.rs");
-include!("merge.rs");
-include!("tests.rs");

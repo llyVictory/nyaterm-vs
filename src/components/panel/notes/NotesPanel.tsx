@@ -1,4 +1,6 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "@/lib/backend/platform/dialog";
+import { runtime } from "@/lib/backend/runtime";
+import { downloadJson } from "@/lib/backend/browserArtifacts";
 import {
   type DragEvent,
   type KeyboardEvent,
@@ -110,9 +112,17 @@ export default function NotesPanel() {
 
   const exportNotes = async () => {
     try {
+      if (runtime === "web") {
+        const snapshot = await invoke<{ notes: unknown[]; folders: unknown[] }>("get_notes_export");
+        downloadJson("nyaterm-notes.json", snapshot);
+        toast.success(t("notes.exportSuccess", { count: snapshot.notes.length }));
+        return;
+      }
       const destination = await open({ directory: true, multiple: false });
       if (!destination) return;
-      const result = await invoke<NoteExportResult>("export_notes", { destination });
+      const result = await invoke<NoteExportResult>("export_notes", {
+        destination,
+      });
       toast.success(t("notes.exportSuccess", { count: result.noteCount }));
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -160,7 +170,10 @@ export default function NotesPanel() {
   const submitRename = (node: NoteTreeNode, name: string) => {
     const validation = validateNoteInputName(
       name,
-      collectSiblingNames(folders, notes, node.parentId, { id: node.id, kind: node.kind }),
+      collectSiblingNames(folders, notes, node.parentId, {
+        id: node.id,
+        kind: node.kind,
+      }),
     );
     if (validation) return;
     setEditingNodeId(null);

@@ -1,5 +1,6 @@
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { randomUUID } from "@/lib/uuid";
+import { emit } from "@/lib/backend/api";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdAdd, MdCheck, MdExpandMore } from "react-icons/md";
@@ -198,7 +199,7 @@ export default function QuickCommandPage() {
     let finalCategoryId = categoryId === "none" ? undefined : categoryId;
     let newCategory: QuickCommandCategory | undefined;
     if (categoryId === "new" && newCategoryName.trim()) {
-      const newId = crypto.randomUUID();
+      const newId = randomUUID();
       newCategory = {
         id: newId,
         name: newCategoryName.trim(),

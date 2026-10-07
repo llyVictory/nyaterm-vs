@@ -1,4 +1,4 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdNote } from "react-icons/md";

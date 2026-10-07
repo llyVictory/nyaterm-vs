@@ -1,11 +1,24 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import type { FileEntry } from "@/types/global";
 import FileExplorerEntryContextMenu, {
   FileExplorerContextMenuActionBar,
 } from "./FileExplorerEntryContextMenu";
 import type { FileExplorerTreeRow } from "./fileExplorerTreeModel";
+
+const mode = vi.hoisted(() => ({ web: false }));
+vi.mock("@/lib/backend/runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/backend/runtime")>()),
+  supports: () => !mode.web,
+}));
+beforeEach(() => {
+  mode.web = false;
+});
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -85,7 +98,7 @@ function renderEntryMenu(row: FileExplorerTreeRow) {
         selectedTargets={[row]}
         activeSessionId="session-1"
         editorType="internal"
-        showTransferActions={false}
+        showTransferActions
         terminalInputEnabled
         sendTargetOptions={[]}
         getAiActions={() => []}
@@ -112,7 +125,9 @@ function renderEntryMenu(row: FileExplorerTreeRow) {
       />
     </ContextMenu>,
   );
-  fireEvent.contextMenu(screen.getByRole("button", { name: "Open entry menu" }));
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: "Open entry menu" }),
+  );
   return {
     onCopyPath,
     onSendToTerminal,
@@ -122,6 +137,22 @@ function renderEntryMenu(row: FileExplorerTreeRow) {
 }
 
 describe("FileExplorerEntryContextMenu", () => {
+  it("hides Web directory transfer and external editor entries", async () => {
+    mode.web = true;
+    renderEntryMenu(entryRow(true));
+    expect(await screen.findByText("fileExplorer.cmOpen")).toBeTruthy();
+    expect(screen.queryByText("fileExplorer.cmDownload")).toBeNull();
+    fireEvent.click(screen.getByText("fileExplorer.cmUpload"));
+    expect(await screen.findByText("fileExplorer.upload")).toBeTruthy();
+    expect(screen.queryByText("fileExplorer.uploadFolder")).toBeNull();
+    expect(screen.queryByText("fileExplorer.uploadFolderContents")).toBeNull();
+  });
+  it("keeps Web file downloads while hiding the external editor", async () => {
+    mode.web = true;
+    renderEntryMenu(entryRow(false));
+    expect(await screen.findByText("fileExplorer.cmDownload")).toBeTruthy();
+    expect(screen.queryByText("fileExplorer.cmOpenExternalEditor")).toBeNull();
+  });
   it("groups copy information and terminal actions for directories", async () => {
     const row = entryRow(true);
     const actions = renderEntryMenu(row);
@@ -129,12 +160,16 @@ describe("FileExplorerEntryContextMenu", () => {
     fireEvent.click(await screen.findByText("fileExplorer.cmCopyPath"));
     expect(actions.onCopyPath).toHaveBeenCalledWith(row, "full");
 
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Open entry menu" }));
+    fireEvent.contextMenu(
+      screen.getByRole("button", { name: "Open entry menu" }),
+    );
     fireEvent.click(await screen.findByText("Terminal"));
     fireEvent.click(await screen.findByText("Enter Directory"));
     expect(actions.onEnterDirectoryInTerminal).toHaveBeenCalledWith(row);
 
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Open entry menu" }));
+    fireEvent.contextMenu(
+      screen.getByRole("button", { name: "Open entry menu" }),
+    );
     fireEvent.click(await screen.findByText("Terminal"));
     fireEvent.click(await screen.findByText("Open New Terminal"));
     expect(actions.onOpenDirectoryInNewTerminal).toHaveBeenCalledWith(row);
@@ -157,7 +192,9 @@ function menuItem(label: string): HTMLElement {
   return item;
 }
 
-function renderActionBar(props: React.ComponentProps<typeof FileExplorerContextMenuActionBar>) {
+function renderActionBar(
+  props: React.ComponentProps<typeof FileExplorerContextMenuActionBar>,
+) {
   render(
     <ContextMenu>
       <ContextMenuTrigger asChild>

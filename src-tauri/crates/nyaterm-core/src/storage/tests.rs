@@ -1,0 +1,597 @@
+use super::*;
+use crate::config::{
+    ConnectionAuth, ConnectionCustomIcon, ConnectionType, Group, SavedConnection, SessionsConfig,
+    SftpSettings,
+};
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn unique_config_dir(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    std::env::temp_dir().join(format!("nyaterm-redb-v3-{name}-{nanos}"))
+}
+fn test_storage(name: &str) -> (PathBuf, Storage) {
+    let dir = unique_config_dir(name);
+    fs::create_dir_all(&dir).expect("create temp dir");
+    let storage = Storage::open(&dir).expect("open storage");
+    (dir, storage)
+}
+
+#[test]
+fn backup_transaction_rolls_back_entities_written_before_a_note_failure() {
+    use crate::core::portable_snapshot::*;
+    let (dir, storage) = test_storage("backup-rollback");
+    let sessions = SessionsConfig {
+        connections: vec![sample_connection("preserved", None, 0)],
+        ..Default::default()
+    };
+    storage.replace_sessions(&sessions).unwrap();
+    let settings = crate::config::AppSettings::default();
+    let mut snapshot: PortableSnapshot = serde_json::from_value(serde_json::json!({
+        "schema_version":PORTABLE_SNAPSHOT_SCHEMA_VERSION,"snapshot_kind":"backup",
+        "revision_id":"fixture","device_id":"fixture","created_at_ms":0,"payload_hash":"","app_version":"fixture",
+        "settings":PortableAppSettings::from_app_settings(&settings,&PortableSnapshotKind::Backup),
+        "sessions":{"connections":[]},
+        "notes":{"folders":[{"id":"cycle","name":"bad","parent_id":"cycle","sort_order":0,"created_at_ms":0,"updated_at_ms":0}],"notes":[]}
+    })).unwrap();
+    snapshot.payload_hash = calculate_payload_hash(&snapshot).unwrap();
+    assert!(storage.restore_backup(&snapshot, &settings).is_err());
+    assert_eq!(
+        storage.load_sessions().unwrap().connections[0].id,
+        "preserved"
+    );
+    drop(storage);
+    let reopened = Storage::open(&dir).unwrap();
+    assert_eq!(
+        reopened.load_sessions().unwrap().connections[0].id,
+        "preserved"
+    );
+    drop(reopened);
+    fs::remove_dir_all(dir).unwrap();
+}
+fn sample_group(id: &str, sort_order: i32) -> Group {
+    Group {
+        id: id.to_string(),
+        name: id.to_string(),
+        parent_id: None,
+        sort_order,
+        created_at_ms: None,
+        updated_at_ms: None,
+    }
+}
+fn sample_connection(id: &str, group_id: Option<&str>, sort_order: i32) -> SavedConnection {
+    SavedConnection {
+        id: id.to_string(),
+        name: id.to_string(),
+        config: ConnectionType::Ssh {
+            host: "example.com".to_string(),
+            port: 22,
+            username: "root".to_string(),
+            backspace_mode: "del".to_string(),
+            x11_forwarding: false,
+            auth_agent_endpoint: None,
+            legacy_agent_forwarding: None,
+            agent_forwarding_config: None,
+            encoding: String::new(),
+            dynamic_tab_title: false,
+        },
+        group_id: group_id.map(str::to_string),
+        description: None,
+        tags: Vec::new(),
+        sort_order,
+        icon: None,
+        icon_auto_detect: None,
+        auth: Some(ConnectionAuth {
+            mode: "password".to_string(),
+            account_id: None,
+            password_source: None,
+            password_id: None,
+            password: Some(format!("cipher-{id}")),
+            key_id: None,
+            otp_id: None,
+            auto_fill_otp: false,
+            has_password: false,
+        }),
+        network: None,
+        post_login: None,
+        recording: None,
+        ssh_algorithms: None,
+        ssh_profile: Default::default(),
+        terminal_type: None,
+        sftp: SftpSettings::default(),
+        asset: None,
+        created_at_ms: None,
+        updated_at_ms: None,
+        last_used_at_ms: None,
+    }
+}
+fn sample_custom_icon(id: &str, data_url: &str) -> ConnectionCustomIcon {
+    ConnectionCustomIcon {
+        id: id.to_string(),
+        name: id.to_string(),
+        data_url: data_url.to_string(),
+        created_at_ms: 10,
+        updated_at_ms: 10,
+    }
+}
+#[test]
+fn new_storage_initializes_schema_v3_without_json_files() {
+    let (dir, storage) = test_storage("init");
+    assert_eq!(storage.get_schema_version().expect("schema version"), 3);
+    assert!(!dir.join("settings.json").exists());
+    assert!(!dir.join("sessions.json").exists());
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn settings_roundtrip_uses_generic_json_bytes() {
+    let (dir, storage) = test_storage("settings");
+    let value = serde_json::json!({"theme": "dark"});
+    storage
+        .save_settings("settings/ui", &value)
+        .expect("save settings");
+    let loaded: serde_json::Value = storage
+        .get_settings("settings/ui")
+        .expect("get settings")
+        .expect("settings exist");
+    assert_eq!(loaded["theme"], "dark");
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn group_crud_roundtrip() {
+    let (dir, storage) = test_storage("groups");
+    let group = sample_group("group-a", 1);
+    storage.save_group(&group).expect("save group");
+    assert_eq!(storage.list_groups().expect("list groups").len(), 1);
+    assert_eq!(
+        storage
+            .get_group("group-a")
+            .expect("get group")
+            .expect("group")
+            .name,
+        "group-a"
+    );
+    storage.delete_group("group-a").expect("delete group");
+    assert!(storage.list_groups().expect("list groups").is_empty());
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn connection_crud_and_group_index_roundtrip() {
+    let (dir, storage) = test_storage("connections");
+    let mut one = sample_connection("one", Some("group-a"), 1);
+    let two = sample_connection("two", Some("group-b"), 2);
+    storage.save_connection(&one).expect("save one");
+    storage.save_connection(&two).expect("save two");
+    assert_eq!(storage.list_connections().expect("list").len(), 2);
+    assert!(
+        storage
+            .get_connection("one")
+            .expect("get one")
+            .expect("one")
+            .auth
+            .and_then(|auth| auth.password)
+            .is_none()
+    );
+    assert_eq!(
+        storage
+            .get_connection_with_secret("one")
+            .expect("get one with secret")
+            .expect("one")
+            .auth
+            .and_then(|auth| auth.password),
+        Some("cipher-one".to_string())
+    );
+    storage
+        .mark_connection_used("one")
+        .expect("mark connection used");
+    assert_eq!(
+        storage
+            .get_connection_with_secret("one")
+            .expect("get one with secret after mark used")
+            .expect("one")
+            .auth
+            .and_then(|auth| auth.password),
+        Some("cipher-one".to_string())
+    );
+    let group_a = storage
+        .list_connections_by_group(Some("group-a"))
+        .expect("list group a");
+    assert_eq!(
+        group_a
+            .iter()
+            .map(|conn| conn.id.as_str())
+            .collect::<Vec<_>>(),
+        ["one"]
+    );
+    one.group_id = Some("group-b".to_string());
+    one.auth.as_mut().expect("auth").password = Some("cipher-one".to_string());
+    storage.save_connection(&one).expect("move one");
+    assert!(
+        storage
+            .list_connections_by_group(Some("group-a"))
+            .expect("list old group")
+            .is_empty()
+    );
+    assert_eq!(
+        storage
+            .list_connections_by_group(Some("group-b"))
+            .expect("list new group")
+            .len(),
+        2
+    );
+    storage.delete_connection("one").expect("delete one");
+    assert_eq!(
+        storage
+            .list_connections_by_group(Some("group-b"))
+            .expect("list group b")
+            .iter()
+            .map(|conn| conn.id.as_str())
+            .collect::<Vec<_>>(),
+        ["two"]
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn history_appends_lists_and_deletes_by_timestamp() {
+    let (dir, storage) = test_storage("history");
+    storage
+        .append_command_history(&crate::core::history::HistoryEntry {
+            command: "ls".to_string(),
+            last_used_at_ms: 10,
+            use_count: 1,
+        })
+        .expect("append ls");
+    storage
+        .append_command_history(&crate::core::history::HistoryEntry {
+            command: "pwd".to_string(),
+            last_used_at_ms: 20,
+            use_count: 1,
+        })
+        .expect("append pwd");
+    let recent = storage
+        .list_recent_command_history(10)
+        .expect("recent history");
+    assert_eq!(recent[0].command, "pwd");
+    storage
+        .delete_command_history_before(15)
+        .expect("delete old history");
+    let remaining = storage
+        .list_recent_command_history(10)
+        .expect("remaining history");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].command, "pwd");
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn v1_migration_splits_sessions_deletes_legacy_tables_and_keeps_external_backup() {
+    let dir = unique_config_dir("migration");
+    fs::create_dir_all(&dir).expect("create temp dir");
+    let db_path = database_path(&dir);
+    {
+        let db = redb::Database::create(&db_path).expect("create legacy db");
+        let txn = db.begin_write().expect("begin legacy write");
+        {
+            let mut json = txn
+                .open_table(tables::JSON_DOCS_TABLE)
+                .expect("legacy json table");
+            let sessions = SessionsConfig {
+                groups: vec![sample_group("group-a", 1)],
+                connections: vec![sample_connection("conn-a", Some("group-a"), 1)],
+                custom_icons: vec![],
+            };
+            json.insert(
+                tables::LEGACY_JSON_SETTINGS,
+                serde_json::json!({"general": {}}).to_string().as_str(),
+            )
+            .expect("write settings");
+            json.insert(
+                tables::LEGACY_JSON_SESSIONS,
+                serde_json::to_string(&sessions)
+                    .expect("serialize")
+                    .as_str(),
+            )
+            .expect("write sessions");
+        }
+        txn.commit().expect("commit legacy");
+    }
+    let storage = Storage::open(&dir).expect("migrate storage");
+    assert_eq!(storage.get_schema_version().expect("schema version"), 3);
+    assert_eq!(storage.list_groups().expect("groups").len(), 1);
+    assert_eq!(storage.list_connections().expect("connections").len(), 1);
+    let compat = storage.load_sessions().expect("load sessions");
+    assert_eq!(compat.groups[0].id, "group-a");
+    assert_eq!(compat.connections[0].id, "conn-a");
+    assert!(
+        compat.connections[0]
+            .auth
+            .as_ref()
+            .and_then(|auth| auth.password.as_deref())
+            .is_some()
+    );
+    let legacy_docs =
+        migration::read_legacy_docs(&storage.db, tables::JSON_DOCS_TABLE).expect("legacy docs");
+    assert!(legacy_docs.is_empty());
+    let backup_count = fs::read_dir(&dir)
+        .expect("read dir")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("nyaterm.redb.bak-v1-")
+        })
+        .count();
+    assert_eq!(backup_count, 1);
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn replace_sessions_splits_entities() {
+    let (dir, storage) = test_storage("sessions");
+    let config = SessionsConfig {
+        groups: vec![sample_group("group-a", 1)],
+        connections: vec![sample_connection("conn-a", Some("group-a"), 1)],
+        custom_icons: vec![sample_custom_icon(
+            "custom-icon-a",
+            "data:image/png;base64,AAAA",
+        )],
+    };
+    storage.replace_sessions(&config).expect("save sessions");
+    assert!(
+        migration::read_legacy_docs(&storage.db, tables::JSON_DOCS_TABLE)
+            .expect("legacy docs")
+            .is_empty()
+    );
+    assert_eq!(storage.list_groups().expect("groups").len(), 1);
+    assert_eq!(storage.list_connections().expect("connections").len(), 1);
+    assert_eq!(
+        storage
+            .list_connection_custom_icons()
+            .expect("custom icons")
+            .len(),
+        1
+    );
+    let loaded = storage.load_sessions().expect("load sessions");
+    assert_eq!(loaded.custom_icons[0].id, "custom-icon-a");
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn load_sessions_migrates_connection_data_url_icons_into_custom_icon_library() {
+    let (dir, storage) = test_storage("custom-icon-migration");
+    let data_url = "data:image/png;base64,AAAA";
+    let mut connection = sample_connection("conn-a", None, 1);
+    connection.icon = Some(data_url.to_string());
+    storage
+        .save_connection(&connection)
+        .expect("save connection with data url icon");
+
+    let loaded = storage.load_sessions().expect("load sessions");
+
+    assert_eq!(loaded.custom_icons.len(), 1);
+    assert_eq!(loaded.custom_icons[0].data_url, data_url);
+    assert_eq!(
+        storage
+            .list_connection_custom_icons()
+            .expect("stored custom icons")
+            .len(),
+        1
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+#[test]
+fn known_hosts_repository_preserves_structured_marker_hashed_and_raw_lines() {
+    let (dir, storage) = test_storage("known-hosts");
+    storage
+        .replace_known_hosts_export(
+            "# comment\n@cert-authority *.example.com ssh-ed25519 AAAA ca\n|1|nNMSH1CuL4w6FneDFn3ONf5paeg=|q8MlMsHsBk6GOpNwYqhnCeXKlRk= ssh-rsa BBBB\n",
+        )
+        .expect("save known hosts");
+    let rendered = storage
+        .render_known_hosts_export()
+        .expect("load known hosts");
+    assert!(rendered.contains("# comment"));
+    assert!(rendered.contains("@cert-authority *.example.com ssh-ed25519 AAAA ca"));
+    assert!(
+        rendered
+            .contains("|1|nNMSH1CuL4w6FneDFn3ONf5paeg=|q8MlMsHsBk6GOpNwYqhnCeXKlRk= ssh-rsa BBBB")
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn known_hosts_management_lists_fingerprints_and_deletes_exact_record() {
+    const ED25519_KEY: &str =
+        "AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti";
+    let (dir, storage) = test_storage("known-hosts-management");
+    let marker_line = format!(
+        "@cert-authority first.example.com,second.example.com ssh-ed25519 {ED25519_KEY} ca"
+    );
+    let content = format!(
+        "# preserved comment\nexample.com ssh-ed25519 {ED25519_KEY} primary\nexample.com ssh-rsa BBBB alternate\n{marker_line}\n|1|nNMSH1CuL4w6FneDFn3ONf5paeg=|q8MlMsHsBk6GOpNwYqhnCeXKlRk= ssh-rsa BBBB hashed\nbroken.example ssh-ed25519 not-base64\n"
+    );
+    storage
+        .replace_known_hosts_export(&content)
+        .expect("save known hosts");
+
+    let entries = storage.list_known_hosts().expect("list known hosts");
+    assert_eq!(entries.len(), 5);
+    let primary = entries
+        .iter()
+        .find(|entry| entry.host_identifier == "example.com" && entry.key_type == "ssh-ed25519")
+        .expect("primary host");
+    assert_eq!(
+        primary.fingerprint.as_deref(),
+        Some("SHA256:UCUiLr7Pjs9wFFJMDByLgc3NrtdU344OgUM45wZPcIQ")
+    );
+    let marker = entries
+        .iter()
+        .find(|entry| entry.marker.as_deref() == Some("@cert-authority"))
+        .expect("marker entry");
+    assert_eq!(
+        marker.host_patterns,
+        ["first.example.com", "second.example.com"]
+    );
+    assert!(
+        entries
+            .iter()
+            .find(|entry| entry.host_identifier == "broken.example")
+            .expect("broken legacy entry")
+            .fingerprint
+            .is_none()
+    );
+
+    storage
+        .delete_known_host(&primary.id)
+        .expect("delete exact known host");
+    let remaining = storage.list_known_hosts().expect("list remaining");
+    assert_eq!(remaining.len(), 4);
+    assert!(
+        remaining
+            .iter()
+            .any(|entry| { entry.host_identifier == "example.com" && entry.key_type == "ssh-rsa" })
+    );
+
+    let rendered = storage
+        .render_known_hosts_export()
+        .expect("render remaining known hosts");
+    assert!(rendered.contains("# preserved comment"));
+    assert!(rendered.contains(&marker_line));
+    assert!(rendered.contains(
+        "|1|nNMSH1CuL4w6FneDFn3ONf5paeg=|q8MlMsHsBk6GOpNwYqhnCeXKlRk= ssh-rsa BBBB hashed"
+    ));
+    assert!(rendered.contains("example.com ssh-rsa BBBB alternate"));
+    assert!(!rendered.contains(&format!("example.com ssh-ed25519 {ED25519_KEY} primary")));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn known_hosts_management_sorts_entries_by_host_name() {
+    let (dir, storage) = test_storage("known-hosts-sort");
+    storage
+        .replace_known_hosts_export(
+            "Zulu.example ssh-rsa AAAA\nalpha.example ssh-rsa BBBB\nBeta.example ssh-ed25519 CCCC\n",
+        )
+        .expect("save known hosts");
+
+    let entries = storage.list_known_hosts().expect("list known hosts");
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.host_identifier.as_str())
+            .collect::<Vec<_>>(),
+        ["alpha.example", "Beta.example", "Zulu.example"]
+    );
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn known_hosts_management_clear_removes_ssh_records_without_touching_rdp() {
+    let (dir, storage) = test_storage("known-hosts-clear");
+    storage
+        .replace_known_hosts_export("# comment\nexample.com ssh-rsa BBBB\n")
+        .expect("save ssh known hosts");
+    storage
+        .upsert_rdp_known_host(
+            "rdp.example.com",
+            3389,
+            "AA:BB:CC",
+            RdpCertificateMetadata::default(),
+        )
+        .expect("save rdp known host");
+
+    storage.clear_known_hosts().expect("clear ssh known hosts");
+
+    assert!(
+        storage
+            .list_known_hosts()
+            .expect("list ssh known hosts")
+            .is_empty()
+    );
+    assert_eq!(
+        storage
+            .render_known_hosts_export()
+            .expect("render ssh known hosts"),
+        ""
+    );
+    assert_eq!(
+        storage
+            .check_rdp_known_host("rdp.example.com", 3389, "AA:BB:CC")
+            .expect("check rdp known host"),
+        KnownHostCheck::Match
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn vnc_known_hosts_distinguish_unknown_match_and_changed_keys() {
+    let (dir, storage) = test_storage("vnc-known-hosts");
+    assert_eq!(
+        storage
+            .check_vnc_known_host("pi.local", 5900, "SHA256:first")
+            .expect("check unknown"),
+        KnownHostCheck::UnknownHost
+    );
+    storage
+        .upsert_vnc_known_host("pi.local", 5900, "SHA256:first")
+        .expect("save fingerprint");
+    assert_eq!(
+        storage
+            .check_vnc_known_host("PI.LOCAL", 5900, "sha256:FIRST")
+            .expect("check match"),
+        KnownHostCheck::Match
+    );
+    assert_eq!(
+        storage
+            .check_vnc_known_host("pi.local", 5900, "SHA256:changed")
+            .expect("check changed"),
+        KnownHostCheck::HostSeen
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn existing_v3_storage_creates_vnc_table_and_preserves_local_trust_on_reopen() {
+    let (dir, storage) = test_storage("vnc-v3-reopen");
+    storage
+        .upsert_rdp_known_host("rdp.local", 3389, "old", RdpCertificateMetadata::default())
+        .unwrap();
+    let txn = storage.db.begin_write().unwrap();
+    txn.delete_table(VNC_KNOWN_HOSTS_TABLE).unwrap();
+    txn.commit().unwrap();
+    drop(storage);
+    let storage = Storage::open(&dir).unwrap();
+    assert_eq!(storage.get_schema_version().unwrap(), 3);
+    storage
+        .upsert_vnc_known_host("pi.local", 5900, "SHA256:key")
+        .unwrap();
+    storage
+        .replace_known_hosts_export("other.local ssh-rsa AAAA\n")
+        .unwrap();
+    storage.clear_known_hosts().unwrap();
+    drop(storage);
+    let storage = Storage::open(&dir).unwrap();
+    assert_eq!(
+        storage
+            .check_vnc_known_host("pi.local", 5900, "SHA256:key")
+            .unwrap(),
+        KnownHostCheck::Match
+    );
+    assert_eq!(
+        storage
+            .check_vnc_known_host("pi.local", 5901, "SHA256:key")
+            .unwrap(),
+        KnownHostCheck::UnknownHost
+    );
+    assert_eq!(
+        storage
+            .check_rdp_known_host("rdp.local", 3389, "old")
+            .unwrap(),
+        KnownHostCheck::Match
+    );
+    drop(storage);
+    fs::remove_dir_all(dir).unwrap();
+}

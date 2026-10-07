@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@/lib/backend/platform/opener";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { ILinkHandler, Terminal } from "@xterm/xterm";
 import { logger } from "@/lib/logger";

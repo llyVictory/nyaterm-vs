@@ -1,4 +1,5 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { supports } from "@/lib/backend/runtime";
+import { getCurrentWindow } from "@/lib/backend/platform/window";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,8 @@ import {
   VscPin,
   VscPinned,
 } from "react-icons/vsc";
-import { isMacOS } from "@/lib/platform";
+import { isMacOS as osMacOS } from "@/lib/platform";
+const isMacOS = osMacOS && supports("nativeWindows");
 
 interface ChildWindowHeaderProps {
   title: string;
@@ -99,14 +101,20 @@ export default function ChildWindowHeader({
           className={`flex-1 min-w-0 h-full flex items-center gap-2 px-3${isMacOS ? " pl-[84px]" : ""}`}
           data-tauri-drag-region
         >
-          {icon ? <span className="text-primary pointer-events-none shrink-0">{icon}</span> : null}
-          <span className="text-sm font-medium truncate pointer-events-none">{title}</span>
+          {icon ? (
+            <span className="text-primary pointer-events-none shrink-0">
+              {icon}
+            </span>
+          ) : null}
+          <span className="text-sm font-medium truncate pointer-events-none">
+            {title}
+          </span>
         </div>
       )}
 
       {!isMacOS && (
         <div className="flex h-full shrink-0 items-center">
-          {alwaysOnTopControl && (
+          {alwaysOnTopControl && supports("nativeWindows") && (
             <button
               type="button"
               className={`flex h-10 w-[46px] items-center justify-center transition-colors hover:bg-[color-mix(in_srgb,var(--df-text)_10%,transparent)] hover:text-[var(--df-text)] ${
@@ -124,7 +132,7 @@ export default function ChildWindowHeader({
               )}
             </button>
           )}
-          {windowControls && (
+          {windowControls && supports("nativeWindows") && (
             <>
               <button
                 type="button"

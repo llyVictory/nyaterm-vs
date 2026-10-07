@@ -1,5 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@/lib/backend/api";
+import { getCurrentWebview } from "@/lib/backend/platform/webview";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
@@ -225,37 +225,45 @@ export function useExternalFileDrop({
         return;
       }
 
-      const payload = event.payload;
-      if (payload.kind === "leave") {
+        const payload = event.payload;
+        if (payload.kind === "leave") {
+          resetExternalDropHover();
+          return;
+        }
+
+        const isOverDropTarget = isDropPositionTopmostWithinElement(
+          payload.position,
+          listContainerRef.current,
+        );
+        const currentSessionId = activeSessionIdRef.current;
+        const isActive =
+          canBrowseFilesRef.current && !!currentSessionId && isOverDropTarget;
+
+        if (payload.kind === "enter" || payload.kind === "over") {
+          setIsExternalDropActive(isActive);
+          return;
+        }
+
+        if (payload.kind !== "drop") {
+          return;
+        }
+
         resetExternalDropHover();
-        return;
-      }
 
-      const isOverDropTarget = isDropPositionTopmostWithinElement(
-        payload.position,
-        listContainerRef.current,
-      );
-      const currentSessionId = activeSessionIdRef.current;
-      const isActive = canBrowseFilesRef.current && !!currentSessionId && isOverDropTarget;
+        if (!isActive || !currentSessionId) {
+          return;
+        }
 
-      if (payload.kind === "enter" || payload.kind === "over") {
-        setIsExternalDropActive(isActive);
-        return;
-      }
-
-      if (payload.kind !== "drop") {
-        return;
-      }
-
-      resetExternalDropHover();
-
-      if (!isActive || !currentSessionId) {
-        return;
-      }
-
-      const remoteDir = normalizeDirectoryPath(currentPathRef.current) || homeDirRef.current || "/";
-      void processExternalDropPaths({ sessionId: currentSessionId, remoteDir }, payload.paths);
-    });
+        const remoteDir =
+          normalizeDirectoryPath(currentPathRef.current) ||
+          homeDirRef.current ||
+          "/";
+        void processExternalDropPaths(
+          { sessionId: currentSessionId, remoteDir },
+          payload.paths,
+        );
+      },
+    );
 
     return () => {
       cancelled = true;

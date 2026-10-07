@@ -38,14 +38,14 @@ async fn telnet_session_task(
     manager: Arc<SessionManager>,
     mut cmd_rx: SessionCommandReceiver,
     output_control_tx: SessionCommandSender,
-    stream: TcpStream,
+    stream: crate::core::network::BoxedTransportStream,
     config: TelnetSessionConfig,
     connection_id: Option<String>,
     encoding: String,
     startup_command: Option<TelnetStartupCommand>,
 ) {
     let backspace_as_bs = config.backspace_mode == "ctrl_h";
-    let (mut reader, mut writer) = stream.into_split();
+    let (mut reader, mut writer) = tokio::io::split(stream);
     let output_event = format!("terminal-output-{}", session_id);
     let closed_event = format!("session-closed-{}", session_id);
     let recording_mgr: Option<Arc<RecordingManager>> = app
@@ -95,6 +95,7 @@ async fn telnet_session_task(
         let mut buf = [0u8; 4096];
         let mut zmodem_detector = ZmodemDetector::new();
         let mut output_decoder = TerminalOutputDecoder::new(&encoding_reader);
+        let mut telnet_decoder = TelnetDecoder::default();
         'reader: loop {
             while *pause_rx.borrow() {
                 if pause_rx.changed().await.is_err() {
@@ -105,10 +106,10 @@ async fn telnet_session_task(
                 Ok(0) => break,
                 Ok(n) => {
                     let visible = if reader_config.raw_tcp_cli {
-                        unescape_iac_iac(&buf[..n])
+                        buf[..n].to_vec()
                     } else {
                         let neg_tx = negotiate_tx.clone();
-                        strip_telnet_commands(&buf[..n], &mut |cmd, opt| {
+                        telnet_decoder.decode(&buf[..n], &mut |cmd, opt| {
                             let resp = negotiate_response(
                                 cmd,
                                 opt,
@@ -171,9 +172,7 @@ async fn telnet_session_task(
 
                     let visible = if zmodem_download_oo_drain_reader.lock().await.is_active() {
                         let mut drain = zmodem_download_oo_drain_reader.lock().await;
-                        drain
-                            .filter(&visible, std::time::Instant::now())
-                            .to_vec()
+                        drain.filter(&visible, std::time::Instant::now()).to_vec()
                     } else {
                         visible
                     };
@@ -243,9 +242,7 @@ async fn telnet_session_task(
                         {
                             let mut auto = auto_login_for_reader.lock().await;
                             if let Some(auto) = auto.as_mut() {
-                                for action in
-                                    auto.handle_text(&text, std::time::Instant::now())
-                                {
+                                for action in auto.handle_text(&text, std::time::Instant::now()) {
                                     let _ = auto_login_tx.send(action);
                                 }
                             }
