@@ -116,8 +116,6 @@ try {
       "-p",
       `127.0.0.1:${port}:8080`,
       "-e",
-      `NYATERM_WEB_PUBLIC_URL=${url}`,
-      "-e",
       "NYATERM_WEB_PASSWORD_FILE=/run/secrets/login",
       "-e",
       "NYATERM_WEB_ENCRYPTION_KEY_FILE=/run/secrets/encryption",

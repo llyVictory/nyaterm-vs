@@ -467,12 +467,9 @@ impl russh_sftp::server::Handler for MemoryFiles {
         })
     }
 }
-fn state(host: String, base_path: &str) -> Arc<State> {
+fn state(base_path: &str) -> Arc<State> {
     Arc::new(State {
-        origin: format!("http://{host}"),
-        host,
         base_path: base_path.into(),
-        secure_cookie: false,
         password_hash: auth::digest("login-password-at-least-32-characters"),
         logins: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
@@ -485,7 +482,7 @@ fn state(host: String, base_path: &str) -> Arc<State> {
 }
 async fn upload_file(
     app: &Router,
-    state: &State,
+    _state: &State,
     id: &str,
     path: &str,
     owner: &str,
@@ -498,8 +495,8 @@ async fn upload_file(
             Request::builder()
                 .method("POST")
                 .uri(format!("/nyaterm/api/sessions/{id}/upload?path={path}"))
-                .header("host", &state.host)
-                .header("origin", &state.origin)
+                .header("host", "terminal.example")
+                .header("origin", "http://terminal.example")
                 .header("cookie", format!("{}={owner}", auth::COOKIE))
                 .header("x-nyaterm-csrf", csrf)
                 .body(body)
@@ -520,7 +517,7 @@ async fn wait_clean(files: &Arc<std::sync::Mutex<HashMap<String, Vec<u8>>>>) {
 }
 async fn request(
     app: &Router,
-    state: &State,
+    _state: &State,
     path: &str,
     body: Option<Value>,
     owner: Option<&str>,
@@ -528,8 +525,8 @@ async fn request(
 ) -> (StatusCode, axum::http::HeaderMap, Value) {
     let mut builder = Request::builder()
         .uri(format!("/nyaterm/api/{path}"))
-        .header("host", &state.host)
-        .header("origin", &state.origin)
+        .header("host", "terminal.example")
+        .header("origin", "http://terminal.example")
         .header("x-nyaterm-request", "1");
     if let Some(owner) = owner {
         builder = builder.header("cookie", format!("{}={owner}", auth::COOKIE));
@@ -587,7 +584,7 @@ async fn login(app: &Router, state: &State) -> (String, String) {
 }
 async fn ws(
     host: &str,
-    state: &State,
+    _state: &State,
     id: &str,
     owner: &str,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
@@ -595,7 +592,7 @@ async fn ws(
         .into_client_request()
         .unwrap();
     r.headers_mut()
-        .insert("origin", state.origin.parse().unwrap());
+        .insert("origin", format!("http://{host}").parse().unwrap());
     r.headers_mut().insert(
         "cookie",
         format!("{}={owner}", auth::COOKIE).parse().unwrap(),
@@ -630,7 +627,7 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     std::fs::write(dist.path().join("index.html"), "<html>NyaTerm</html>").unwrap();
     let web = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let host = web.local_addr().unwrap().to_string();
-    let state = state(host.clone(), "/nyaterm");
+    let state = state("/nyaterm");
     let app = nyaterm_web::router(state.clone(), dist.path().into());
     let serving = tokio::spawn(axum::serve(web, app.clone()).into_future());
     let (resize, mut resized) = mpsc::unbounded_channel();
@@ -696,14 +693,14 @@ async fn authenticated_ssh_vertical_slice_and_security() {
         .0,
         StatusCode::FORBIDDEN
     );
-    let bad = Request::builder()
+    let alternate_host = Request::builder()
         .uri("/nyaterm/")
-        .header("host", "evil.example")
+        .header("host", "alternate.example")
         .body(Body::empty())
         .unwrap();
     assert_eq!(
-        app.clone().oneshot(bad).await.unwrap().status(),
-        StatusCode::FORBIDDEN
+        app.clone().oneshot(alternate_host).await.unwrap().status(),
+        StatusCode::OK
     );
     let static_response = app
         .clone()
@@ -736,7 +733,7 @@ async fn authenticated_ssh_vertical_slice_and_security() {
     let id = value["session_id"].as_str().unwrap();
     // WebSocket ownership and exact Origin must be enforced during upgrade.
     for (token, origin, expected) in [
-        (&other, state.origin.as_str(), 404),
+        (&other, format!("http://{host}").as_str(), 404),
         (&owner, "https://evil.example", 403),
     ] {
         let mut upgrade = format!("ws://{host}/nyaterm/api/sessions/{id}/terminal")
@@ -831,7 +828,7 @@ async fn authenticated_ssh_vertical_slice_and_security() {
         .method("POST")
         .uri(format!("/nyaterm/api/sessions/{id}/upload?path=/large.bin"))
         .header("host", &host)
-        .header("origin", &state.origin)
+        .header("origin", &format!("http://{host}"))
         .header("cookie", format!("{}={owner}", auth::COOKIE))
         .header("x-nyaterm-csrf", &csrf)
         .header("content-length", payload.len())
@@ -1550,7 +1547,7 @@ async fn authenticated_ssh_vertical_slice_and_security() {
             "/nyaterm/api/sessions/{id}/upload?path=/interrupted.bin"
         ))
         .header("host", &host)
-        .header("origin", &state.origin)
+        .header("origin", &format!("http://{host}"))
         .header("cookie", format!("{}={owner}", auth::COOKIE))
         .header("x-nyaterm-csrf", &csrf)
         .body(body)

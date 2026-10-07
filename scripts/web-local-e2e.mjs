@@ -25,7 +25,7 @@ const env = {
   NYATERM_WEB_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
   NYATERM_WEB_DATA_DIR: data,
   NYATERM_WEB_DIST: resolve("dist"),
-  NYATERM_WEB_PUBLIC_URL: base,
+  NYATERM_WEB_BASE_PATH: basePath,
   NYATERM_WEB_BIND: `127.0.0.1:${port}`,
 };
 delete env.NYATERM_WEB_PASSWORD_FILE;

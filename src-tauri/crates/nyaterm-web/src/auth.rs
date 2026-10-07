@@ -77,18 +77,25 @@ pub fn cookie_owner(headers: &HeaderMap) -> Option<String> {
             (name == COOKIE && value.len() == 43).then(|| value.to_owned())
         })
 }
-pub fn validate_boundary(state: &State, headers: &HeaderMap, require_origin: bool) -> Result<()> {
+pub fn validate_boundary(headers: &HeaderMap, require_origin: bool) -> Result<()> {
     let host = headers
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if host != state.host {
-        return Err(WebError::forbidden());
-    }
-    match headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        Some(origin) if origin != state.origin => Err(WebError::forbidden()),
+    match headers.get(header::ORIGIN) {
+        Some(value) => {
+            let origin = value.to_str().map_err(|_| WebError::forbidden())?;
+            let url = url::Url::parse(origin).map_err(|_| WebError::forbidden())?;
+            if !matches!(url.scheme(), "http" | "https")
+                || url.origin().ascii_serialization() != origin
+                || url[url::Position::BeforeHost..url::Position::AfterPort] != *host
+            {
+                return Err(WebError::forbidden());
+            }
+            Ok(())
+        }
         None if require_origin => Err(WebError::forbidden()),
-        _ => Ok(()),
+        None => Ok(()),
     }
 }
 pub async fn guard(
@@ -102,7 +109,7 @@ pub async fn guard(
     );
     let websocket = request.headers().contains_key(header::UPGRADE);
     let result = async {
-        validate_boundary(&state, request.headers(), unsafe_method || websocket)?;
+        validate_boundary(request.headers(), unsafe_method || websocket)?;
         let token = cookie_owner(request.headers()).ok_or(WebError(
             StatusCode::UNAUTHORIZED,
             "Sign in required".into(),
@@ -127,12 +134,8 @@ pub async fn guard(
         Err(error) => error.into_response(),
     }
 }
-pub async fn site_guard(
-    ExtractState(state): ExtractState<Arc<State>>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
-    match validate_boundary(&state, request.headers(), false) {
+pub async fn site_guard(request: Request<Body>, next: Next) -> Response {
+    match validate_boundary(request.headers(), false) {
         Ok(()) => next.run(request).await,
         Err(error) => error.into_response(),
     }
@@ -147,7 +150,7 @@ pub async fn sign_in(
     Json(mut payload): Json<LoginRequest>,
 ) -> Result<Response> {
     use zeroize::Zeroize;
-    validate_boundary(&state, &headers, true)?;
+    validate_boundary(&headers, true)?;
     if headers
         .get("x-nyaterm-request")
         .and_then(|v| v.to_str().ok())
@@ -208,16 +211,23 @@ pub async fn sign_in(
     );
     tracing::info!(event = "auth.accepted", "Web sign-in accepted");
     Ok((
-        [(header::SET_COOKIE, cookie(&state, &owner, 8 * 3600))],
+        [(
+            header::SET_COOKIE,
+            cookie(&state, &headers, &owner, 8 * 3600),
+        )],
         Json(json!({"csrf":csrf})),
     )
         .into_response())
 }
-fn cookie(state: &State, token: &str, max_age: u32) -> String {
+fn cookie(state: &State, headers: &HeaderMap, token: &str, max_age: u32) -> String {
+    let secure = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin.starts_with("https://"));
     format!(
         "{COOKIE}={token}; Path={}/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
         state.base_path,
-        if state.secure_cookie { "; Secure" } else { "" }
+        if secure { "; Secure" } else { "" }
     )
 }
 pub async fn current(
@@ -229,12 +239,54 @@ pub async fn current(
 pub async fn sign_out(
     ExtractState(state): ExtractState<Arc<State>>,
     axum::Extension(owner): axum::Extension<Owner>,
+    headers: HeaderMap,
 ) -> Response {
     state.close_owner(&owner.0).await;
     tracing::info!(event = "auth.signed_out", "Web administrator signed out");
     (
-        [(header::SET_COOKIE, cookie(&state, "", 0))],
+        [(header::SET_COOKIE, cookie(&state, &headers, "", 0))],
         Json(json!({})),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boundary_accepts_any_host_but_rejects_cross_origin_requests() {
+        for (host, origin, allowed) in [
+            ("192.168.1.10:8080", "http://192.168.1.10:8080", true),
+            ("terminal.example", "https://terminal.example", true),
+            ("[2001:db8::1]:8080", "http://[2001:db8::1]:8080", true),
+            ("terminal.example", "https://evil.example", false),
+            (
+                "terminal.example:8080",
+                "http://terminal.example:8081",
+                false,
+            ),
+            ("terminal.example", "null", false),
+            ("terminal.example", "https://terminal.example/path", false),
+            ("terminal.example", "https://user@terminal.example", false),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::HOST, host.parse().unwrap());
+            headers.insert(header::ORIGIN, origin.parse().unwrap());
+            assert_eq!(
+                validate_boundary(&headers, true).is_ok(),
+                allowed,
+                "{origin}"
+            );
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, "any.example".parse().unwrap());
+        assert!(validate_boundary(&headers, false).is_ok());
+        assert!(validate_boundary(&headers, true).is_err());
+        headers.insert(
+            header::ORIGIN,
+            axum::http::HeaderValue::from_bytes(b"\xff").unwrap(),
+        );
+        assert!(validate_boundary(&headers, false).is_err());
+    }
 }

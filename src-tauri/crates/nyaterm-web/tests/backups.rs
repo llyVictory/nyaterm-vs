@@ -47,7 +47,7 @@ impl Server {
             .env("NYATERM_WEB_ENCRYPTION_KEY", STANDARD.encode([key; 32]))
             .env("NYATERM_WEB_DATA_DIR", data)
             .env("NYATERM_WEB_DIST", dist)
-            .env("NYATERM_WEB_PUBLIC_URL", &base)
+            .env("NYATERM_WEB_BASE_PATH", format!("/{subpath}"))
             .env("NYATERM_WEB_BIND", address.to_string())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

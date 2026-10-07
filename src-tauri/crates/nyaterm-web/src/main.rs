@@ -31,31 +31,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .map_err(|_| "Encryption key must decode to 32 bytes")?;
     nyaterm_core::utils::crypto::set_server_key_material(key);
-    let public =
-        std::env::var("NYATERM_WEB_PUBLIC_URL").unwrap_or_else(|_| "http://localhost:8080/".into());
-    let url = url::Url::parse(&public)?;
-    let origin = url.origin().ascii_serialization();
-    if !matches!(url.scheme(), "http" | "https")
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
+    let base_path = std::env::var("NYATERM_WEB_BASE_PATH")
+        .unwrap_or_else(|_| "/".into())
+        .trim_end_matches('/')
+        .to_owned();
+    if (!base_path.is_empty() && !base_path.starts_with('/'))
+        || base_path.contains(['%', '?', '#', '\\'])
+        || base_path.contains("//")
+        || base_path.split('/').any(|part| matches!(part, "." | ".."))
     {
-        return Err("Invalid public URL".into());
-    }
-    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-    let allow_insecure_http = std::env::var("NYATERM_WEB_ALLOW_INSECURE_HTTP")
-        .unwrap_or_else(|_| "false".into())
-        .parse()
-        .unwrap_or(false);
-    if url.scheme() != "https" && !loopback && !allow_insecure_http {
-        return Err("Non-loopback public URLs require HTTPS".into());
-    }
-    let base_path = url.path().trim_end_matches('/').to_owned();
-    if base_path.contains('%') || base_path.contains("//") {
         return Err("Invalid base path".into());
     }
-    let host = url[url::Position::BeforeHost..url::Position::AfterPort].to_owned();
     let data = PathBuf::from(
         std::env::var("NYATERM_WEB_DATA_DIR").unwrap_or_else(|_| "./nyaterm-web-data".into()),
     );
@@ -86,10 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("React dist/index.html is missing; run pnpm build:web".into());
     }
     let state = Arc::new(State {
-        origin,
-        host,
         base_path,
-        secure_cookie: url.scheme() == "https",
         password_hash: auth::digest(&password),
         logins: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),

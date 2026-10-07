@@ -25,7 +25,7 @@ fn command(data: &Path, dist: &Path) -> Command {
     cmd
 }
 #[tokio::test]
-async fn bootstrap_uses_external_secret_files_and_rejects_wrong_key() {
+async fn bootstrap_accepts_multiple_hosts_and_secret_files_and_rejects_wrong_key() {
     let temporary = tempfile::tempdir().unwrap();
     let data = temporary.path().join("data");
     let dist = temporary.path().join("dist");
@@ -40,17 +40,21 @@ async fn bootstrap_uses_external_secret_files_and_rejects_wrong_key() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let host = listener.local_addr().unwrap();
     drop(listener);
-    let origin = format!("http://{host}");
+    let origin = format!("http://terminal.example:{}", host.port());
     let mut process = Process(
         command(&data, &dist)
             .env("NYATERM_WEB_PASSWORD_FILE", &password_file)
             .env("NYATERM_WEB_ENCRYPTION_KEY_FILE", &key_file)
-            .env("NYATERM_WEB_PUBLIC_URL", format!("{origin}/terminal/"))
+            .env("NYATERM_WEB_BASE_PATH", "/terminal/")
             .env("NYATERM_WEB_BIND", host.to_string())
             .spawn()
             .unwrap(),
     );
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .resolve("terminal.example", host)
+        .build()
+        .unwrap();
     let mut ready = false;
     for _ in 0..100 {
         if let Ok(response) = client.get(format!("{origin}/terminal/")).send().await {
@@ -67,46 +71,87 @@ async fn bootstrap_uses_external_secret_files_and_rejects_wrong_key() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(ready, "Server did not start");
-    let response = client
-        .post(format!("{origin}/terminal/api/auth/login"))
-        .header("origin", &origin)
-        .header("x-nyaterm-request", "1")
-        .json(&json!({"password":password}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    let cookie = response.headers()["set-cookie"]
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
-    let csrf = response.json::<serde_json::Value>().await.unwrap()["csrf"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    assert_eq!(
-        client
-            .post(format!("{origin}/terminal/api/commands/list_sessions"))
-            .header("origin", &origin)
-            .header("cookie", cookie)
-            .header("x-nyaterm-csrf", csrf)
-            .json(&json!({}))
+    // One server serves different IPs/domains and HTTPS proxies without a public URL.
+    for access_origin in [
+        origin.clone(),
+        format!("http://{host}"),
+        format!("http://localhost:{}", host.port()),
+        "https://proxy.example".into(),
+        "https://[2001:db8::1]:8443".into(),
+    ] {
+        let url = url::Url::parse(&access_origin).unwrap();
+        let authority = &url[url::Position::BeforeHost..url::Position::AfterPort];
+        let secure = url.scheme() == "https";
+        let response = client
+            .post(format!("{origin}/terminal/api/auth/login"))
+            .header("host", authority)
+            .header("origin", &access_origin)
+            .header("x-nyaterm-request", "1")
+            .json(&json!({"password":password}))
             .send()
             .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(
+            response.headers()["set-cookie"]
+                .to_str()
+                .unwrap()
+                .split(';')
+                .any(|attribute| attribute.trim() == "Secure")
+                == secure
+        );
+        let cookie = response.headers()["set-cookie"]
+            .to_str()
             .unwrap()
-            .status(),
-        200
-    );
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let csrf = response.json::<serde_json::Value>().await.unwrap()["csrf"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            client
+                .post(format!("{origin}/terminal/api/commands/list_sessions"))
+                .header("host", authority)
+                .header("origin", &access_origin)
+                .header("cookie", &cookie)
+                .header("x-nyaterm-csrf", &csrf)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        let response = client
+            .post(format!("{origin}/terminal/api/auth/logout"))
+            .header("host", authority)
+            .header("origin", &access_origin)
+            .header("cookie", &cookie)
+            .header("x-nyaterm-csrf", &csrf)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let cleared = response.headers()["set-cookie"].to_str().unwrap();
+        assert!(cleared.contains("Path=/terminal/"));
+        assert!(cleared.contains("Max-Age=0"));
+        assert_eq!(
+            cleared
+                .split(';')
+                .any(|attribute| attribute.trim() == "Secure"),
+            secure
+        );
+    }
     process.0.kill().unwrap();
     process.0.wait().unwrap();
     std::fs::write(&key_file, STANDARD.encode([20u8; 32])).unwrap();
     let output = command(&data, &dist)
         .env("NYATERM_WEB_PASSWORD_FILE", &password_file)
         .env("NYATERM_WEB_ENCRYPTION_KEY_FILE", &key_file)
-        .env("NYATERM_WEB_PUBLIC_URL", &origin)
+        .env("NYATERM_WEB_BASE_PATH", "/terminal/")
         .output()
         .unwrap();
     assert!(!output.status.success());

@@ -28,10 +28,7 @@ pub struct Prompt {
     pub reply: oneshot::Sender<Value>,
 }
 pub struct State {
-    pub origin: String,
-    pub host: String,
     pub base_path: String,
-    pub secure_cookie: bool,
     pub password_hash: [u8; 32],
     pub logins: Mutex<HashMap<String, Arc<Login>>>,
     pub sessions: Mutex<HashMap<String, Arc<WebSession>>>,

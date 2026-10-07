@@ -22,13 +22,14 @@ COPY src-tauri/vendor/vnc-rs src-tauri/vendor/vnc-rs
 RUN cargo build --manifest-path src-tauri/crates/nyaterm-web/Cargo.toml --release --locked
 
 FROM debian:bookworm-slim AS runtime
+ARG NYATERM_WEB_BASE_PATH=/
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 libfontconfig1 libfreetype6 && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home nyaterm && mkdir -p /data && chown nyaterm:nyaterm /data
 WORKDIR /app
 COPY --from=frontend /app/dist /app/dist
 COPY --from=backend /app/src-tauri/crates/nyaterm-web/target/release/nyaterm-web /usr/local/bin/nyaterm-web
 USER 10001:10001
-ENV NYATERM_WEB_BIND=0.0.0.0:8080 NYATERM_WEB_DATA_DIR=/data NYATERM_WEB_DIST=/app/dist
+ENV NYATERM_WEB_BIND=0.0.0.0:8080 NYATERM_WEB_DATA_DIR=/data NYATERM_WEB_DIST=/app/dist NYATERM_WEB_BASE_PATH=$NYATERM_WEB_BASE_PATH
 EXPOSE 8080
 VOLUME ["/data"]
 STOPSIGNAL SIGTERM

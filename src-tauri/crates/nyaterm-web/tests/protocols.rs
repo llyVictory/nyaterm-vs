@@ -18,12 +18,9 @@ use tokio_tungstenite::{
 };
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
-fn state(host: String, base_path: &str) -> Arc<State> {
+fn state(base_path: &str) -> Arc<State> {
     Arc::new(State {
-        origin: format!("http://{host}"),
-        host,
         base_path: base_path.into(),
-        secure_cookie: false,
         password_hash: auth::digest("login-password-at-least-32-characters"),
         logins: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
@@ -36,7 +33,7 @@ fn state(host: String, base_path: &str) -> Arc<State> {
 }
 async fn request(
     app: &Router,
-    state: &State,
+    _state: &State,
     path: &str,
     body: Option<Value>,
     owner: Option<&str>,
@@ -44,8 +41,8 @@ async fn request(
 ) -> (StatusCode, axum::http::HeaderMap, Value) {
     let mut builder = Request::builder()
         .uri(format!("/nyaterm/api/{path}"))
-        .header("host", &state.host)
-        .header("origin", &state.origin)
+        .header("host", "terminal.example")
+        .header("origin", "http://terminal.example")
         .header("x-nyaterm-request", "1");
     if let Some(owner) = owner {
         builder = builder.header("cookie", format!("{}={owner}", auth::COOKIE));
@@ -103,7 +100,7 @@ async fn login(app: &Router, state: &State) -> (String, String) {
 }
 async fn ws(
     host: &str,
-    state: &State,
+    _state: &State,
     id: &str,
     owner: &str,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
@@ -111,7 +108,7 @@ async fn ws(
         .into_client_request()
         .unwrap();
     r.headers_mut()
-        .insert("origin", state.origin.parse().unwrap());
+        .insert("origin", format!("http://{host}").parse().unwrap());
     r.headers_mut().insert(
         "cookie",
         format!("{}={owner}", auth::COOKIE).parse().unwrap(),
@@ -138,12 +135,12 @@ async fn binary(
 }
 
 type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>;
-async fn vnc_ws(host: &str, state: &State, id: &str, owner: &str) -> Socket {
+async fn vnc_ws(host: &str, _state: &State, id: &str, owner: &str) -> Socket {
     let mut r = format!("ws://{host}/nyaterm/api/sessions/{id}/vnc")
         .into_client_request()
         .unwrap();
     r.headers_mut()
-        .insert("origin", state.origin.parse().unwrap());
+        .insert("origin", format!("http://{host}").parse().unwrap());
     r.headers_mut().insert(
         "cookie",
         format!("{}={owner}", auth::COOKIE).parse().unwrap(),
@@ -152,7 +149,7 @@ async fn vnc_ws(host: &str, state: &State, id: &str, owner: &str) -> Socket {
 }
 async fn rejected_ws(
     host: &str,
-    state: &State,
+    _state: &State,
     id: &str,
     endpoint: &str,
     owner: &str,
@@ -162,7 +159,7 @@ async fn rejected_ws(
         .into_client_request()
         .unwrap();
     r.headers_mut()
-        .insert("origin", state.origin.parse().unwrap());
+        .insert("origin", format!("http://{host}").parse().unwrap());
     r.headers_mut().insert(
         "cookie",
         format!("{}={owner}", auth::COOKIE).parse().unwrap(),
@@ -519,7 +516,7 @@ async fn web_telnet_vnc_proxy_and_lifecycle() {
     std::fs::write(dist.path().join("index.html"), "test").unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let host = listener.local_addr().unwrap().to_string();
-    let state = state(host.clone(), "/nyaterm");
+    let state = state("/nyaterm");
     let app = nyaterm_web::router(state.clone(), dist.path().into());
     let serving = tokio::spawn(axum::serve(listener, app.clone()).into_future());
     let (owner, csrf) = login(&app, &state).await;

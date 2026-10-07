@@ -56,10 +56,7 @@ async fn persistent_web_commands_preserve_contracts_and_verify_real_passwords() 
         cancel: cancel.child_token(),
     });
     let state = Arc::new(State {
-        origin: "http://localhost:8080".into(),
-        host: "localhost:8080".into(),
         base_path: String::new(),
-        secure_cookie: false,
         password_hash: auth::digest(PASSWORD),
         logins: Mutex::new(HashMap::from([("o".repeat(43), login)])),
         sessions: Mutex::new(HashMap::new()),
