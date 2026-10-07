@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   closeStaleCreatedSession: vi.fn(),
   focusTerminalSession: vi.fn(),
+  launchSavedRdpWithSystemClient: vi.fn(),
   openNewSession: vi.fn(),
 }));
 vi.mock("@/lib/invoke", () => ({ invoke: mocks.invoke }));
@@ -17,6 +18,7 @@ vi.mock("@/lib/appSessionFactory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/appSessionFactory")>()),
   closeStaleCreatedSession: mocks.closeStaleCreatedSession,
   focusTerminalSession: mocks.focusTerminalSession,
+  launchSavedRdpWithSystemClient: mocks.launchSavedRdpWithSystemClient,
 }));
 
 function deferred<T>() {
@@ -45,6 +47,7 @@ function renderConnect(overrides: Partial<Parameters<typeof useConnectAfterEdit>
     setActiveTabId: vi.fn(),
     updatePaneSession: vi.fn(),
     updateTabSession: vi.fn(),
+    rdpClientMode: "builtin",
     setTerminalWindows: vi.fn(),
     updateAutoIconForSessionStart: vi.fn(),
     ...overrides,
@@ -62,6 +65,7 @@ beforeEach(() => {
       command === "get_saved_connections" ? [connection] : "new-session",
     );
   mocks.closeStaleCreatedSession.mockResolvedValue(undefined);
+  mocks.launchSavedRdpWithSystemClient.mockResolvedValue(false);
 });
 
 describe("useConnectAfterEdit", () => {
@@ -181,6 +185,31 @@ describe("useConnectAfterEdit", () => {
       createRequestId: "pending-request",
       ...(hasScope ? { recordingScopeId: "pending-pane" } : {}),
     });
+  });
+
+  it("launches a system RDP connection before creating a pending pane", async () => {
+    const rdpConnection = { ...connection, type: "rdp" as const };
+    mocks.invoke.mockResolvedValueOnce([rdpConnection]);
+    mocks.launchSavedRdpWithSystemClient.mockResolvedValueOnce(true);
+    const { result, options } = renderConnect({ rdpClientMode: "windows" });
+
+    await act(() => result.current({ connectionId: "conn-1" }));
+
+    expect(mocks.launchSavedRdpWithSystemClient).toHaveBeenCalledWith(
+      rdpConnection,
+      "windows",
+    );
+    expect(options.addPendingTab).not.toHaveBeenCalled();
+    expect(options.markPaneConnecting).not.toHaveBeenCalled();
+    expect(options.updatePaneSession).not.toHaveBeenCalled();
+    expect(options.updateTabSession).not.toHaveBeenCalled();
+    expect(options.updateAutoIconForSessionStart).not.toHaveBeenCalled();
+    expect(options.recordRecentConnection).toHaveBeenCalledWith("conn-1");
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      "create_rdp_session",
+      expect.anything(),
+    );
   });
 
   it("preserves the ID fallback when the saved connection is missing", async () => {

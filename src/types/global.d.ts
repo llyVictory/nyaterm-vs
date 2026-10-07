@@ -1197,6 +1197,7 @@ export interface GeneralSettings {
   minimize_to_tray: boolean;
   boss_key: string | null;
   confirm_on_close: boolean;
+  rdp_client_mode: "builtin" | "windows";
 }
 
 export type BackgroundImageFit = "cover" | "contain" | "stretch" | "tile";

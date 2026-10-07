@@ -261,6 +261,7 @@ pub fn run() {
             cmd::session::create_telnet_session,
             cmd::session::create_serial_session,
             cmd::rdp::create_rdp_session,
+            cmd::rdp::launch_windows_rdp,
             cmd::rdp::rdp_attach_frame_channel,
             cmd::rdp::rdp_input_batch,
             cmd::rdp::rdp_set_keyboard_capture,

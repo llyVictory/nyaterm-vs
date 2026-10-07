@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setOwnerMainWindowLabel } from "./windowManager";
 import type { SavedConnection, TerminalSessionPane } from "@/types/global";
-import { createSessionForConnection, createSessionForPane } from "./appSessionFactory";
+import {
+  createSessionForConnection,
+  createSessionForPane,
+  launchSavedRdpWithSystemClient,
+  shouldLaunchSavedRdpWithSystemClient,
+} from "./appSessionFactory";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
@@ -93,4 +98,51 @@ describe("VNC owner window routing", () => {
       });
     },
   );
+});
+
+describe("Windows system RDP routing", () => {
+  beforeEach(() => {
+    invokeMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("launches a saved RDP connection externally only on Windows system mode", async () => {
+    const connection = { id: "rdp-1", type: "rdp" } as SavedConnection;
+
+    expect(
+      shouldLaunchSavedRdpWithSystemClient(connection, "windows", true),
+    ).toBe(true);
+    expect(
+      await launchSavedRdpWithSystemClient(connection, "windows", true),
+    ).toBe(true);
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith("launch_windows_rdp", {
+      connectionId: "rdp-1",
+    });
+  });
+
+  it("keeps built-in and non-Windows RDP on the existing session path", async () => {
+    const connection = { id: "rdp-1", type: "rdp" } as SavedConnection;
+
+    expect(
+      shouldLaunchSavedRdpWithSystemClient(connection, "builtin", true),
+    ).toBe(false);
+    expect(
+      shouldLaunchSavedRdpWithSystemClient(connection, "windows", false),
+    ).toBe(false);
+    expect(
+      await launchSavedRdpWithSystemClient(connection, "builtin", true),
+    ).toBe(false);
+    expect(
+      await launchSavedRdpWithSystemClient(connection, "windows", false),
+    ).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not route non-RDP saved connections to Windows Remote Desktop", async () => {
+    const connection = { id: "ssh-1", type: "ssh" } as SavedConnection;
+
+    expect(
+      await launchSavedRdpWithSystemClient(connection, "windows", true),
+    ).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 });

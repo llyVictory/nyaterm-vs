@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { useConfigTransfer } from "@/hooks/useConfigTransfer";
 import { AVAILABLE_LANGUAGES } from "@/i18n";
 import { HEADER_STATUS_MODES, normalizeHeaderStatusMode } from "@/lib/headerStatus";
+import { isWindows } from "@/lib/platform";
 import {
   SettingFieldGrid,
   SettingRow,
@@ -69,6 +70,29 @@ export function GeneralTab() {
       </SettingSection>
 
       <SettingSection contentClassName="space-y-4">
+        {isWindows && (
+          <SettingSelect
+            label={t("settings.rdpClient")}
+            desc={t("settings.rdpClientDesc")}
+            value={appSettings.general.rdp_client_mode ?? "builtin"}
+            onValueChange={(value) =>
+              updateAppSettings({
+                general: {
+                  ...appSettings.general,
+                  rdp_client_mode: value === "windows" ? "windows" : "builtin",
+                },
+              })
+            }
+          >
+            <SelectItem value="builtin">
+              {t("settings.rdpClientBuiltin")}
+            </SelectItem>
+            <SelectItem value="windows">
+              {t("settings.rdpClientWindows")}
+            </SelectItem>
+          </SettingSelect>
+        )}
+
         <SettingRow label={t("settings.startupRestore")} desc={t("settings.startupRestoreDesc")}>
           <SettingSwitch
             checked={appSettings.general.startup_restore}
