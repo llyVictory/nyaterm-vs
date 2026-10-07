@@ -5,6 +5,8 @@ import type {
   AIMessage,
   AISession,
   AISessionScope,
+  Group,
+  SavedConnection,
   Tab,
   TerminalSessionPane,
 } from "@/types/global";
@@ -21,7 +23,8 @@ let appState: {
   };
   updateAppSettings: ReturnType<typeof vi.fn>;
   tabs: Tab[];
-  savedConnections: [];
+  savedConnections: SavedConnection[];
+  savedGroups: Group[];
 };
 
 vi.mock("@/context/AppContext", () => ({
@@ -71,7 +74,106 @@ describe("AIAssistantPanel history scope ownership", () => {
       updateAppSettings: vi.fn(),
       tabs: [],
       savedConnections: [],
+      savedGroups: [],
     };
+  });
+
+  it("passes only the selected connection metadata and its effective runtime profile to chat", async () => {
+    const pane = terminalPane("selected-session");
+    appState.tabs = [tabWithPane(pane)];
+    appState.savedGroups = [{ id: "prod", name: "Production", sort_order: 0 }];
+    appState.savedConnections = [
+      {
+        id: "connection-1",
+        type: "ssh",
+        name: "API",
+        host: "api.example",
+        port: 2222,
+        username: "ops",
+        description: "Selected API server",
+        tags: ["prod"],
+        group_id: "prod",
+        auth: { mode: "password", password: "do-not-send" },
+      },
+      {
+        id: "other",
+        type: "ssh",
+        name: "Other",
+        description: "unselected connection",
+      },
+    ];
+    appState.appSettings.ai = {
+      ...DEFAULT_AI_SETTINGS,
+      enabled: true,
+      default_model_id: "test-model",
+      models: [
+        {
+          id: "test-model",
+          name: "Test model",
+          provider_kind: "openai",
+          enabled: true,
+          source: "manual",
+        },
+      ],
+    };
+    invokeMock.mockImplementation((command: string) => {
+      switch (command) {
+        case "get_ai_sessions":
+          return Promise.resolve([]);
+        case "list_sessions":
+          return Promise.resolve([
+            {
+              id: pane.sessionId,
+              session_type: "SSH",
+              ai_execution_profile: "posix",
+            },
+          ]);
+        case "get_terminal_cwd":
+          return Promise.resolve("/srv/api");
+        case "start_ai_chat_stream":
+          return Promise.resolve({ sessionId: "new-chat" });
+        case "append_ai_audit":
+          return Promise.resolve(null);
+        default:
+          return Promise.reject(new Error(`Unexpected command: ${command}`));
+      }
+    });
+    render(
+      <AIAssistantPanel
+        activePane={pane}
+        intent={{
+          id: "metadata-intent",
+          action: "generate_command",
+          userInput: "inspect server",
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "start_ai_chat_stream",
+        expect.anything(),
+      ),
+    );
+    const request = invokeMock.mock.calls.find(
+      ([command]) => command === "start_ai_chat_stream",
+    )?.[1].request;
+    expect(request.context).toMatchObject({
+      connectionName: "API",
+      host: "api.example",
+      port: 2222,
+      description: "Selected API server",
+      tags: ["prod"],
+      groupPath: ["Production"],
+      executionProfile: "posix",
+      cwd: "/srv/api",
+    });
+    expect(request.targetContexts).toHaveLength(1);
+    expect(request.targetContexts[0].context).toEqual(request.context);
+    expect(JSON.stringify(request)).not.toContain("do-not-send");
+    expect(JSON.stringify(request)).not.toContain("unselected connection");
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "list_sessions"),
+    ).toHaveLength(1);
   });
 
   it("allows a history session to move after its terminal reconnects with a new session id", async () => {
@@ -253,10 +355,14 @@ describe("AIAssistantPanel history scope ownership", () => {
     });
 
     appState.tabs = [tabWithPane(currentPane)];
-    view.rerender(<AIAssistantPanel activePane={currentPane} intent={intent} />);
+    view.rerender(
+      <AIAssistantPanel activePane={currentPane} intent={intent} />,
+    );
     openHistory(view.container);
 
-    const lockedSessionButton = await historySessionButton(historySession.title);
+    const lockedSessionButton = await historySessionButton(
+      historySession.title,
+    );
     expect(lockedSessionButton.disabled).toBe(true);
     expect(screen.getByText("ai.historyInUse")).not.toBeNull();
     expect(invokeMock).not.toHaveBeenCalledWith(

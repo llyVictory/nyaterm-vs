@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use super::agent::{AgentApprovalManager, run_agent_stream};
 use super::history::{append_message, save_user_message, validate_session_scope};
 use super::parser::{bind_command_card_targets, parse_model_output, truncate_preview};
-use super::redaction::{redact_context, redact_sensitive_text};
+use super::redaction::redact_request;
 use super::types::{
     AiChatRequest, AiMessage, AiMessageRole, AiStreamEventPayload, AiStreamStart, uuid,
 };
@@ -213,8 +213,7 @@ async fn run_chat_stream(
     );
 
     if settings.redaction_enabled {
-        redact_context(&mut request.context);
-        request.user_input = redact_sensitive_text(&request.user_input);
+        redact_request(&mut request);
     }
 
     if settings.record_history {

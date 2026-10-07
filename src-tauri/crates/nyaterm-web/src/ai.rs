@@ -220,11 +220,7 @@ async fn start(state: &Arc<State>, owner: &str, args: &Value) -> Result<Value> {
         .unwrap_or_else(|| format!("ai-session-{}", uuid()));
     request.session_id = Some(session_id.clone());
     history::validate_session_scope(&(), &session_id, &request)?;
-    redaction::redact_context(&mut request.context);
-    for target in &mut request.target_contexts {
-        redaction::redact_context(&mut target.context);
-    }
-    request.user_input = redaction::redact_sensitive_text(&request.user_input);
+    redaction::redact_request(&mut request);
     let login = state.login(owner).await?;
     let cancel = login.cancel.child_token();
     let key = (owner.to_owned(), stream_id.clone());

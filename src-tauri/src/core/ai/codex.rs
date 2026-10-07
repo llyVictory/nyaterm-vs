@@ -26,7 +26,7 @@ use super::history::{
     set_session_backend_metadata, set_session_external_session_id,
 };
 use super::prompt::build_agent_prompt;
-use super::redaction::{redact_context, redact_marker_values, redact_sensitive_text};
+use super::redaction::{redact_marker_values, redact_request, redact_sensitive_text};
 use super::stream::{active_streams, emit_stream_event};
 use super::types::{
     AiChatRequest, AiMessage, AiMessageRole, AiModelDiscovery, AiSessionBackendMetadata,
@@ -825,8 +825,7 @@ async fn run_codex_stream_inner(
     );
 
     if settings.redaction_enabled {
-        redact_context(&mut request.context);
-        request.user_input = redact_sensitive_text(&request.user_input);
+        redact_request(request);
     }
     if settings.record_history {
         save_user_message(&app, &session_id, request)?;

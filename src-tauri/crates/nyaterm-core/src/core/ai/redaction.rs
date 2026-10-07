@@ -1,9 +1,55 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
-use super::types::AiContext;
+use super::types::{AiChatRequest, AiContext, AiTerminalTarget};
+
+/// Redact every copy of the selected terminal context before prompt construction
+/// or history storage, including per-target snapshots used by external agents.
+pub fn redact_request(request: &mut AiChatRequest) {
+    redact_context(&mut request.context);
+    request.user_input = redact_sensitive_text(&request.user_input);
+    for target in &mut request.targets {
+        redact_target(target);
+    }
+    for snapshot in &mut request.target_contexts {
+        redact_context(&mut snapshot.context);
+        if let Some(target) = &mut snapshot.target {
+            redact_target(target);
+        }
+    }
+}
+
+fn redact_target(target: &mut AiTerminalTarget) {
+    target.label = redact_sensitive_text(&target.label);
+    for value in [&mut target.host, &mut target.username]
+        .into_iter()
+        .flatten()
+    {
+        *value = redact_sensitive_text(value);
+    }
+}
 
 pub fn redact_context(context: &mut AiContext) {
+    for value in [
+        &mut context.connection_name,
+        &mut context.host,
+        &mut context.username,
+        &mut context.description,
+        &mut context.shell_path,
+        &mut context.serial_port,
+        &mut context.cwd,
+        &mut context.os,
+        &mut context.arch,
+        &mut context.session_type,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        *value = redact_sensitive_text(value);
+    }
+    for value in context.tags.iter_mut().chain(context.group_path.iter_mut()) {
+        *value = redact_sensitive_text(value);
+    }
     context.recent_output = redact_sensitive_text(&context.recent_output);
     context.selected_text = redact_sensitive_text(&context.selected_text);
     context.input_buffer = redact_sensitive_text(&context.input_buffer);
@@ -84,6 +130,37 @@ mod tests {
         assert!(!redacted.contains("secret"));
         assert!(!redacted.contains("abc.def"));
         assert!(!redacted.contains("AKIA1234567890ABCDEF"));
+    }
+
+    #[test]
+    fn redacts_metadata_and_all_target_snapshots_before_prompt_construction() {
+        let mut request: AiChatRequest = serde_json::from_value(serde_json::json!({
+            "action": "generate_command", "userInput": "password=user-secret",
+            "context": {"description": "password=description-secret", "tags": ["token=tag-secret"], "groupPath": ["api_key=group-secret"]},
+            "targets": [{"terminalSessionId": "term-1", "label": "token=label-secret", "sessionType": "SSH"}],
+            "targetContexts": [{
+                "target": {"terminalSessionId": "term-1", "label": "password=target-secret", "sessionType": "SSH"},
+                "context": {"description": "token=snapshot-secret", "recentOutput": "password=output-secret", "selectedText": "api_key=selection-secret", "inputBuffer": "token=input-secret"}
+            }]
+        })).unwrap();
+        redact_request(&mut request);
+        let payload = serde_json::to_string(&request).unwrap();
+        for secret in [
+            "user-secret",
+            "description-secret",
+            "tag-secret",
+            "group-secret",
+            "label-secret",
+            "target-secret",
+            "snapshot-secret",
+            "output-secret",
+            "selection-secret",
+            "input-secret",
+        ] {
+            assert!(!payload.contains(secret), "leaked {secret}");
+        }
+        assert!(payload.contains("[REDACTED]"));
+        assert!(payload.contains("term-1"));
     }
 
     #[test]

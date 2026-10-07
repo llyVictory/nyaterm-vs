@@ -1592,6 +1592,16 @@ export interface McpSessionOpenCancel {
 
 export interface AIContext {
   connectionName?: string | null;
+  sessionType?: WorkspaceSessionType | null;
+  description?: string | null;
+  tags?: string[];
+  groupPath?: string[];
+  /** Configured initial local shell, which may differ from the current shell. */
+  shellPath?: string | null;
+  /** Effective runtime command wrapper; never taken from legacy saved settings. */
+  executionProfile?: AIExecutionProfile | null;
+  serialPort?: string | null;
+  baudRate?: number | null;
   host?: string | null;
   port?: number | null;
   username?: string | null;

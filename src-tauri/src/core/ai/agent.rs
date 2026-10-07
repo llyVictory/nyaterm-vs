@@ -37,7 +37,7 @@ use super::prompt::{
     agent_system_prompt, build_agent_failed_message, build_agent_prompt,
     build_agent_rejected_message, build_agent_unknown_action_message, build_observation_message,
 };
-use super::redaction::{redact_context, redact_sensitive_text};
+use super::redaction::{redact_request, redact_sensitive_text};
 use super::stream::{active_streams, emit_stream_event, is_cancelled};
 use super::types::{
     AgentActionKind, AgentApprovalReasonCode, AgentLlmResponse, AgentStepAction, AgentStepPayload,
@@ -1679,8 +1679,7 @@ pub(super) async fn run_agent_stream(
     );
 
     if settings.redaction_enabled {
-        redact_context(&mut request.context);
-        request.user_input = redact_sensitive_text(&request.user_input);
+        redact_request(&mut request);
     }
 
     // Snapshot history before persisting this turn so its user message is not replayed twice.

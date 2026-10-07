@@ -217,6 +217,22 @@ pub struct AiContext {
     #[serde(default)]
     pub connection_name: Option<String>,
     #[serde(default)]
+    pub session_type: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub group_path: Vec<String>,
+    #[serde(default)]
+    pub shell_path: Option<String>,
+    #[serde(default)]
+    pub execution_profile: Option<crate::config::AiExecutionProfile>,
+    #[serde(default)]
+    pub serial_port: Option<String>,
+    #[serde(default)]
+    pub baud_rate: Option<u32>,
+    #[serde(default)]
     pub host: Option<String>,
     #[serde(default)]
     pub port: Option<u16>,

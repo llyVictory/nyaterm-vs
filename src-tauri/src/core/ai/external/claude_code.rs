@@ -20,7 +20,7 @@ use crate::utils::process::hide_window;
 
 use super::super::history::{append_message, save_user_message, set_session_external_session_id};
 use super::super::prompt::build_prompt;
-use super::super::redaction::{redact_context, redact_marker_values, redact_sensitive_text};
+use super::super::redaction::{redact_marker_values, redact_request, redact_sensitive_text};
 use super::super::stream::{active_streams, emit_stream_event};
 use super::super::types::{AiChatRequest, AiMessage, AiMessageRole, AiStreamEventPayload};
 use super::super::types::{now_rfc3339, uuid};
@@ -207,8 +207,7 @@ async fn run_claude_code_stream_inner(
     );
 
     if settings.redaction_enabled {
-        redact_context(&mut request.context);
-        request.user_input = redact_sensitive_text(&request.user_input);
+        redact_request(request);
     }
     if settings.record_history {
         save_user_message(&app, &session_id, request)?;
