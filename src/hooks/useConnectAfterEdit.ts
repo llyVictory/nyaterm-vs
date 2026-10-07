@@ -1,4 +1,6 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import type { AppContextType } from "@/context/AppContext";
 import {
   closeStaleCreatedSession,
@@ -6,13 +8,14 @@ import {
   getConnectionSessionType,
   getRemoteDesktopPaneDisplay,
   isSessionCreationCancelled,
+  launchSavedRdpWithSystemClient,
 } from "@/lib/appSessionFactory";
 import { getErrorMessage, shouldPromptConnectionEditOnFailure } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
 import { insertTabIntoLeaf, type TerminalWindowNode } from "@/lib/tabWindows";
 import { openNewSession } from "@/lib/windowManager";
 import { findSessionPaneById, getActivePane } from "@/lib/workspaceTabs";
-import type { SavedConnection } from "@/types/global";
+import type { GeneralSettings, SavedConnection } from "@/types/global";
 
 export interface SessionConnectAfterEditPayload {
   connectionId: string;
@@ -41,6 +44,7 @@ interface ConnectAfterEditOptions
   > {
   setTerminalWindows: Dispatch<SetStateAction<TerminalWindowNode | null>>;
   updateAutoIconForSessionStart: (connectionId: string, sessionId: string) => void;
+  rdpClientMode: GeneralSettings["rdp_client_mode"];
 }
 
 export function useConnectAfterEdit({
@@ -58,7 +62,9 @@ export function useConnectAfterEdit({
   updateTabSession,
   setTerminalWindows,
   updateAutoIconForSessionStart,
+  rdpClientMode,
 }: ConnectAfterEditOptions) {
+  const { t } = useTranslation();
   const tabsRef = useRef(tabs);
   useEffect(() => {
     tabsRef.current = tabs;
@@ -71,6 +77,20 @@ export function useConnectAfterEdit({
         const conns = await invoke<SavedConnection[]>("get_saved_connections");
         const conn = conns.find((c) => c.id === connectionId);
         const connName = conn?.name ?? connectionId;
+        if (conn) {
+          try {
+            if (await launchSavedRdpWithSystemClient(conn, rdpClientMode)) {
+              recordRecentConnection(connectionId);
+              return;
+            }
+          } catch (error) {
+            const errorMessage = getErrorMessage(error);
+            toast.error(
+              t("savedConnections.connectionFailed", { error: errorMessage }),
+            );
+            return;
+          }
+        }
         const sessionType = getConnectionSessionType(conn);
         const sourceTab = sourceTabId
           ? (tabsRef.current.find((item) => item.id === sourceTabId) ?? null)
@@ -200,12 +220,14 @@ export function useConnectAfterEdit({
       markPaneConnectionFailed,
       markTabConnectionFailed,
       recordRecentConnection,
+      rdpClientMode,
       setActivePane,
       setActiveTabId,
       updatePaneSession,
       updateTabSession,
       setTerminalWindows,
       updateAutoIconForSessionStart,
+      t,
     ],
   );
 }

@@ -22,6 +22,7 @@ function renderLayout(tabs: Tab[], savedLayout: RestorableTerminalWindowNode | n
       minimize_to_tray: false,
       boss_key: null,
       confirm_on_close: true,
+      rdp_client_mode: "builtin",
     },
     savedLayout,
   };

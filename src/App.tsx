@@ -56,6 +56,7 @@ import {
   getRemoteDesktopPaneDisplay,
   getTemporaryLinkSessionType,
   isSessionCreationCancelled,
+  launchSavedRdpWithSystemClient,
   type StartupCommandRequest,
   sendStartupCommandToSession,
 } from "./lib/appSessionFactory";
@@ -488,6 +489,7 @@ function App() {
     setActiveTabId,
     updatePaneSession,
     updateTabSession,
+    rdpClientMode: appSettings.general.rdp_client_mode,
     setTerminalWindows,
     updateAutoIconForSessionStart,
   });
@@ -645,6 +647,33 @@ function App() {
         onSuccess?: (sessionId: string) => void;
       },
     ) => {
+      try {
+        if (
+          await launchSavedRdpWithSystemClient(
+            connection,
+            appSettings.general.rdp_client_mode,
+          )
+        ) {
+          recordRecentConnection(connection.id);
+          return;
+        }
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        logger.error({
+          domain: "session.lifecycle",
+          event: "connection.external_rdp_open_failed",
+          message:
+            options?.failureContext ?? "Windows Remote Desktop launch failed",
+          ids: { connection_id: connection.id },
+          error,
+        });
+        toast.error(
+          t("savedConnections.connectionFailed", { error: errorMessage }),
+        );
+        if (options?.propagateError) throw error;
+        return;
+      }
+
       const pending = addPendingTab(
         connection.name,
         getConnectionSessionType(connection),
@@ -699,6 +728,7 @@ function App() {
     },
     [
       addPendingTab,
+      appSettings.general.rdp_client_mode,
       hasTab,
       markTabConnectionFailed,
       maybePromptConnectionEdit,
@@ -1090,6 +1120,31 @@ function App() {
       const anchorTabId =
         targetLeaf?.activeTabId ?? targetLeaf?.tabIds[targetLeaf.tabIds.length - 1] ?? null;
 
+      try {
+        if (
+          await launchSavedRdpWithSystemClient(
+            connection,
+            appSettings.general.rdp_client_mode,
+          )
+        ) {
+          recordRecentConnection(connection.id);
+          return;
+        }
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        logger.error({
+          domain: "session.lifecycle",
+          event: "connection.external_rdp_open_failed",
+          message: "Windows Remote Desktop launch failed from tab menu",
+          ids: { connection_id: connection.id },
+          error,
+        });
+        toast.error(
+          t("savedConnections.connectionFailed", { error: errorMessage }),
+        );
+        return;
+      }
+
       if (targetLeaf?.activeTabId) {
         handleSelectLeafTab(leafId, targetLeaf.activeTabId);
       }
@@ -1151,6 +1206,7 @@ function App() {
     },
     [
       addPendingTab,
+      appSettings.general.rdp_client_mode,
       hasTab,
       handleSelectLeafTab,
       setTerminalWindows,

@@ -47,6 +47,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     minimize_to_tray: false,
     boss_key: null,
     confirm_on_close: true,
+    rdp_client_mode: "builtin",
   },
   appearance: {
     theme: "github-dark",

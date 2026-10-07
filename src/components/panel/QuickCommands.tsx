@@ -4,7 +4,15 @@ import { downloadJson } from "@/lib/backend/browserArtifacts";
 import { listen } from "@/lib/backend/api";
 import { save as saveFileDialog } from "@/lib/backend/platform/dialog";
 import { MoreHorizontalIcon } from "lucide-react";
-import { type DragEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type DragEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { BiExport, BiImport } from "react-icons/bi";
 import { BsFillSendPlusFill } from "react-icons/bs";
@@ -66,8 +74,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useApp } from "@/context/AppContext";
 import { openAIAssistant } from "@/lib/aiEvents";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -147,7 +164,8 @@ const QUICK_COMMAND_DRAG_MIME = "application/x-nyaterm-quick-command";
 
 function clampQuickCommandCategoryWidth(width: unknown) {
   const numericWidth = typeof width === "number" ? width : Number(width);
-  if (!Number.isFinite(numericWidth)) return QUICK_COMMAND_CATEGORY_WIDTH_DEFAULT;
+  if (!Number.isFinite(numericWidth))
+    return QUICK_COMMAND_CATEGORY_WIDTH_DEFAULT;
   return Math.max(
     QUICK_COMMAND_CATEGORY_WIDTH_MIN,
     Math.min(QUICK_COMMAND_CATEGORY_WIDTH_MAX, Math.round(numericWidth)),
@@ -155,7 +173,9 @@ function clampQuickCommandCategoryWidth(width: unknown) {
 }
 
 function normalizeQuickCommandViewMode(mode: unknown): QuickCommandViewMode {
-  return mode === "list" || mode === "compact" || mode === "tile" ? mode : "tile";
+  return mode === "list" || mode === "compact" || mode === "tile"
+    ? mode
+    : "tile";
 }
 
 function NewQuickCommandCategoryDialog({
@@ -177,7 +197,11 @@ function NewQuickCommandCategoryDialog({
 
   const trimmedName = name.trim();
   const hasDuplicateName = draft
-    ? hasQuickCommandCategorySiblingName(categories, draft.parentId, trimmedName)
+    ? hasQuickCommandCategorySiblingName(
+        categories,
+        draft.parentId,
+        trimmedName,
+      )
     : false;
   const errorMessage =
     submitted && !trimmedName
@@ -194,7 +218,11 @@ function NewQuickCommandCategoryDialog({
         if (!open) onCancel();
       }}
     >
-      <DialogContent key={draft?.parentId ?? "root"} showCloseButton={false} className="max-w-sm">
+      <DialogContent
+        key={draft?.parentId ?? "root"}
+        showCloseButton={false}
+        className="max-w-sm"
+      >
         <form
           className="space-y-4"
           onSubmit={(event) => {
@@ -205,7 +233,9 @@ function NewQuickCommandCategoryDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle className="text-sm">{t("quickCommands.addCategory")}</DialogTitle>
+            <DialogTitle className="text-sm">
+              {t("quickCommands.addCategory")}
+            </DialogTitle>
             <DialogDescription className="text-xs">
               {parentLabel
                 ? t("quickCommands.newCategoryParentHint", {
@@ -224,7 +254,9 @@ function NewQuickCommandCategoryDialog({
                 {t("quickCommands.categoryName")}
               </Label>
               {errorMessage && (
-                <span className="text-[0.6875rem] text-destructive">{errorMessage}</span>
+                <span className="text-[0.6875rem] text-destructive">
+                  {errorMessage}
+                </span>
               )}
             </div>
             <Input
@@ -233,7 +265,8 @@ function NewQuickCommandCategoryDialog({
               value={name}
               className={cn(
                 "h-9 text-sm",
-                errorMessage && "border-destructive focus-visible:ring-destructive",
+                errorMessage &&
+                  "border-destructive focus-visible:ring-destructive",
               )}
               placeholder={t("quickCommands.categoryPlaceholder")}
               onChange={(event) => {
@@ -261,7 +294,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const { t } = useTranslation();
   const { appSettings, updateUi } = useApp();
   const [commands, setCommands] = useState<QuickCommand[]>([]);
-  const [savedCategories, setSavedCategories] = useState<QuickCommandCategory[]>([]);
+  const [savedCategories, setSavedCategories] = useState<
+    QuickCommandCategory[]
+  >([]);
   const [quickCommandsLoaded, setQuickCommandsLoaded] = useState(false);
   const loaded = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -273,18 +308,29 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [newCategoryDraft, setNewCategoryDraft] = useState<NewQuickCommandCategoryDraft | null>(
+  const [newCategoryDraft, setNewCategoryDraft] =
+    useState<NewQuickCommandCategoryDraft | null>(null);
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [categoryToRename, setCategoryToRename] =
+    useState<QuickCommandCategory | null>(null);
+  const [categoryToDelete, setCategoryToDelete] =
+    useState<QuickCommandCategory | null>(null);
+  const [commandToDelete, setCommandToDelete] = useState<QuickCommand | null>(
     null,
   );
-  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
-  const [categoryToRename, setCategoryToRename] = useState<QuickCommandCategory | null>(null);
-  const [categoryToDelete, setCategoryToDelete] = useState<QuickCommandCategory | null>(null);
-  const [commandToDelete, setCommandToDelete] = useState<QuickCommand | null>(null);
-  const [draggingCategoryId, setDraggingCategoryId] = useState<string | null>(null);
+  const [contextCommandId, setContextCommandId] = useState<string | null>(null);
+  const [draggingCategoryId, setDraggingCategoryId] = useState<string | null>(
+    null,
+  );
   const [categoryDragTarget, setCategoryDragTarget] =
     useState<QuickCommandCategoryDragTarget | null>(null);
-  const [draggingCommandId, setDraggingCommandId] = useState<string | null>(null);
-  const [commandDragTarget, setCommandDragTarget] = useState<QuickCommandDragTarget | null>(null);
+  const [draggingCommandId, setDraggingCommandId] = useState<string | null>(
+    null,
+  );
+  const [commandDragTarget, setCommandDragTarget] =
+    useState<QuickCommandDragTarget | null>(null);
   const categoryDragSourceRef = useRef<string | null>(null);
   const commandDragSourceRef = useRef<string | null>(null);
 
@@ -340,13 +386,18 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const handleConfirmDeleteCategory = useCallback(() => {
     if (!categoryToDelete) return;
 
-    const currentCategories = buildQuickCommandCategoryList(savedCategories, commands);
+    const currentCategories = buildQuickCommandCategoryList(
+      savedCategories,
+      commands,
+    );
     const { deleteIds } = deleteQuickCommandCategoryTree(
       currentCategories,
       commands,
       categoryToDelete.id,
     );
-    setSavedCategories((prev) => prev.filter((category) => !deleteIds.has(category.id)));
+    setSavedCategories((prev) =>
+      prev.filter((category) => !deleteIds.has(category.id)),
+    );
     setCommands((prev) =>
       prev.filter((cmd) => !cmd.category_id || !deleteIds.has(cmd.category_id)),
     );
@@ -358,7 +409,8 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       return next;
     });
     updateUi((current) =>
-      current.quick_cmd_selected_category && deleteIds.has(current.quick_cmd_selected_category)
+      current.quick_cmd_selected_category &&
+      deleteIds.has(current.quick_cmd_selected_category)
         ? { quick_cmd_selected_category: "all" }
         : {},
     );
@@ -371,7 +423,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
 
       const renamedCategory = { ...categoryToRename, name };
       setSavedCategories((prev) => {
-        const exists = prev.some((category) => category.id === renamedCategory.id);
+        const exists = prev.some(
+          (category) => category.id === renamedCategory.id,
+        );
         return exists
           ? prev.map((category) =>
               category.id === renamedCategory.id ? renamedCategory : category,
@@ -412,14 +466,21 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     openQuickCommand(undefined, { categoryId });
   }, []);
 
-  const handleMoveCategory = useCallback((categoryId: string, direction: "up" | "down") => {
-    setSavedCategories((prev) => moveQuickCommandCategory(prev, categoryId, direction));
-  }, []);
+  const handleMoveCategory = useCallback(
+    (categoryId: string, direction: "up" | "down") => {
+      setSavedCategories((prev) =>
+        moveQuickCommandCategory(prev, categoryId, direction),
+      );
+    },
+    [],
+  );
 
   const incrementUseCount = useCallback((id: string) => {
     setCommands((prev) =>
       prev.map((c) =>
-        c.id === id ? { ...c, use_count: (c.use_count ?? 0) + 1, updated_at: Date.now() } : c,
+        c.id === id
+          ? { ...c, use_count: (c.use_count ?? 0) + 1, updated_at: Date.now() }
+          : c,
       ),
     );
     invoke("increment_quick_command_use_count", { id }).catch(() => {});
@@ -435,11 +496,15 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       skipNextSaveRef.current = true;
       setCommands((prev) => {
         const exists = prev.some((c) => c.id === cmd.id);
-        return exists ? prev.map((c) => (c.id === cmd.id ? cmd : c)) : [...prev, cmd];
+        return exists
+          ? prev.map((c) => (c.id === cmd.id ? cmd : c))
+          : [...prev, cmd];
       });
       if (newCategory) {
         setSavedCategories((prev) =>
-          prev.find((c) => c.id === newCategory.id) ? prev : [...prev, newCategory],
+          prev.find((c) => c.id === newCategory.id)
+            ? prev
+            : [...prev, newCategory],
         );
       }
     });
@@ -527,10 +592,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const handleExportQuickCommands = useCallback(async () => {
     try {
       if (runtime === "web") {
-        downloadJson("nyaterm-quick-commands.json", {
-          commands,
-          categories: savedCategories,
-        });
+        downloadJson("nyaterm-quick-commands.json", { commands, categories: savedCategories });
         toast.success(t("quickCommands.exportSuccess"));
         return;
       }
@@ -579,23 +641,41 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     [allCategories, commands],
   );
   const visibleCategoryRows = useMemo(
-    () => flattenVisibleQuickCommandCategoryTree(categoryTree, expandedCategoryIds),
+    () =>
+      flattenVisibleQuickCommandCategoryTree(categoryTree, expandedCategoryIds),
     [categoryTree, expandedCategoryIds],
   );
-  const uncategorizedCount = useMemo(() => getQuickCommandUncategorizedCount(commands), [commands]);
+  const uncategorizedCount = useMemo(
+    () => getQuickCommandUncategorizedCount(commands),
+    [commands],
+  );
 
-  const viewMode = normalizeQuickCommandViewMode(appSettings.ui.quick_cmd_view_mode);
-  const sortMode = normalizeQuickCommandSortMode(appSettings.ui.quick_cmd_sort_mode);
+  const viewMode = normalizeQuickCommandViewMode(
+    appSettings.ui.quick_cmd_view_mode,
+  );
+  const sortMode = normalizeQuickCommandSortMode(
+    appSettings.ui.quick_cmd_sort_mode,
+  );
   const categorySidebarWidth = clampQuickCommandCategoryWidth(
     appSettings.ui.quick_cmd_category_width,
   );
-  const storedSelectedCategory = appSettings.ui.quick_cmd_selected_category || "all";
+  const storedSelectedCategory =
+    appSettings.ui.quick_cmd_selected_category || "all";
   const selectedCategory =
     storedSelectedCategory === "all" ||
     storedSelectedCategory === "uncategorized" ||
     categoryById.has(storedSelectedCategory)
       ? storedSelectedCategory
       : "all";
+  const newCommandCategoryId =
+    selectedCategory !== "all" &&
+    selectedCategory !== "uncategorized" &&
+    savedCategories.some((category) => category.id === selectedCategory)
+      ? selectedCategory
+      : null;
+  const contextCommand = contextCommandId
+    ? (commands.find((command) => command.id === contextCommandId) ?? null)
+    : null;
   const commandDragCategoryId =
     selectedCategory === "uncategorized"
       ? null
@@ -623,7 +703,8 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     (delta: number) => {
       updateUi((current) => ({
         quick_cmd_category_width: clampQuickCommandCategoryWidth(
-          (current.quick_cmd_category_width ?? QUICK_COMMAND_CATEGORY_WIDTH_DEFAULT) + delta,
+          (current.quick_cmd_category_width ??
+            QUICK_COMMAND_CATEGORY_WIDTH_DEFAULT) + delta,
         ),
       }));
     },
@@ -658,8 +739,12 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   }, [categoryTree]);
 
   useEffect(() => {
-    if (selectedCategory === "all" || selectedCategory === "uncategorized") return;
-    const ancestorIds = collectQuickCommandCategoryAncestorIds(allCategories, selectedCategory);
+    if (selectedCategory === "all" || selectedCategory === "uncategorized")
+      return;
+    const ancestorIds = collectQuickCommandCategoryAncestorIds(
+      allCategories,
+      selectedCategory,
+    );
     if (ancestorIds.length === 0) return;
     setExpandedCategoryIds((prev) => {
       const next = new Set(prev);
@@ -701,19 +786,27 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       : `${commands.length}`;
   const categoryToDeleteCommandCount = useMemo(() => {
     if (!categoryToDelete) return 0;
-    const deleteIds = collectQuickCommandCategoryDescendantIds(allCategories, categoryToDelete.id);
-    return commands.filter((cmd) => !!cmd.category_id && deleteIds.has(cmd.category_id)).length;
+    const deleteIds = collectQuickCommandCategoryDescendantIds(
+      allCategories,
+      categoryToDelete.id,
+    );
+    return commands.filter(
+      (cmd) => !!cmd.category_id && deleteIds.has(cmd.category_id),
+    ).length;
   }, [allCategories, categoryToDelete, commands]);
   const newCategoryParentLabel = useMemo(() => {
     const parentId = newCategoryDraft?.parentId;
-    return parentId ? buildQuickCommandCategoryPath(allCategories, parentId) || parentId : "";
+    return parentId
+      ? buildQuickCommandCategoryPath(allCategories, parentId) || parentId
+      : "";
   }, [allCategories, newCategoryDraft]);
   const headerControlClassName =
     "h-7 border-0 bg-[var(--df-bg-hover)] py-1 text-xs text-[var(--df-text)] shadow-none";
   const getCommandCategoryName = useCallback(
     (cmd: QuickCommand) =>
       cmd.category_id
-        ? buildQuickCommandCategoryPath(allCategories, cmd.category_id) || cmd.category_id
+        ? buildQuickCommandCategoryPath(allCategories, cmd.category_id) ||
+          cmd.category_id
         : null,
     [allCategories],
   );
@@ -791,14 +884,17 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     },
     [resetCategoryDrag, resolveCategoryDropPosition],
   );
-  const handleCategoryRootDragOver = useCallback((event: DragEvent<HTMLElement>) => {
-    if (!categoryDragSourceRef.current) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    if (event.target === event.currentTarget) {
-      setCategoryDragTarget({ categoryId: null, position: "inside" });
-    }
-  }, []);
+  const handleCategoryRootDragOver = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      if (!categoryDragSourceRef.current) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      if (event.target === event.currentTarget) {
+        setCategoryDragTarget({ categoryId: null, position: "inside" });
+      }
+    },
+    [],
+  );
   const handleCategoryRootDrop = useCallback(
     (event: DragEvent<HTMLElement>) => {
       event.preventDefault();
@@ -836,10 +932,13 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     (event: DragEvent<HTMLElement>, targetCommandId: string) => {
       if (!canDragCommands) return;
       const sourceId =
-        commandDragSourceRef.current || event.dataTransfer.getData(QUICK_COMMAND_DRAG_MIME);
+        commandDragSourceRef.current ||
+        event.dataTransfer.getData(QUICK_COMMAND_DRAG_MIME);
       if (!sourceId || sourceId === targetCommandId) return;
       const sourceCommand = commands.find((command) => command.id === sourceId);
-      const targetCommand = commands.find((command) => command.id === targetCommandId);
+      const targetCommand = commands.find(
+        (command) => command.id === targetCommandId,
+      );
       if (
         !sourceCommand ||
         !targetCommand ||
@@ -859,7 +958,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const handleCommandDrop = useCallback(
     (event: DragEvent<HTMLElement>, targetCommandId: string) => {
       if (!canDragCommands || commandDragCategoryId === undefined) return;
-      const targetCommand = commands.find((command) => command.id === targetCommandId);
+      const targetCommand = commands.find(
+        (command) => command.id === targetCommandId,
+      );
       if (
         !targetCommand ||
         (commandDragCategoryId
@@ -870,11 +971,17 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       }
       event.preventDefault();
       const sourceId =
-        commandDragSourceRef.current || event.dataTransfer.getData(QUICK_COMMAND_DRAG_MIME);
+        commandDragSourceRef.current ||
+        event.dataTransfer.getData(QUICK_COMMAND_DRAG_MIME);
       resetCommandDrag();
       if (!sourceId) return;
       setCommands((prev) =>
-        reorderQuickCommandsWithinCategory(prev, sourceId, targetCommandId, commandDragCategoryId),
+        reorderQuickCommandsWithinCategory(
+          prev,
+          sourceId,
+          targetCommandId,
+          commandDragCategoryId,
+        ),
       );
     },
     [canDragCommands, commandDragCategoryId, commands, resetCommandDrag],
@@ -882,7 +989,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
   const canDragCommand = useCallback(
     (cmd: QuickCommand) =>
       canDragCommands &&
-      (commandDragCategoryId ? cmd.category_id === commandDragCategoryId : !cmd.category_id),
+      (commandDragCategoryId
+        ? cmd.category_id === commandDragCategoryId
+        : !cmd.category_id),
     [canDragCommands, commandDragCategoryId],
   );
   const renderCategoryContextMenuContent = useCallback(
@@ -925,18 +1034,25 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
     ),
     [openNewCategoryDialog, openNewCommandForCategory, t],
   );
-  const renderCommandIcon = useCallback((cmd: QuickCommand, className = "text-[0.9rem]") => {
-    const dotColor = COLOR_DOT[cmd.color_tag || "default"] || COLOR_DOT.default;
+  const renderCommandIcon = useCallback(
+    (cmd: QuickCommand, className = "text-[0.9rem]") => {
+      const dotColor =
+        COLOR_DOT[cmd.color_tag || "default"] || COLOR_DOT.default;
 
-    if (cmd.icon_tag && QUICK_ICONS[cmd.icon_tag]) {
-      const iconDef = QUICK_ICONS[cmd.icon_tag];
-      return (
-        <iconDef.icon className={cn(className, "opacity-85")} style={{ color: iconDef.color }} />
-      );
-    }
+      if (cmd.icon_tag && QUICK_ICONS[cmd.icon_tag]) {
+        const iconDef = QUICK_ICONS[cmd.icon_tag];
+        return (
+          <iconDef.icon
+            className={cn(className, "opacity-85")}
+            style={{ color: iconDef.color }}
+          />
+        );
+      }
 
-    return <span className={cn("h-2.5 w-2.5 rounded-full", dotColor)} />;
-  }, []);
+      return <span className={cn("h-2.5 w-2.5 rounded-full", dotColor)} />;
+    },
+    [],
+  );
   const renderExecutionBadge = useCallback(
     (cmd: QuickCommand, className?: string) => (
       <Badge
@@ -1005,7 +1121,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent side="top">{t("quickCommands.view")}</TooltipContent>
+            <TooltipContent side="top">
+              {t("quickCommands.view")}
+            </TooltipContent>
           </Tooltip>
           <PopoverContent
             side="top"
@@ -1061,18 +1179,26 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[140px]">
-          <DropdownMenuItem onClick={() => openQuickCommand(JSON.stringify(cmd))}>
+          <DropdownMenuItem
+            onClick={() => openQuickCommand(JSON.stringify(cmd))}
+          >
             <MdEdit className="text-[0.875rem]" />
             {t("quickCommands.edit")}
           </DropdownMenuItem>
           {onSendToAll && (
-            <DropdownMenuItem disabled={sendDisabled} onClick={() => handleSendToAll(cmd)}>
+            <DropdownMenuItem
+              disabled={sendDisabled}
+              onClick={() => handleSendToAll(cmd)}
+            >
               <BsFillSendPlusFill className="text-[0.875rem]" />
               {t("quickCommands.sendToAll")}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => setCommandToDelete(cmd)}>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setCommandToDelete(cmd)}
+          >
             <MdDelete className="text-[0.875rem]" />
             {t("quickCommands.delete")}
           </DropdownMenuItem>
@@ -1123,6 +1249,13 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
           <MdEdit className="text-[0.875rem]" />
           {t("quickCommands.edit")}
         </ContextMenuItem>
+        <ContextMenuItem
+          className="text-xs gap-2"
+          onClick={() => void handleCopyCommand(cmd.command)}
+        >
+          <MdContentCopy className="text-[0.875rem]" />
+          {t("quickCommands.copyCommand")}
+        </ContextMenuItem>
         {onSendToAll && (
           <ContextMenuItem
             className="text-xs gap-2"
@@ -1142,7 +1275,7 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
         </ContextMenuItem>
       </ContextMenuContent>
     ),
-    [handleSendToAll, onSendToAll, sendDisabled, t],
+    [handleCopyCommand, handleSendToAll, onSendToAll, sendDisabled, t],
   );
   const renderCommandListItem = useCallback(
     (cmd: QuickCommand) => {
@@ -1150,46 +1283,47 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDragging = draggingCommandId === cmd.id;
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
       return (
-        <ContextMenu key={cmd.id}>
-          <ContextMenuTrigger asChild>
-            <div
-              draggable={draggable}
-              onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-              onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-              onDrop={(event) => handleCommandDrop(event, cmd.id)}
-              onDragEnd={resetCommandDrag}
-              className={cn(
-                "group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md border border-border/35 bg-muted/15 px-2 py-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
-                draggable && "cursor-grab active:cursor-grabbing",
-                isDragging && "opacity-50",
-                isDropTarget && "ring-1 ring-primary/70",
-              )}
-              style={{ color: "var(--df-text)" }}
-            >
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 text-left"
-                disabled={sendDisabled}
-                onClick={() => handleCommandClick(cmd)}
-              >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                  {renderCommandIcon(cmd)}
+        <div
+          key={cmd.id}
+          data-quick-command-id={cmd.id}
+          draggable={draggable}
+          onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+          onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+          onDrop={(event) => handleCommandDrop(event, cmd.id)}
+          onDragEnd={resetCommandDrag}
+          className={cn(
+            "group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md border border-border/35 bg-muted/15 px-2 py-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
+            draggable && "cursor-grab active:cursor-grabbing",
+            isDragging && "opacity-50",
+            isDropTarget && "ring-1 ring-primary/70",
+          )}
+          style={{ color: "var(--df-text)" }}
+        >
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 text-left"
+            disabled={sendDisabled}
+            onClick={() => handleCommandClick(cmd)}
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {renderCommandIcon(cmd)}
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-1.5">
+                {cmd.pinned && (
+                  <MdPushPin className="shrink-0 text-[0.7rem] opacity-60" />
+                )}
+                <span className="min-w-0 truncate font-medium">
+                  {cmd.label}
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    {cmd.pinned && <MdPushPin className="shrink-0 text-[0.7rem] opacity-60" />}
-                    <span className="min-w-0 truncate font-medium">{cmd.label}</span>
-                  </span>
-                  <span className="min-w-0 truncate font-mono text-[0.6875rem] leading-none text-muted-foreground">
-                    {cmd.command}
-                  </span>
-                </span>
-              </button>
-              {renderCommandActions(cmd)}
-            </div>
-          </ContextMenuTrigger>
-          {renderContextMenuContent(cmd)}
-        </ContextMenu>
+              </span>
+              <span className="min-w-0 truncate font-mono text-[0.6875rem] leading-none text-muted-foreground">
+                {cmd.command}
+              </span>
+            </span>
+          </button>
+          {renderCommandActions(cmd)}
+        </div>
       );
     },
     [
@@ -1203,7 +1337,6 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       resetCommandDrag,
       renderCommandActions,
       renderCommandIcon,
-      renderContextMenuContent,
       sendDisabled,
     ],
   );
@@ -1213,42 +1346,43 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDragging = draggingCommandId === cmd.id;
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
       return (
-        <ContextMenu key={cmd.id}>
-          <ContextMenuTrigger asChild>
-            <div
-              draggable={draggable}
-              onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-              onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-              onDrop={(event) => handleCommandDrop(event, cmd.id)}
-              onDragEnd={resetCommandDrag}
-              className={cn(
-                "group flex h-8 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
-                draggable && "cursor-grab active:cursor-grabbing",
-                isDragging && "opacity-50",
-                isDropTarget && "ring-1 ring-primary/70",
-              )}
-              style={{ color: "var(--df-text)" }}
-            >
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-0.5 text-left"
-                disabled={sendDisabled}
-                onClick={() => handleCommandClick(cmd)}
-              >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                  {renderCommandIcon(cmd, "text-[0.8rem]")}
-                </span>
-                {cmd.pinned && <MdPushPin className="shrink-0 text-[0.65rem] opacity-60" />}
-                <span className="min-w-[4rem] max-w-[38%] truncate font-medium">{cmd.label}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground/85">
-                  {cmd.command}
-                </span>
-              </button>
-              {renderCommandActions(cmd, { showBadge: false })}
-            </div>
-          </ContextMenuTrigger>
-          {renderContextMenuContent(cmd)}
-        </ContextMenu>
+        <div
+          key={cmd.id}
+          data-quick-command-id={cmd.id}
+          draggable={draggable}
+          onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+          onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+          onDrop={(event) => handleCommandDrop(event, cmd.id)}
+          onDragEnd={resetCommandDrag}
+          className={cn(
+            "group flex h-8 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-xs transition-colors hover:bg-muted/45 hover:text-foreground",
+            draggable && "cursor-grab active:cursor-grabbing",
+            isDragging && "opacity-50",
+            isDropTarget && "ring-1 ring-primary/70",
+          )}
+          style={{ color: "var(--df-text)" }}
+        >
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-0.5 text-left"
+            disabled={sendDisabled}
+            onClick={() => handleCommandClick(cmd)}
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {renderCommandIcon(cmd, "text-[0.8rem]")}
+            </span>
+            {cmd.pinned && (
+              <MdPushPin className="shrink-0 text-[0.65rem] opacity-60" />
+            )}
+            <span className="min-w-[4rem] max-w-[38%] truncate font-medium">
+              {cmd.label}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground/85">
+              {cmd.command}
+            </span>
+          </button>
+          {renderCommandActions(cmd, { showBadge: false })}
+        </div>
       );
     },
     [
@@ -1262,7 +1396,6 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       resetCommandDrag,
       renderCommandActions,
       renderCommandIcon,
-      renderContextMenuContent,
       sendDisabled,
     ],
   );
@@ -1274,83 +1407,83 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       const isDropTarget = commandDragTarget?.commandId === cmd.id;
 
       return (
-        <ContextMenu key={cmd.id}>
-          <Tooltip>
-            <ContextMenuTrigger asChild>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  draggable={draggable}
-                  onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
-                  onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
-                  onDrop={(event) => handleCommandDrop(event, cmd.id)}
-                  onDragEnd={resetCommandDrag}
-                  className={cn(
-                    "group flex max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border/35 bg-muted/20 px-2 py-1 text-left text-[0.6875rem] font-medium text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground",
-                    draggable && "cursor-grab active:cursor-grabbing",
-                    isDragging && "opacity-50",
-                    isDropTarget && "ring-1 ring-primary/70",
-                  )}
-                  style={{ color: "var(--df-text)" }}
-                  disabled={sendDisabled}
-                  onClick={() => handleCommandClick(cmd)}
-                >
-                  <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                    {renderCommandIcon(cmd, "text-[0.75rem]")}
-                  </span>
-                  {cmd.pinned && <MdPushPin className="shrink-0 text-[0.625rem] opacity-60" />}
-                  <span className="min-w-0 truncate whitespace-nowrap">{cmd.label}</span>
-                </button>
-              </TooltipTrigger>
-            </ContextMenuTrigger>
-            <TooltipContent
-              side="top"
-              align="start"
-              showArrow={false}
-              className="w-[320px] overflow-hidden rounded-xl border-border/60 bg-popover/95 p-0 shadow-2xl backdrop-blur-md"
+        <Tooltip key={cmd.id}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-quick-command-id={cmd.id}
+              draggable={draggable}
+              onDragStart={(event) => handleCommandDragStart(event, cmd.id)}
+              onDragOver={(event) => handleCommandDragOver(event, cmd.id)}
+              onDrop={(event) => handleCommandDrop(event, cmd.id)}
+              onDragEnd={resetCommandDrag}
+              className={cn(
+                "group flex max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border/35 bg-muted/20 px-2 py-1 text-left text-[0.6875rem] font-medium text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground",
+                draggable && "cursor-grab active:cursor-grabbing",
+                isDragging && "opacity-50",
+                isDropTarget && "ring-1 ring-primary/70",
+              )}
+              style={{ color: "var(--df-text)" }}
+              disabled={sendDisabled}
+              onClick={() => handleCommandClick(cmd)}
             >
-              <div className="flex flex-col">
-                <div className="flex flex-col gap-1.5 border-b border-border/30 bg-muted/30 p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                      {renderCommandIcon(cmd, "text-[0.875rem]")}
+              <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                {renderCommandIcon(cmd, "text-[0.75rem]")}
+              </span>
+              {cmd.pinned && (
+                <MdPushPin className="shrink-0 text-[0.625rem] opacity-60" />
+              )}
+              <span className="min-w-0 truncate whitespace-nowrap">
+                {cmd.label}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            align="start"
+            showArrow={false}
+            className="w-[320px] overflow-hidden rounded-xl border-border/60 bg-popover/95 p-0 shadow-2xl backdrop-blur-md"
+          >
+            <div className="flex flex-col">
+              <div className="flex flex-col gap-1.5 border-b border-border/30 bg-muted/30 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {renderCommandIcon(cmd, "text-[0.875rem]")}
+                  </span>
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    {cmd.label}
+                  </span>
+                  <div className="flex-1" />
+                  {categoryName && (
+                    <span className="max-w-[7rem] truncate rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.625rem] font-medium text-primary">
+                      {categoryName}
                     </span>
-                    <span className="truncate text-sm font-semibold text-foreground">
-                      {cmd.label}
-                    </span>
-                    <div className="flex-1" />
-                    {categoryName && (
-                      <span className="max-w-[7rem] truncate rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.625rem] font-medium text-primary">
-                        {categoryName}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
-                    {cmd.execution_mode === "append" ? (
-                      <MdKeyboardReturn className="text-[0.75rem]" />
-                    ) : (
-                      <MdBolt className="text-[0.75rem]" />
-                    )}
-                    {cmd.execution_mode === "append"
-                      ? t("quickCommands.appendOnly")
-                      : t("quickCommands.executeImmediately")}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-3 p-3">
-                  {cmd.description && (
-                    <div className="text-xs leading-relaxed text-muted-foreground/90">
-                      {cmd.description}
-                    </div>
                   )}
-
-                  {renderCommandPreview(cmd)}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                  {cmd.execution_mode === "append" ? (
+                    <MdKeyboardReturn className="text-[0.75rem]" />
+                  ) : (
+                    <MdBolt className="text-[0.75rem]" />
+                  )}
+                  {cmd.execution_mode === "append"
+                    ? t("quickCommands.appendOnly")
+                    : t("quickCommands.executeImmediately")}
                 </div>
               </div>
-            </TooltipContent>
-          </Tooltip>
-          {renderContextMenuContent(cmd)}
-        </ContextMenu>
+
+              <div className="flex flex-col gap-3 p-3">
+                {cmd.description && (
+                  <div className="text-xs leading-relaxed text-muted-foreground/90">
+                    {cmd.description}
+                  </div>
+                )}
+
+                {renderCommandPreview(cmd)}
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
       );
     },
     [
@@ -1365,7 +1498,6 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
       resetCommandDrag,
       renderCommandIcon,
       renderCommandPreview,
-      renderContextMenuContent,
       sendDisabled,
       t,
     ],
@@ -1380,7 +1512,10 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
           title={t("panel.quickCommands")}
           meta={
             commands.length > 0 ? (
-              <span className="text-[0.6875rem]" style={{ color: "var(--df-text-dimmed)" }}>
+              <span
+                className="text-[0.6875rem]"
+                style={{ color: "var(--df-text-dimmed)" }}
+              >
                 {headerMetaText}
               </span>
             ) : null
@@ -1407,7 +1542,10 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 </div>
               </div>
 
-              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border/50" />
+              <span
+                aria-hidden
+                className="mx-1 h-4 w-px shrink-0 bg-border/50"
+              />
 
               <DropdownMenu>
                 <Tooltip>
@@ -1419,7 +1557,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         className="h-6 w-6 shrink-0 rounded-md p-0 transition-colors hover:bg-[var(--df-bg-hover)]"
                         style={{
                           color:
-                            sortMode !== "created" ? "var(--df-primary)" : "var(--df-text-muted)",
+                            sortMode !== "created"
+                              ? "var(--df-primary)"
+                              : "var(--df-text-muted)",
                         }}
                         aria-label={t("quickCommands.sort")}
                       >
@@ -1427,12 +1567,16 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{t("quickCommands.sort")}</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("quickCommands.sort")}
+                  </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end">
                   <DropdownMenuRadioGroup
                     value={sortMode}
-                    onValueChange={(value) => setSortMode(normalizeQuickCommandSortMode(value))}
+                    onValueChange={(value) =>
+                      setSortMode(normalizeQuickCommandSortMode(value))
+                    }
                   >
                     <DropdownMenuRadioItem value="created" className="text-xs">
                       {t("quickCommands.sortByCreated")}
@@ -1471,12 +1615,16 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{t("quickCommands.viewMode")}</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("quickCommands.viewMode")}
+                  </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="min-w-[150px]">
                   <DropdownMenuRadioGroup
                     value={viewMode}
-                    onValueChange={(value) => setViewMode(normalizeQuickCommandViewMode(value))}
+                    onValueChange={(value) =>
+                      setViewMode(normalizeQuickCommandViewMode(value))
+                    }
                   >
                     <DropdownMenuRadioItem value="list" className="text-xs">
                       <MdFormatListBulleted className="text-[0.95rem]" />
@@ -1494,7 +1642,10 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border/50" />
+              <span
+                aria-hidden
+                className="mx-1 h-4 w-px shrink-0 bg-border/50"
+              />
 
               <div className="flex items-center gap-1">
                 <Tooltip>
@@ -1505,12 +1656,16 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       className="h-6 w-6 shrink-0 rounded-md p-0 transition-colors hover:bg-[var(--df-bg-hover)]"
                       style={{ color: "var(--df-text-muted)" }}
                       aria-label={t("quickCommands.addCommand")}
-                      onClick={() => openQuickCommand()}
+                      onClick={() =>
+                        openNewCommandForCategory(newCommandCategoryId)
+                      }
                     >
                       <MdAdd className="text-[1.05rem]" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{t("quickCommands.addCommand")}</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("quickCommands.addCommand")}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -1526,7 +1681,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       <BiExport className="text-[1.05rem]" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{t("quickCommands.export")}</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("quickCommands.export")}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -1542,11 +1699,16 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       <BiImport className="text-[1.05rem]" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{t("quickCommands.import")}</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("quickCommands.import")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
 
-              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border/50" />
+              <span
+                aria-hidden
+                className="mx-1 h-4 w-px shrink-0 bg-border/50"
+              />
 
               <Popover open={aiPopoverOpen} onOpenChange={setAiPopoverOpen}>
                 <Tooltip>
@@ -1563,11 +1725,15 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                       </Button>
                     </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{t("ai.generateCommand")}</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("ai.generateCommand")}
+                  </TooltipContent>
                 </Tooltip>
                 <PopoverContent align="end" className="w-80 p-3">
                   <div className="space-y-2">
-                    <div className="text-xs font-medium">{t("ai.generateCommand")}</div>
+                    <div className="text-xs font-medium">
+                      {t("ai.generateCommand")}
+                    </div>
                     <Input
                       value={aiPrompt}
                       disabled={sendDisabled}
@@ -1600,12 +1766,12 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
 
         <div className="flex min-h-0 flex-1">
           <aside
-            className="shrink-0 overflow-y-auto overflow-x-hidden p-1.5 terminal-scroll"
+            className="shrink-0 overflow-y-auto overflow-x-hidden p-1.5 terminal-scroll flex flex-col"
             style={{ width: categorySidebarWidth }}
             onDragOver={handleCategoryRootDragOver}
             onDrop={handleCategoryRootDrop}
           >
-            <div className="flex flex-col gap-1">
+            <div className="flex shrink-0 flex-col gap-1">
               {(() => {
                 const active = selectedCategory === "all";
                 return (
@@ -1615,7 +1781,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         type="button"
                         className="group flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors hover:bg-[var(--df-bg-hover)]"
                         style={{
-                          backgroundColor: active ? "var(--df-bg-hover)" : "transparent",
+                          backgroundColor: active
+                            ? "var(--df-bg-hover)"
+                            : "transparent",
                           color: active ? "var(--df-primary)" : "var(--df-text)",
                         }}
                         onClick={() => setSelectedCategory("all")}
@@ -1623,7 +1791,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         <span
                           className="h-1.5 w-1.5 shrink-0 rounded-full"
                           style={{
-                            backgroundColor: active ? "var(--df-primary)" : "var(--df-text-dimmed)",
+                            backgroundColor: active
+                              ? "var(--df-primary)"
+                              : "var(--df-text-dimmed)",
                             opacity: active ? 1 : 0.6,
                           }}
                         />
@@ -1636,7 +1806,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                             backgroundColor: active
                               ? "color-mix(in_srgb,var(--df-primary)_14%,transparent)"
                               : "var(--df-bg-hover)",
-                            color: active ? "var(--df-primary)" : "var(--df-text-dimmed)",
+                            color: active
+                              ? "var(--df-primary)"
+                              : "var(--df-text-dimmed)",
                           }}
                         >
                           {commands.length}
@@ -1656,9 +1828,14 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 const category = node.category;
                 const active = selectedCategory === category.id;
                 const expanded = expandedCategoryIds.has(category.id);
-                const savedCategory = savedCategories.find((item) => item.id === category.id);
+                const savedCategory = savedCategories.find(
+                  (item) => item.id === category.id,
+                );
                 const moveState = savedCategory
-                  ? getQuickCommandCategoryMoveState(savedCategories, savedCategory.id)
+                  ? getQuickCommandCategoryMoveState(
+                      savedCategories,
+                      savedCategory.id,
+                    )
                   : { canMoveUp: false, canMoveDown: false };
                 const categoryTargetPosition =
                   categoryDragTarget?.categoryId === category.id
@@ -1679,20 +1856,28 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         <div
                           draggable={!!savedCategory}
                           onDragStart={(event) => {
-                            if (savedCategory) handleCategoryDragStart(event, savedCategory.id);
+                            if (savedCategory)
+                              handleCategoryDragStart(event, savedCategory.id);
                           }}
-                          onDragOver={(event) => handleCategoryDragOver(event, category.id)}
+                          onDragOver={(event) =>
+                            handleCategoryDragOver(event, category.id)
+                          }
                           onDrop={(event) => handleCategoryDrop(event, category.id)}
                           onDragEnd={resetCategoryDrag}
                           className={cn(
                             "group flex h-8 w-full min-w-0 items-center rounded-md text-xs transition-colors hover:bg-[var(--df-bg-hover)]",
                             savedCategory && "cursor-grab active:cursor-grabbing",
                             categoryIsDragging && "opacity-50",
-                            categoryTargetPosition === "inside" && "ring-1 ring-primary/70",
+                            categoryTargetPosition === "inside" &&
+                              "ring-1 ring-primary/70",
                           )}
                           style={{
-                            backgroundColor: active ? "var(--df-bg-hover)" : "transparent",
-                            color: active ? "var(--df-primary)" : "var(--df-text)",
+                            backgroundColor: active
+                              ? "var(--df-bg-hover)"
+                              : "transparent",
+                            color: active
+                              ? "var(--df-primary)"
+                              : "var(--df-text)",
                             paddingLeft: `${Math.min(depth, 4) * 0.7 + 0.25}rem`,
                           }}
                         >
@@ -1745,7 +1930,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                                 backgroundColor: active
                                   ? "color-mix(in_srgb,var(--df-primary)_14%,transparent)"
                                   : "var(--df-bg-hover)",
-                                color: active ? "var(--df-primary)" : "var(--df-text-dimmed)",
+                                color: active
+                                  ? "var(--df-primary)"
+                                  : "var(--df-text-dimmed)",
                               }}
                             >
                               {node.count}
@@ -1782,7 +1969,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         <ContextMenuItem
                           className="text-xs gap-2"
                           disabled={!moveState.canMoveDown}
-                          onClick={() => handleMoveCategory(savedCategory.id, "down")}
+                          onClick={() =>
+                            handleMoveCategory(savedCategory.id, "down")
+                          }
                         >
                           <MdKeyboardArrowDown className="text-[0.875rem]" />
                           {t("dialog.moveDown")}
@@ -1817,7 +2006,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         type="button"
                         className="group flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors hover:bg-[var(--df-bg-hover)]"
                         style={{
-                          backgroundColor: active ? "var(--df-bg-hover)" : "transparent",
+                          backgroundColor: active
+                            ? "var(--df-bg-hover)"
+                            : "transparent",
                           color: active ? "var(--df-primary)" : "var(--df-text)",
                         }}
                         onClick={() => setSelectedCategory("uncategorized")}
@@ -1825,7 +2016,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                         <span
                           className="h-1.5 w-1.5 shrink-0 rounded-full"
                           style={{
-                            backgroundColor: active ? "var(--df-primary)" : "var(--df-text-dimmed)",
+                            backgroundColor: active
+                              ? "var(--df-primary)"
+                              : "var(--df-text-dimmed)",
                             opacity: active ? 1 : 0.6,
                           }}
                         />
@@ -1838,7 +2031,9 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                             backgroundColor: active
                               ? "color-mix(in_srgb,var(--df-primary)_14%,transparent)"
                               : "var(--df-bg-hover)",
-                            color: active ? "var(--df-primary)" : "var(--df-text-dimmed)",
+                            color: active
+                              ? "var(--df-primary)"
+                              : "var(--df-text-dimmed)",
                           }}
                         >
                           {uncategorizedCount}
@@ -1850,6 +2045,23 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
                 );
               })()}
             </div>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-testid="quick-command-category-empty-area"
+                  className="min-h-6 flex-1"
+                />
+              </ContextMenuTrigger>
+              <ContextMenuContent className="min-w-[140px]">
+                <ContextMenuItem
+                  className="text-xs gap-2"
+                  onClick={() => openNewCategoryDialog(null)}
+                >
+                  <MdFolder className="text-[0.875rem]" />
+                  {t("quickCommands.addCategory")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </aside>
           <ResizeHandle
             direction="horizontal"
@@ -1857,38 +2069,74 @@ function QuickCommands({ onSend, onSendToAll, sendDisabled = false }: QuickComma
             className="opacity-70 hover:opacity-100 active:opacity-100"
           />
 
-          <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scroll p-1.5">
-            <div
-              className={cn(
-                "min-w-0 gap-1.5",
-                viewMode === "tile" ? "flex flex-wrap content-start" : "flex flex-col",
-              )}
-            >
-              {filteredCommands.length === 0 ? (
-                <div className="mx-auto mt-8 flex w-full max-w-md flex-col items-center justify-center rounded-lg border border-dashed p-4 text-muted-foreground opacity-70">
-                  <MdTerminal className="text-2xl mb-2" />
-                  <span className="text-xs mb-3">{t("quickCommands.noCommandsFound")}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs bg-muted/20 hover:bg-muted"
-                    onClick={() => openQuickCommand()}
-                  >
-                    <MdAdd className="mr-1 text-sm" />
-                    {t("quickCommands.addCommand")}
-                  </Button>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div
+                data-testid="quick-command-pane"
+                className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scroll p-1.5"
+                onContextMenu={(event) => {
+                  const target =
+                    event.target instanceof Element ? event.target : null;
+                  const item = target?.closest<HTMLElement>(
+                    "[data-quick-command-id]",
+                  );
+                  setContextCommandId(item?.dataset.quickCommandId ?? null);
+                }}
+              >
+                <div
+                  className={cn(
+                    "min-w-0 gap-1.5",
+                    viewMode === "tile"
+                      ? "flex flex-wrap content-start"
+                      : "flex flex-col",
+                  )}
+                >
+                  {filteredCommands.length === 0 ? (
+                    <div className="mx-auto mt-8 flex w-full max-w-md flex-col items-center justify-center rounded-lg border border-dashed p-4 text-muted-foreground opacity-70">
+                      <MdTerminal className="text-2xl mb-2" />
+                      <span className="text-xs mb-3">
+                        {t("quickCommands.noCommandsFound")}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs bg-muted/20 hover:bg-muted"
+                        onClick={() =>
+                          openNewCommandForCategory(newCommandCategoryId)
+                        }
+                      >
+                        <MdAdd className="mr-1 text-sm" />
+                        {t("quickCommands.addCommand")}
+                      </Button>
+                    </div>
+                  ) : (
+                    filteredCommands.map((cmd) =>
+                      viewMode === "tile"
+                        ? renderCommandTile(cmd)
+                        : viewMode === "compact"
+                          ? renderCommandCompactItem(cmd)
+                          : renderCommandListItem(cmd),
+                    )
+                  )}
                 </div>
-              ) : (
-                filteredCommands.map((cmd) =>
-                  viewMode === "tile"
-                    ? renderCommandTile(cmd)
-                    : viewMode === "compact"
-                      ? renderCommandCompactItem(cmd)
-                      : renderCommandListItem(cmd),
-                )
-              )}
-            </div>
-          </div>
+              </div>
+            </ContextMenuTrigger>
+            {contextCommand ? (
+              renderContextMenuContent(contextCommand)
+            ) : (
+              <ContextMenuContent className="min-w-[140px]">
+                <ContextMenuItem
+                  className="text-xs gap-2"
+                  onClick={() =>
+                    openNewCommandForCategory(newCommandCategoryId)
+                  }
+                >
+                  <MdTerminal className="text-[0.875rem]" />
+                  {t("quickCommands.addCommand")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            )}
+          </ContextMenu>
         </div>
         {promptCmd && (
           <VariablePromptDialog

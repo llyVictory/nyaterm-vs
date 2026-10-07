@@ -149,6 +149,12 @@ pub fn get_connection(connection_id: &str) -> AppResult<Option<crate::config::Sa
     storage()?.get_connection_with_secret(connection_id)
 }
 
+pub fn get_connection_without_secret(
+    connection_id: &str,
+) -> AppResult<Option<crate::config::SavedConnection>> {
+    storage()?.get_connection(connection_id)
+}
+
 pub fn mark_connection_used(connection_id: &str) -> AppResult<()> {
     storage()?.mark_connection_used(connection_id)
 }
