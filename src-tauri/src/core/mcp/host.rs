@@ -159,12 +159,18 @@ impl McpTerminalPresentation {
     }
 
     fn next_spec(&self) -> McpTerminalPresentationSpec {
-        let step_index = self
-            .next_step_index
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-                Some(current.saturating_add(1))
-            })
-            .unwrap_or_else(|current| current);
+        let mut step_index = self.next_step_index.load(Ordering::SeqCst);
+        loop {
+            match self.next_step_index.compare_exchange_weak(
+                step_index,
+                step_index.saturating_add(1),
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(actual) => step_index = actual,
+            }
+        }
         McpTerminalPresentationSpec {
             step_index,
             max_lines: self.max_lines,
@@ -2133,5 +2139,17 @@ mod tests {
         assert_eq!(first.next_spec().step_index, 1);
         assert_eq!(second.next_spec().step_index, 0);
         assert_eq!(second.next_spec().max_lines, 20);
+    }
+
+    #[test]
+    fn terminal_presentation_step_counter_saturates() {
+        let presentation = McpTerminalPresentation::new(10);
+        presentation
+            .next_step_index
+            .store(u16::MAX - 1, Ordering::SeqCst);
+
+        assert_eq!(presentation.next_spec().step_index, u16::MAX - 1);
+        assert_eq!(presentation.next_spec().step_index, u16::MAX);
+        assert_eq!(presentation.next_spec().step_index, u16::MAX);
     }
 }

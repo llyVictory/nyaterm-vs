@@ -317,18 +317,8 @@ impl SessionCommandQueueMetrics {
     }
 
     fn reserve_enqueue(&self) -> usize {
-        self.queued_commands
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                Some(value.saturating_add(1))
-            })
-            .unwrap_or(u64::MAX);
-        let previous = self
-            .current_pending
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                Some(value.saturating_add(1))
-            })
-            .unwrap_or(usize::MAX);
-        previous.saturating_add(1)
+        saturating_atomic_add_u64(&self.queued_commands, 1);
+        saturating_atomic_add_usize(&self.current_pending, 1)
     }
 
     fn commit_enqueue(&self, pending: usize) {
@@ -354,11 +344,7 @@ impl SessionCommandQueueMetrics {
     }
 
     fn mark_processed(&self) {
-        self.processed_commands
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                Some(value.saturating_add(1))
-            })
-            .ok();
+        saturating_atomic_add_u64(&self.processed_commands, 1);
         let pending = saturating_atomic_sub_usize(&self.current_pending, 1);
         self.relax_pressure_tier(pending);
     }
@@ -427,22 +413,49 @@ impl SessionCommandQueueMetrics {
     }
 }
 
+// Use compare-exchange loops to retain Rust 1.94 compatibility: try_update is newer.
+fn saturating_atomic_add_usize(value: &AtomicUsize, amount: usize) -> usize {
+    let mut current = value.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_add(amount);
+        match value.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+fn saturating_atomic_add_u64(value: &AtomicU64, amount: u64) -> u64 {
+    let mut current = value.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_add(amount);
+        match value.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 fn saturating_atomic_sub_usize(value: &AtomicUsize, amount: usize) -> usize {
-    value
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            Some(current.saturating_sub(amount))
-        })
-        .map(|previous| previous.saturating_sub(amount))
-        .unwrap_or(0)
+    let mut current = value.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_sub(amount);
+        match value.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 fn saturating_atomic_sub_u64(value: &AtomicU64, amount: u64) -> u64 {
-    value
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            Some(current.saturating_sub(amount))
-        })
-        .map(|previous| previous.saturating_sub(amount))
-        .unwrap_or(0)
+    let mut current = value.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_sub(amount);
+        match value.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 pub struct SessionCommandSender {
@@ -1822,6 +1835,36 @@ mod tests {
                 max_pending_observed: 1001,
             }
         );
+    }
+
+    #[test]
+    fn command_queue_metrics_saturate_at_counter_limits() {
+        let metrics = super::SessionCommandQueueMetrics::new("queue-limits".to_string());
+        metrics
+            .queued_commands
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        metrics
+            .processed_commands
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        metrics
+            .current_pending
+            .store(usize::MAX - 1, Ordering::Relaxed);
+
+        assert_eq!(metrics.reserve_enqueue(), usize::MAX);
+        assert_eq!(metrics.reserve_enqueue(), usize::MAX);
+        assert_eq!(metrics.snapshot().queued_commands, u64::MAX);
+        metrics.mark_processed();
+        metrics.mark_processed();
+        assert_eq!(metrics.snapshot().processed_commands, u64::MAX);
+        assert_eq!(metrics.snapshot().current_pending, usize::MAX - 2);
+
+        metrics.queued_commands.store(1, Ordering::Relaxed);
+        metrics.current_pending.store(1, Ordering::Relaxed);
+        metrics.rollback_enqueue();
+        metrics.rollback_enqueue();
+        metrics.mark_processed();
+        assert_eq!(metrics.snapshot().queued_commands, 0);
+        assert_eq!(metrics.snapshot().current_pending, 0);
     }
 
     #[test]
