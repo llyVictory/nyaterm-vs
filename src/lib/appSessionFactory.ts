@@ -5,6 +5,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
 import { getOwnerMainWindowLabel } from "@/lib/windowManager";
 import { logger } from "@/lib/logger";
+import { isWindows } from "@/lib/platform";
 import {
   buildTerminalCommandInput,
   clearSessionCommandHistory,
@@ -13,6 +14,7 @@ import {
 import type { TemporaryLinkConfig } from "@/lib/temporaryLink";
 import { captureTerminalReconnectContent } from "@/lib/terminalReconnectHistory";
 import type {
+  GeneralSettings,
   SavedConnection,
   SessionPane,
   SessionType,
@@ -61,6 +63,26 @@ export function getRemoteDesktopPaneDisplay(
     } as const;
   }
   return undefined;
+}
+
+export function shouldLaunchSavedRdpWithSystemClient(
+  connection: Pick<SavedConnection, "type"> | null | undefined,
+  mode: GeneralSettings["rdp_client_mode"] | undefined,
+  windows = isWindows,
+) {
+  return windows && mode === "windows" && connection?.type === "rdp";
+}
+
+export async function launchSavedRdpWithSystemClient(
+  connection: Pick<SavedConnection, "id" | "type">,
+  mode: GeneralSettings["rdp_client_mode"] | undefined,
+  windows = isWindows,
+) {
+  if (!shouldLaunchSavedRdpWithSystemClient(connection, mode, windows)) {
+    return false;
+  }
+  await invoke("launch_windows_rdp", { connectionId: connection.id });
+  return true;
 }
 
 export function isSessionCreationCancelled(error: unknown) {
