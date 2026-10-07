@@ -1,0 +1,15 @@
+name: nyaterm
+
+services:
+  nyaterm:
+    image: ${NYATERM_WEB_IMAGE:-ghcr.io/nyakang/nyaterm-web:latest}
+    ports:
+      - "8080:8080"
+    environment:
+      NYATERM_WEB_PASSWORD: ${NYATERM_WEB_PASSWORD:?Set a random login password of at least 32 characters}
+      NYATERM_WEB_ENCRYPTION_KEY: ${NYATERM_WEB_ENCRYPTION_KEY:?Set a persistent base64-encoded 32-byte encryption key}
+    volumes:
+      - nyaterm-data:/data
+    restart: unless-stopped
+volumes:
+  nyaterm-data:

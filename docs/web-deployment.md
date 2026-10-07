@@ -49,6 +49,23 @@ HTTP 和 HTTPS 地址均可直接使用，无需配置访问 URL 或域名白名
 
 部署文件集中在 [deploy/web/](../deploy/web/README.md)。以下 Docker 和 Compose 命令均在仓库根目录执行；构建上下文仍是仓库根目录，使用根目录的 `.dockerignore`。
 
+### 使用发布镜像
+
+官方镜像 `ghcr.io/nyakang/nyaterm-web` 包含前端和 Rust 服务，支持 `linux/amd64` 和 `linux/arm64`，无需本机编译。先设置下面 Compose 段落要求的登录密码和持久加密密钥，再执行：
+
+```sh
+docker compose -f deploy/web/docker-compose.image.yml pull
+docker compose -f deploy/web/docker-compose.image.yml up -d
+```
+
+默认使用 `latest`；可在 `.env` 中设置 `NYATERM_WEB_IMAGE=ghcr.io/nyakang/nyaterm-web:1.2.12`（替换为实际已发布版本），或指定 `ghcr.io/nyakang/nyaterm-web@sha256:<manifest-digest>`。更新或回滚时修改镜像引用，再执行 `pull` 和 `up -d`，保持原登录密码、加密密钥、项目名及数据卷；更新前停服备份数据，数据格式迁移后的回滚需恢复对应备份。源码配置与镜像配置单独使用，不叠加。
+
+`latest` 仅由更高稳定版本更新；预发布及旧版本补发不会使它回退。首次发布后维护者需确认 GHCR package 为 Public，才能匿名拉取。发版触发条件、版本标签规则和补发入口见 [镜像发版说明](../deploy/web/README.md#镜像发版)。
+
+官方镜像构建路径固定为 `/`，运行时不能仅修改 `NYATERM_WEB_BASE_PATH` 来改为子路径；子路径部署需使用原源码构建方式。镜像 Compose 沿用原来的 `8080:8080`，使用本机反向代理时应改为 `127.0.0.1:8080:8080`。
+
+### 从源码构建
+
 ```sh
 docker build -f deploy/web/Dockerfile -t nyaterm-web .
 docker volume create nyaterm-data
@@ -167,7 +184,7 @@ Web 当前不支持本地 Shell、Serial、RDP、ProxyCommand、SSH agent/X11/�
 
 刷新页面时，按工作区 pane ID 重新附着当前登录的有效会话；旧连接租期结束后，保存的连接按原有工作区恢复流程重新创建。SFTP 仅对 SSH 会话提供。浏览器剪贴板需要 HTTPS 和浏览器权限，未授权时显示提示，画面和键鼠仍可使用。网络面板可管理代理及分组，Web 子窗口使用同源 iframe。单镜像部署，无需 noVNC、Guacamole 或额外服务。
 
-更新后请重新构建镜像并重建容器。普通 `docker compose down` 保留数据卷；`down -v` 会删除数据卷。恢复停服备份时，使用原加密密钥、恢复整个数据目录及 UID/GID 10001 的读写权限，再启动单个实例。浏览器中的密码备份用于配置迁移，不能代替整个数据目录的备份。
+更新时，源码部署需重新构建镜像，发布镜像部署需拉取目标版本，随后重建容器。普通 `docker compose down` 保留数据卷；`down -v` 会删除数据卷。恢复停服备份时，使用原加密密钥、恢复整个数据目录及 UID/GID 10001 的读写权限，再启动单个实例。浏览器中的密码备份用于配置迁移，不能代替整个数据目录的备份。
 
 ## Web Beta 能力矩阵与验收
 
