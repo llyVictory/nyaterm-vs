@@ -429,9 +429,10 @@ export function serializeTerminalWindowLayout(
 ): RestorableTerminalWindowNode | null {
   if (!node || tabs.length === 0) return null;
 
-  const restorableTabs = tabs.filter((tab) =>
-    collectSessionPanes(tab.root).some((pane) => pane.paneKind !== "file"),
-  );
+  // Layout indexes must match the open_tabs order in serializeTabsForPersistence.
+  const restorableTabs = tabs
+    .filter((tab) => collectSessionPanes(tab.root).some((pane) => pane.paneKind !== "file"))
+    .sort((a, b) => a.persistOrder - b.persistOrder);
   const tabIndexById = new Map(restorableTabs.map((tab, index) => [tab.id, index]));
 
   const serialize = (current: TerminalWindowNode): RestorableTerminalWindowNode | null => {
