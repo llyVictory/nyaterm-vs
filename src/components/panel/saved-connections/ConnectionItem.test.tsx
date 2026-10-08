@@ -6,6 +6,12 @@ import type { SavedConnection } from "@/types/global";
 import ConnectionItem from "./ConnectionItem";
 import { SavedConnectionsContext, type SavedConnectionsContextValue } from "./context";
 
+const platformState = vi.hoisted(() => ({ windowsDesktop: true }));
+vi.mock("@/lib/backend/runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/backend/runtime")>()),
+  canUseWindowsRdpClient: () => platformState.windowsDesktop,
+}));
+
 vi.mock("@/components/ui/context-menu", () => ({
   ContextMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   ContextMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -83,9 +89,9 @@ function createContextValue(conn = connection): SavedConnectionsContextValue {
   };
 }
 
-function renderConnectionItem(conn = connection) {
+function renderConnectionItem(conn = connection, context = createContextValue(conn)) {
   return render(
-    <SavedConnectionsContext.Provider value={createContextValue(conn)}>
+    <SavedConnectionsContext.Provider value={context}>
       <ConnectionItem conn={conn} indented={false} />
     </SavedConnectionsContext.Provider>,
   );
@@ -99,8 +105,54 @@ function getConnectionTrigger(container: HTMLElement) {
 
 describe("ConnectionItem", () => {
   beforeEach(() => {
+    platformState.windowsDesktop = true;
     handleConnectOnlyMock.mockReset();
     onEditConnectionMock.mockReset();
+  });
+
+  it.each(["builtin", "windows"] as const)(
+    "temporarily opens only the right-clicked RDP with %s despite a multi-selection",
+    (mode) => {
+      const rdp = {
+        ...connection,
+        type: "rdp" as const,
+        rdp_client_mode: "windows" as const,
+      };
+      const context = createContextValue(rdp);
+      context.selectedConnectionIds.add("other-connection");
+      renderConnectionItem(rdp, context);
+      fireEvent.click(
+        screen.getByRole("button", {
+          name:
+            mode === "builtin"
+              ? "savedConnections.openWithBuiltinRdp"
+              : "savedConnections.openWithWindowsRdp",
+        }),
+      );
+      expect(handleConnectOnlyMock).toHaveBeenCalledExactlyOnceWith(rdp, {
+        rdpClientModeOverride: mode,
+      });
+      expect(context.handleConnectSelected).not.toHaveBeenCalled();
+      expect(rdp.rdp_client_mode).toBe("windows");
+    },
+  );
+
+  it("hides temporary RDP actions on non-Windows desktops and Web", () => {
+    platformState.windowsDesktop = false;
+    renderConnectionItem({ ...connection, type: "rdp" });
+    expect(
+      screen.queryByText("savedConnections.openWithBuiltinRdp"),
+    ).toBeNull();
+    expect(
+      screen.queryByText("savedConnections.openWithWindowsRdp"),
+    ).toBeNull();
+  });
+
+  it("hides temporary RDP actions for other protocols", () => {
+    renderConnectionItem();
+    expect(
+      screen.queryByText("savedConnections.openWithBuiltinRdp"),
+    ).toBeNull();
   });
 
   it("connects exactly once when the focused connection receives Enter", async () => {

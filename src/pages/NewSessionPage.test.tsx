@@ -33,6 +33,7 @@ const {
 vi.mock("@/context/AppContext", () => ({
   useApp: () => ({
     appSettings: {
+      general: { rdp_client_mode: "builtin" },
       recording: {
         auto_start: false,
         default_mode: "transcript",
@@ -220,6 +221,7 @@ const telnetConnection: SavedConnection = {
 const rdpConnection: SavedConnection = {
   id: "rdp-1",
   name: "RDP desktop",
+  rdp_client_mode: "windows",
   type: "rdp",
   host: "rdp.example.com",
   port: 3389,
@@ -407,6 +409,52 @@ describe("NewSessionPage", () => {
       );
     });
   });
+
+  it("defaults a new RDP connection to following the global client", async () => {
+    window.history.replaceState({}, "", "/");
+    render(<NewSessionPage />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "RDP" }), {
+      button: 0,
+    });
+    await waitFor(() =>
+      expect(rdpFormMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          clientMode: "default",
+          defaultClientMode: "builtin",
+        }),
+      ),
+    );
+  });
+
+  it.each(["builtin", "windows", "default"] as const)(
+    "saves RDP client choice %s while preserving connection parameters",
+    async (mode) => {
+      render(<NewSessionPage />);
+      await waitFor(() =>
+        expect(rdpFormMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({ clientMode: "windows" }),
+        ),
+      );
+      const props = rdpFormMock.mock.lastCall?.[0];
+      act(() => props.setClientMode(mode));
+      fireEvent.click(screen.getByRole("button", { name: "dialog.save" }));
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith(
+          "save_connection",
+          expect.anything(),
+        ),
+      );
+      const saved = invokeMock.mock.calls.find(
+        ([command]) => command === "save_connection",
+      )?.[1].connection;
+      if (mode === "default")
+        expect(saved).not.toHaveProperty("rdp_client_mode");
+      else expect(saved.rdp_client_mode).toBe(mode);
+      expect(saved.network).toEqual(rdpConnection.network);
+      expect(saved.security).toEqual(rdpConnection.security);
+      expect(saved.display).toEqual(rdpConnection.display);
+    },
+  );
 
   it("loads, edits, and saves connection tags", async () => {
     render(<NewSessionPage />);

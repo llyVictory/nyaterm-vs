@@ -1,11 +1,19 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeneralTab } from "./GeneralTab";
+import { RemoteDesktopTab } from "./RemoteDesktopTab";
 
 const state = vi.hoisted(() => ({
   isWindows: true,
+  desktop: true,
   updateAppSettings: vi.fn(),
   updateUi: vi.fn(),
+}));
+
+vi.mock("@/lib/backend/runtime", () => ({
+  runtime: "desktop",
+  supports: () => true,
+  canUseWindowsRdpClient: () => state.isWindows && state.desktop,
 }));
 
 vi.mock("@/lib/platform", () => ({
@@ -52,16 +60,17 @@ vi.mock("react-i18next", async (importOriginal) => ({
   }),
 }));
 
-describe("GeneralTab RDP client setting", () => {
+describe("Remote Desktop default client setting", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.isWindows = true;
+    state.desktop = true;
   });
 
   it("shows the RDP client selector on Windows and saves Windows Remote Desktop", () => {
-    render(<GeneralTab />);
-    const field =
-      screen.getByText("settings.rdpClient").parentElement?.parentElement;
+    render(<RemoteDesktopTab />);
+    const field = screen.getByText("settings.rdpDefaultClient").parentElement
+      ?.parentElement;
     expect(field).not.toBeNull();
     const combo = within(field as HTMLElement).getByRole("combobox");
 
@@ -82,9 +91,21 @@ describe("GeneralTab RDP client setting", () => {
     });
   });
 
-  it("does not show the Windows-only RDP client selector off Windows", () => {
-    state.isWindows = false;
+  it("removes the selector from General settings", () => {
     render(<GeneralTab />);
     expect(screen.queryByText("settings.rdpClient")).toBeNull();
+    expect(screen.queryByText("settings.rdpDefaultClient")).toBeNull();
+  });
+
+  it("hides the selector in Web mode on Windows", () => {
+    state.desktop = false;
+    render(<RemoteDesktopTab />);
+    expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it("does not show the Windows-only RDP client selector off Windows", () => {
+    state.isWindows = false;
+    render(<RemoteDesktopTab />);
+    expect(screen.queryByText("settings.rdpDefaultClient")).toBeNull();
   });
 });

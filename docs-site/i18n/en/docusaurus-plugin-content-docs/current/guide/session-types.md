@@ -105,6 +105,12 @@ Serial sessions still live inside NyaTerm's tabbed and split workspace, so you c
 
 ## RDP
 
+On Windows desktop, choose the default RDP client in **Settings → Connections → Remote Desktop**. The initial default is NyaTerm built-in RDP. When creating or editing an RDP connection, **Open with** can follow the default or select either built-in RDP or Windows Remote Desktop. Existing connections continue to follow your previous global preference.
+
+The saved RDP connection context menu also offers **Open with built-in RDP** and **Open with Windows Remote Desktop**. These actions apply only to that connection's current launch and do not change saved preferences, even with multiple connections selected. Batch launches use each connection's preference.
+
+Windows Remote Desktop opens in a separate system window and receives only the address and port. Credentials, domain, proxies, SSH jump hosts, and other options are managed by the system client. Parameters saved in NyaTerm remain available for built-in RDP. Existing built-in sessions keep using built-in RDP for reconnects, splits, and startup restoration. Other desktop platforms use built-in RDP; Web does not offer RDP.
+
 RDP sessions are for Windows hosts or other environments that expose a Remote Desktop endpoint. They share NyaTerm's saved-connection, tab, and split-pane workspace model, but the underlying session is a graphical desktop instead of a text terminal.
 
 When creating an RDP session, you can configure:

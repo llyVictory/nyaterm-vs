@@ -840,6 +840,37 @@ mod tests {
     }
 
     #[test]
+    fn rdp_client_mode_survives_portable_snapshot_roundtrip() {
+        for mode in [None, Some("builtin"), Some("windows")] {
+            let mut connection = serde_json::json!({
+                "id": "rdp-client", "name": "RDP", "type": "rdp",
+                "host": "rdp.example.com", "username": "Administrator"
+            });
+            if let Some(mode) = mode {
+                connection["rdp_client_mode"] = serde_json::json!(mode);
+            }
+            let mut snapshot = sample_snapshot();
+            snapshot.sessions.connections =
+                vec![serde_json::from_value(connection).expect("connection")];
+            strip_device_local_sessions(&mut snapshot.sessions);
+            snapshot.payload_hash = calculate_payload_hash(&snapshot).expect("hash");
+            let encoded = encode_portable_snapshot(&snapshot).expect("export");
+            let mut restored = super::decode_portable_snapshot(&encoded).expect("import");
+            preserve_device_local_sessions(
+                &mut restored.sessions,
+                &config::SessionsConfig::default(),
+            );
+            let config::ConnectionType::Rdp {
+                rdp_client_mode, ..
+            } = &restored.sessions.connections[0].config
+            else {
+                panic!("expected RDP");
+            };
+            assert_eq!(rdp_client_mode.as_deref(), mode);
+        }
+    }
+
+    #[test]
     fn portable_snapshot_zip_roundtrip() {
         let mut snapshot = sample_snapshot();
         snapshot.passwords.passwords.push(config::SavedPassword {

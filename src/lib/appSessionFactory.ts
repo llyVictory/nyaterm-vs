@@ -6,6 +6,7 @@ import { invoke } from "@/lib/invoke";
 import { getOwnerMainWindowLabel } from "@/lib/windowManager";
 import { logger } from "@/lib/logger";
 import { isWindows } from "@/lib/platform";
+import { runtime } from "@/lib/backend/runtime";
 import {
   buildTerminalCommandInput,
   clearSessionCommandHistory,
@@ -15,6 +16,7 @@ import type { TemporaryLinkConfig } from "@/lib/temporaryLink";
 import { captureTerminalReconnectContent } from "@/lib/terminalReconnectHistory";
 import type {
   GeneralSettings,
+  RdpClientMode,
   SavedConnection,
   SessionPane,
   SessionType,
@@ -65,20 +67,50 @@ export function getRemoteDesktopPaneDisplay(
   return undefined;
 }
 
-export function shouldLaunchSavedRdpWithSystemClient(
-  connection: Pick<SavedConnection, "type"> | null | undefined,
+export type SavedConnectionOpenOptions = {
+  rdpClientModeOverride?: RdpClientMode;
+};
+
+type RdpClientResolutionOptions = SavedConnectionOpenOptions & {
+  windows?: boolean;
+  desktop?: boolean;
+};
+
+export function resolveRdpClientMode(
+  connection:
+    | Pick<SavedConnection, "type" | "rdp_client_mode">
+    | null
+    | undefined,
   mode: GeneralSettings["rdp_client_mode"] | undefined,
-  windows = isWindows,
+  {
+    rdpClientModeOverride,
+    windows = isWindows,
+    desktop = runtime === "desktop",
+  }: RdpClientResolutionOptions = {},
+): RdpClientMode {
+  if (!desktop || !windows || connection?.type !== "rdp") return "builtin";
+  return (
+    rdpClientModeOverride ?? connection.rdp_client_mode ?? mode ?? "builtin"
+  );
+}
+
+export function shouldLaunchSavedRdpWithSystemClient(
+  connection:
+    | Pick<SavedConnection, "type" | "rdp_client_mode">
+    | null
+    | undefined,
+  mode: GeneralSettings["rdp_client_mode"] | undefined,
+  options?: RdpClientResolutionOptions,
 ) {
-  return windows && mode === "windows" && connection?.type === "rdp";
+  return resolveRdpClientMode(connection, mode, options) === "windows";
 }
 
 export async function launchSavedRdpWithSystemClient(
-  connection: Pick<SavedConnection, "id" | "type">,
+  connection: Pick<SavedConnection, "id" | "type" | "rdp_client_mode">,
   mode: GeneralSettings["rdp_client_mode"] | undefined,
-  windows = isWindows,
+  options?: RdpClientResolutionOptions,
 ) {
-  if (!shouldLaunchSavedRdpWithSystemClient(connection, mode, windows)) {
+  if (!shouldLaunchSavedRdpWithSystemClient(connection, mode, options)) {
     return false;
   }
   await invoke("launch_windows_rdp", { connectionId: connection.id });

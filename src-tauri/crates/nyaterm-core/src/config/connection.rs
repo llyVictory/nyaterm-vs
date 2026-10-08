@@ -717,6 +717,8 @@ pub enum ConnectionType {
         encoding: String,
     },
     Rdp {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rdp_client_mode: Option<String>,
         host: String,
         #[serde(default = "default_rdp_port")]
         port: u16,
@@ -2755,6 +2757,7 @@ mod tests {
 
         let ConnectionType::Rdp {
             port,
+            rdp_client_mode,
             security,
             display,
             clipboard,
@@ -2766,6 +2769,7 @@ mod tests {
         };
 
         assert_eq!(port, 3389);
+        assert_eq!(rdp_client_mode, None);
         assert!(security.use_nla);
         assert_eq!(security.certificate_policy, "prompt");
         assert_eq!(display.width, 1920);
@@ -2774,6 +2778,37 @@ mod tests {
         assert_eq!(clipboard.mode, "text-only");
         assert!(reconnect.enabled);
         assert_eq!(reconnect.max_attempts, 5);
+    }
+
+    #[test]
+    fn rdp_client_mode_roundtrip_and_validation() {
+        for mode in [None, Some("builtin"), Some("windows"), Some("invalid")] {
+            let mut value = serde_json::json!({
+                "id": "rdp-client", "name": "RDP", "type": "rdp",
+                "host": "rdp.example.com", "username": "Administrator"
+            });
+            if let Some(mode) = mode {
+                value["rdp_client_mode"] = serde_json::json!(mode);
+            }
+            let connection: SavedConnection = serde_json::from_value(value).expect("connection");
+            assert_eq!(
+                crate::services::validate_rdp_config(&connection).is_ok(),
+                mode != Some("invalid")
+            );
+            let serialized = serde_json::to_value(&connection).expect("serialize");
+            assert_eq!(
+                serialized.get("rdp_client_mode").and_then(|v| v.as_str()),
+                mode
+            );
+            let restored: SavedConnection = serde_json::from_value(serialized).expect("restore");
+            let ConnectionType::Rdp {
+                rdp_client_mode, ..
+            } = restored.config
+            else {
+                panic!("expected RDP");
+            };
+            assert_eq!(rdp_client_mode.as_deref(), mode);
+        }
     }
 
     #[test]

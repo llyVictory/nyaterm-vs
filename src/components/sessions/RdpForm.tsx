@@ -18,15 +18,20 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { invoke } from "@/lib/invoke";
+import { canUseWindowsRdpClient } from "@/lib/backend/runtime";
 import type {
   ProxyConfig,
   RdpCertificatePolicy,
+  RdpClientMode,
   RdpClipboardMode,
   RdpDisplayMode,
   SavedPassword,
 } from "@/types/global";
 
 interface RdpFormProps {
+  clientMode: RdpClientMode | "default";
+  setClientMode: (value: RdpClientMode | "default") => void;
+  defaultClientMode: RdpClientMode;
   host: string;
   setHost: (value: string) => void;
   port: number;
@@ -75,6 +80,9 @@ function RequiredMark() {
 }
 
 export function RdpForm({
+  clientMode,
+  setClientMode,
+  defaultClientMode,
   host,
   setHost,
   port,
@@ -197,6 +205,50 @@ export function RdpForm({
           />
         </div>
       </div>
+
+      {canUseWindowsRdpClient() && (
+        <div>
+          <Label className="text-xs font-medium text-foreground/80">
+            {t("dialog.rdpOpenWith")}
+          </Label>
+          <Select
+            value={clientMode}
+            onValueChange={(value) =>
+              setClientMode(value as RdpClientMode | "default")
+            }
+          >
+            <SelectTrigger
+              className="mt-1 h-8 text-xs"
+              aria-label={t("dialog.rdpOpenWith")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">
+                {t("dialog.rdpFollowDefault")} (
+                {t(
+                  defaultClientMode === "windows"
+                    ? "settings.rdpClientWindows"
+                    : "settings.rdpClientBuiltin",
+                )}
+                )
+              </SelectItem>
+              <SelectItem value="builtin">
+                {t("settings.rdpClientBuiltin")}
+              </SelectItem>
+              <SelectItem value="windows">
+                {t("settings.rdpClientWindows")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {(clientMode === "windows" ||
+            (clientMode === "default" && defaultClientMode === "windows")) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("settings.rdpSystemClientDesc")}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>

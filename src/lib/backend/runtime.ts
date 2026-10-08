@@ -1,3 +1,5 @@
+import { isWindows } from "@/lib/platform";
+
 export type Capability =
   | "ssh"
   | "telnet"
@@ -82,5 +84,10 @@ export function supportsPanel(id: string): boolean {
 }
 
 export function supportsSettingsTab(id: string): boolean {
+  if (id === "remote-desktop") return canUseWindowsRdpClient();
   return runtime === "desktop" || !new Set(["ai-agents", "security", "syncBackup"]).has(id);
+}
+
+export function canUseWindowsRdpClient(): boolean {
+  return runtime === "desktop" && isWindows;
 }

@@ -628,6 +628,7 @@ e+JpiSq66Z6GIt0801skPh20jxOO3F52SoX1IeO5D5PXfZrfSZlw6S8c7bwyp2FHxDewRx
             id: "rdp-1".to_string(),
             name: "RDP".to_string(),
             config: ConnectionType::Rdp {
+                rdp_client_mode: None,
                 host: "example.com".to_string(),
                 port: 3389,
                 username: "administrator".to_string(),

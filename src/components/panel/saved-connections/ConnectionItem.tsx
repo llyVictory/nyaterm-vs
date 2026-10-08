@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canOpenSavedConnectionWithSftp } from "@/lib/sftpRuntime";
+import { canUseWindowsRdpClient } from "@/lib/backend/runtime";
 import type { SavedConnection } from "@/types/global";
 import { resolveConnectionIcon } from "../../icons";
 import { useSavedConnectionsContext } from "./context";
@@ -682,6 +683,28 @@ export default function ConnectionItem({ conn, indented, depth = 0 }: Connection
           <MdLink className="text-[0.875rem] text-muted-foreground mr-2" />
           {connectLabel}
         </ContextMenuItem>
+        {conn.type === "rdp" && canUseWindowsRdpClient() && (
+          <>
+            <ContextMenuItem
+              onClick={() => {
+                closeAndSuppressDetails();
+                handleConnectOnly(conn, { rdpClientModeOverride: "builtin" });
+              }}
+            >
+              <MdLink className="text-[0.875rem] text-muted-foreground mr-2" />
+              {t("savedConnections.openWithBuiltinRdp")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => {
+                closeAndSuppressDetails();
+                handleConnectOnly(conn, { rdpClientModeOverride: "windows" });
+              }}
+            >
+              <MdLink className="text-[0.875rem] text-muted-foreground mr-2" />
+              {t("savedConnections.openWithWindowsRdp")}
+            </ContextMenuItem>
+          </>
+        )}
         {canOpenSavedConnectionWithSftp(conn) ? (
           <ContextMenuItem
             onClick={() => {

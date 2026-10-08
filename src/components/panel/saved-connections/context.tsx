@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { createContext, useContext } from "react";
 import type { NewSessionTarget } from "@/lib/windowManager";
+import type { SavedConnectionOpenOptions } from "@/lib/appSessionFactory";
 import type { Group, SavedConnection } from "@/types/global";
 
 // ── Component-local types ─────────────────────────────────────────────────
@@ -40,7 +41,7 @@ export interface SavedConnectionsContextValue {
   // List actions
   toggleGroup: (id: string) => void;
   handleConnect: (conn: SavedConnection) => void;
-  handleConnectOnly: (conn: SavedConnection) => void;
+  handleConnectOnly: (conn: SavedConnection, options?: SavedConnectionOpenOptions) => void;
   handleOpenSftp: (conn: SavedConnection) => void;
   handleConnectSelected: () => void;
   handleCopyConnection: (conn: SavedConnection) => void;

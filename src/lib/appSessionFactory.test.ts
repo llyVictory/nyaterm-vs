@@ -7,6 +7,7 @@ import {
   createSessionForPane,
   launchSavedRdpWithSystemClient,
   shouldLaunchSavedRdpWithSystemClient,
+  resolveRdpClientMode,
 } from "./appSessionFactory";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -117,14 +118,95 @@ describe("Windows system RDP routing", () => {
     invokeMock.mockReset().mockResolvedValue(undefined);
   });
 
+  it("recreates an existing RDP pane internally for reconnect and split operations", async () => {
+    await createSessionForPane({ id: "rdp-pane", type: "RDP", connectionId: "rdp-1" }, "recreate-rdp");
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith("create_rdp_session", {
+      connectionId: "rdp-1",
+      createRequestId: "recreate-rdp",
+    });
+  });
+
+  it.each([
+    [undefined, undefined, undefined, "builtin"],
+    [undefined, "windows", undefined, "windows"],
+    ["builtin", "windows", undefined, "builtin"],
+    ["windows", "builtin", undefined, "windows"],
+    ["windows", "windows", "builtin", "builtin"],
+    ["builtin", "builtin", "windows", "windows"],
+  ] as const)(
+    "resolves connection %s, default %s, override %s to %s",
+    (connectionMode, globalMode, override, expected) => {
+      const connection = {
+        type: "rdp" as const,
+        rdp_client_mode: connectionMode,
+      };
+      expect(
+        resolveRdpClientMode(connection, globalMode, {
+          windows: true,
+          desktop: true,
+          rdpClientModeOverride: override,
+        }),
+      ).toBe(expected);
+      expect(connection.rdp_client_mode).toBe(connectionMode);
+    },
+  );
+
+  it("does not invoke a native client in Web even on Windows", async () => {
+    expect(
+      await launchSavedRdpWithSystemClient(
+        { id: "rdp-web", type: "rdp", rdp_client_mode: "windows" },
+        "windows",
+        { windows: true, desktop: false, rdpClientModeOverride: "windows" },
+      ),
+    ).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("routes a mixed batch according to each connection's preference", async () => {
+    const connections: SavedConnection[] = [
+      { id: "inherited", name: "Inherited", type: "rdp" },
+      {
+        id: "builtin",
+        name: "Built-in",
+        type: "rdp",
+        rdp_client_mode: "builtin",
+      },
+      { id: "ssh", name: "SSH", type: "ssh" },
+    ];
+    const routed = await Promise.all(
+      connections.map((connection) =>
+        launchSavedRdpWithSystemClient(connection, "windows", {
+          windows: true,
+          desktop: true,
+        }),
+      ),
+    );
+    expect(routed).toEqual([true, false, false]);
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith("launch_windows_rdp", {
+      connectionId: "inherited",
+    });
+  });
+
+  it("propagates a launch failure without falling back to session creation", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("mstsc unavailable"));
+    await expect(
+      launchSavedRdpWithSystemClient(
+        { id: "rdp-failed", type: "rdp" },
+        "windows",
+        { windows: true, desktop: true },
+      ),
+    ).rejects.toThrow("mstsc unavailable");
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
   it("launches a saved RDP connection externally only on Windows system mode", async () => {
     const connection = { id: "rdp-1", type: "rdp" } as SavedConnection;
 
     expect(
-      shouldLaunchSavedRdpWithSystemClient(connection, "windows", true),
+      shouldLaunchSavedRdpWithSystemClient(connection, "windows", { windows: true, desktop: true }),
     ).toBe(true);
     expect(
-      await launchSavedRdpWithSystemClient(connection, "windows", true),
+      await launchSavedRdpWithSystemClient(connection, "windows", { windows: true, desktop: true }),
     ).toBe(true);
     expect(invokeMock).toHaveBeenCalledExactlyOnceWith("launch_windows_rdp", {
       connectionId: "rdp-1",
@@ -135,16 +217,16 @@ describe("Windows system RDP routing", () => {
     const connection = { id: "rdp-1", type: "rdp" } as SavedConnection;
 
     expect(
-      shouldLaunchSavedRdpWithSystemClient(connection, "builtin", true),
+      shouldLaunchSavedRdpWithSystemClient(connection, "builtin", { windows: true, desktop: true }),
     ).toBe(false);
     expect(
-      shouldLaunchSavedRdpWithSystemClient(connection, "windows", false),
+      shouldLaunchSavedRdpWithSystemClient(connection, "windows", { windows: false, desktop: true }),
     ).toBe(false);
     expect(
-      await launchSavedRdpWithSystemClient(connection, "builtin", true),
+      await launchSavedRdpWithSystemClient(connection, "builtin", { windows: true, desktop: true }),
     ).toBe(false);
     expect(
-      await launchSavedRdpWithSystemClient(connection, "windows", false),
+      await launchSavedRdpWithSystemClient(connection, "windows", { windows: false, desktop: true }),
     ).toBe(false);
     expect(invokeMock).not.toHaveBeenCalled();
   });
@@ -153,7 +235,7 @@ describe("Windows system RDP routing", () => {
     const connection = { id: "ssh-1", type: "ssh" } as SavedConnection;
 
     expect(
-      await launchSavedRdpWithSystemClient(connection, "windows", true),
+      await launchSavedRdpWithSystemClient(connection, "windows", { windows: true, desktop: true }),
     ).toBe(false);
     expect(invokeMock).not.toHaveBeenCalled();
   });

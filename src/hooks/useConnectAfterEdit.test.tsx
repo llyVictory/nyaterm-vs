@@ -212,6 +212,21 @@ describe("useConnectAfterEdit", () => {
     );
   });
 
+  it("stops before creating a pane when the external RDP launch fails", async () => {
+    mocks.invoke.mockResolvedValueOnce([
+      { ...connection, type: "rdp", rdp_client_mode: "windows" },
+    ]);
+    mocks.launchSavedRdpWithSystemClient.mockRejectedValueOnce(
+      new Error("Launch failed"),
+    );
+    const { result, options } = renderConnect();
+    await act(() => result.current({ connectionId: "conn-1" }));
+    expect(options.addPendingTab).not.toHaveBeenCalled();
+    expect(options.markPaneConnecting).not.toHaveBeenCalled();
+    expect(options.recordRecentConnection).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the ID fallback when the saved connection is missing", async () => {
     mocks.invoke.mockResolvedValueOnce([]);
     const { result, options } = renderConnect();

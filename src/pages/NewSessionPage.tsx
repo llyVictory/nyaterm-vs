@@ -45,6 +45,7 @@ import type {
   OtpEntry,
   ProxyConfig,
   RdpCertificatePolicy,
+  RdpClientMode,
   RdpClipboardMode,
   RdpDisplayMode,
   RecordingMode,
@@ -243,6 +244,7 @@ export default function NewSessionPage() {
   const [newGroupParentId, setNewGroupParentId] = useState("");
   const [currentTab, setCurrentTab] = useState("ssh");
   const [rdpUseNla, setRdpUseNla] = useState(true);
+  const [rdpClientMode, setRdpClientMode] = useState<RdpClientMode | "default">("default");
   const [rdpCertificatePolicy, setRdpCertificatePolicy] = useState<RdpCertificatePolicy>("prompt");
   const [rdpDisplayMode, setRdpDisplayMode] = useState<RdpDisplayMode>("fit-window");
   const [rdpDisplayWidth, setRdpDisplayWidth] = useState(1920);
@@ -447,6 +449,7 @@ export default function NewSessionPage() {
           setSerialModemUploadProtocol(found.modem_upload_protocol || "zmodem");
           setSerialFlowControl(found.flow_control ?? "none");
         } else if (found.type === "rdp") {
+          setRdpClientMode(found.rdp_client_mode ?? "default");
           setHost(found.host || "");
           setRdpPort(found.port || 3389);
           setUsername(found.username || DEFAULT_RDP_USERNAME);
@@ -575,6 +578,7 @@ export default function NewSessionPage() {
     setTelnetSendNaws(true);
     setTelnetSendSga(true);
     setRdpUseNla(true);
+    setRdpClientMode("default");
     setRdpCertificatePolicy("prompt");
     setRdpDisplayMode("fit-window");
     setRdpDisplayWidth(1920);
@@ -1210,6 +1214,7 @@ export default function NewSessionPage() {
           : {}),
         ...(currentTab === "rdp"
           ? {
+              ...(rdpClientMode !== "default" ? { rdp_client_mode: rdpClientMode } : {}),
               host: normalizedHost,
               port: rdpPort,
               username: normalizedUsername,
@@ -1831,6 +1836,9 @@ export default function NewSessionPage() {
 
           <TabsContent value="rdp" className="space-y-3 m-0 border-0 outline-none w-full">
             <RdpForm
+              clientMode={rdpClientMode}
+              setClientMode={setRdpClientMode}
+              defaultClientMode={appSettings.general.rdp_client_mode ?? "builtin"}
               host={host}
               setHost={setHost}
               port={rdpPort}

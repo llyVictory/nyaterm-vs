@@ -130,6 +130,7 @@ pub fn validate_sftp_settings_config(connection: &SavedConnection) -> AppResult<
 
 pub fn validate_rdp_config(connection: &SavedConnection) -> AppResult<()> {
     let config::ConnectionType::Rdp {
+        rdp_client_mode,
         host,
         port,
         username,
@@ -142,6 +143,12 @@ pub fn validate_rdp_config(connection: &SavedConnection) -> AppResult<()> {
     else {
         return Ok(());
     };
+
+    if let Some(mode) = rdp_client_mode
+        && !matches!(mode.as_str(), "builtin" | "windows")
+    {
+        return Err(AppError::Config("RDP client mode is invalid".to_string()));
+    }
 
     if host.trim().is_empty() {
         return Err(AppError::Config("RDP host is required".to_string()));
