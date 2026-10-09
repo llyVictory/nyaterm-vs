@@ -27,6 +27,9 @@ use crate::core::ssh::SshConnectionHandles;
 use crate::error::{AppError, AppResult};
 use crate::utils::process::hide_window;
 
+use super::aya_references::{
+    build_aya_agent_prompt, build_aya_agent_system_prompt, prepare_aya_request,
+};
 use super::history::{append_ai_audit, append_message, load_history, save_user_message};
 use super::model::{ResolvedAiModel, build_chat_options, build_client, resolve_request_model};
 use super::parser::{
@@ -44,6 +47,43 @@ use super::types::{
     AgentStepStatus, AiChatRequest, AiMessage, AiMessageRole, AiStreamEventPayload,
     AiTerminalTarget, AppendAiAuditRequest, CommandObservation, now_rfc3339, uuid,
 };
+
+fn history_message_content(message: &AiMessage) -> String {
+    let mut metadata = message
+        .references
+        .iter()
+        .map(|reference| {
+            format!(
+                "- kind={} name={} source={}",
+                reference.kind.as_deref().unwrap_or("unknown"),
+                reference.name,
+                reference.title.as_deref().unwrap_or("unknown"),
+            )
+        })
+        .collect::<Vec<_>>();
+    if message.references.is_empty() {
+        metadata.extend(message.attachments.iter().map(|attachment| {
+            format!(
+                "- kind={} name={} source={}",
+                attachment.kind.as_deref().unwrap_or("file"),
+                attachment.name,
+                attachment
+                    .title
+                    .as_deref()
+                    .or(attachment.path.as_deref())
+                    .unwrap_or("unknown"),
+            )
+        }));
+    }
+    if metadata.is_empty() {
+        return message.content.clone();
+    }
+    format!(
+        "{}\n\nPrevious reference metadata (file contents are not persisted; ask the user to reselect a file if its body is needed):\n{}",
+        message.content,
+        metadata.join("\n")
+    )
+}
 
 fn build_initial_agent_conversation(
     request: &AiChatRequest,
@@ -67,7 +107,9 @@ fn build_initial_agent_conversation(
             .saturating_sub(request.options.history_turns as usize);
         for message in history_messages.into_iter().skip(skip) {
             match message.role {
-                AiMessageRole::User => conversation.push(ChatMessage::user(&message.content)),
+                AiMessageRole::User => {
+                    conversation.push(ChatMessage::user(history_message_content(message)))
+                }
                 AiMessageRole::Assistant => {
                     let content = extract_text_from_assistant(&message.content);
                     if !content.is_empty() {
@@ -489,9 +531,9 @@ fn agent_tools() -> Vec<Tool> {
     vec![
         Tool::new(TOOL_EXECUTE_COMMAND)
             .with_description(
-                "Execute exactly one shell command in the active terminal session. Use this when \
-                 more observation is needed or when the user requested an action that requires a \
-                 command.",
+                "Execute exactly one shell command in an allowed execution target session. \
+                 Context and file-source sessions are not automatically execution targets. \
+                 Use this only when more observation or a requested action genuinely needs a command.",
             )
             .with_schema(json!({
                 "type": "object",
@@ -506,7 +548,7 @@ fn agent_tools() -> Vec<Tool> {
                     },
                     "targetTerminalSessionId": {
                         "type": "string",
-                        "description": "Terminal session id to execute the command in. Required when multiple terminal targets are available."
+                        "description": "An allowed execution target session id. Never infer it from a display alias, ProxyJump host, or a file's name."
                     },
                     "riskLevel": {
                         "type": "string",
@@ -518,7 +560,7 @@ fn agent_tools() -> Vec<Tool> {
                         "description": "Brief reason for the selected risk level."
                     }
                 },
-                "required": ["thought", "command", "riskLevel", "riskReason"],
+                "required": ["thought", "command", "targetTerminalSessionId", "riskLevel", "riskReason"],
                 "additionalProperties": false
             }))
             .with_strict(true),
@@ -755,6 +797,45 @@ fn resolve_agent_command_target(
                     ))
                 })
         }
+    }
+}
+
+// 仅 AyaAgent 使用这个执行白名单，外部 Agent 保持原有解析和 MCP 权限路径。
+fn resolve_aya_command_target(
+    request: &AiChatRequest,
+    target_id: Option<&str>,
+) -> AppResult<AiTerminalTarget> {
+    let targets = request
+        .targets
+        .iter()
+        .filter(|target| {
+            request.context.aya_context.as_ref().is_none_or(|context| {
+                context
+                    .execution_target_session_ids
+                    .contains(&target.terminal_session_id)
+            })
+        })
+        .collect::<Vec<_>>();
+    if let Some(id) = target_id.filter(|id| !id.trim().is_empty()) {
+        return targets
+            .iter()
+            .find(|target| target.terminal_session_id == id)
+            .map(|target| (**target).clone())
+            .ok_or_else(|| {
+                AppError::Config(format!(
+                    "Command target '{id}' is not an allowed execution target"
+                ))
+            });
+    }
+    match targets.as_slice() {
+        [target] => Ok((**target).clone()),
+        [] if request.context.aya_context.is_none() => resolve_agent_command_target(request, None),
+        [] => Err(AppError::Config(
+            "No allowed execution target; adjust the host/session reference".into(),
+        )),
+        _ => Err(AppError::Config(
+            "Multiple execution targets; targetTerminalSessionId must be explicit".into(),
+        )),
     }
 }
 
@@ -1095,7 +1176,7 @@ async fn run_agent_legacy_json_step(
 ) -> AppResult<LegacyAgentStep> {
     let mut legacy_conversation = conversation.to_vec();
     legacy_conversation.push(ChatMessage::system(
-        r#"Fallback protocol: tool calling is unavailable for this step. Return exactly one JSON object and no Markdown. For command execution use {"thought":"...","action":"execute_command","command":"...","riskLevel":"low|medium|high|critical","riskReason":"..."}. For final answer use {"thought":"...","action":"final_answer","answer":"..."}."#,
+        r#"Fallback protocol: tool calling is unavailable for this step. Return exactly one JSON object and no Markdown. For command execution use {"thought":"...","action":"execute_command","command":"...","targetTerminalSessionId":"<allowed execution target session id>","riskLevel":"low|medium|high|critical","riskReason":"..."}. For final answer use {"thought":"...","action":"final_answer","answer":"..."}."#,
     ));
 
     if super::responses::uses_responses_api(resolved_model) {
@@ -1115,6 +1196,7 @@ async fn run_agent_legacy_json_step(
             default_target_session_id: None,
             existing_external_session_id: None,
             attachments: vec![],
+            references: vec![],
             action: super::types::AiAction::GenerateCommand,
             user_input: String::new(),
             context: Default::default(),
@@ -1273,6 +1355,8 @@ mod tests {
             created_at: now_rfc3339(),
             reasoning_content: None,
             command_cards: vec![],
+            attachments: vec![],
+            references: vec![],
         }
     }
 
@@ -1591,6 +1675,58 @@ mod tests {
     }
 
     #[test]
+    fn aya_targets_do_not_silently_execute_on_file_source_or_unrelated_host() {
+        let mut request: AiChatRequest = serde_json::from_value(json!({
+            "action": "generate_command", "userInput": "@file.py @host",
+            "terminalSessionId": "source", "defaultTargetSessionId": "source",
+            "targets": [
+                {"terminalSessionId": "source", "label": "source", "sessionType": "SSH"},
+                {"terminalSessionId": "host", "label": "host", "sessionType": "SSH"}
+            ],
+            "context": {"ayaContext": {"executionTargetSessionIds": ["host"]}}
+        }))
+        .unwrap();
+        assert_eq!(
+            resolve_aya_command_target(&request, Some("host"))
+                .unwrap()
+                .terminal_session_id,
+            "host"
+        );
+        assert!(resolve_aya_command_target(&request, Some("source")).is_err());
+        assert!(resolve_aya_command_target(&request, Some("unknown")).is_err());
+        assert_eq!(
+            resolve_aya_command_target(&request, None)
+                .unwrap()
+                .terminal_session_id,
+            "host"
+        );
+        request
+            .context
+            .aya_context
+            .as_mut()
+            .unwrap()
+            .execution_target_session_ids
+            .push("source".into());
+        assert!(resolve_aya_command_target(&request, None).is_err());
+    }
+
+    #[test]
+    fn aya_single_target_does_not_ignore_an_incorrect_explicit_id() {
+        let request: AiChatRequest = serde_json::from_value(json!({
+            "action": "generate_command", "userInput": "question",
+            "targets": [{"terminalSessionId": "only", "label": "only", "sessionType": "SSH"}]
+        }))
+        .unwrap();
+        assert!(resolve_aya_command_target(&request, Some("other")).is_err());
+        assert_eq!(
+            resolve_aya_command_target(&request, None)
+                .unwrap()
+                .terminal_session_id,
+            "only"
+        );
+    }
+
+    #[test]
     fn merge_command_output_preserves_stdout_and_stderr() {
         assert_eq!(merge_command_output("", ""), "");
         assert_eq!(merge_command_output("out", ""), "out");
@@ -1678,7 +1814,19 @@ pub(super) async fn run_agent_stream(
         },
     );
 
-    if settings.redaction_enabled {
+    if request.agent_kind == AiAgentKind::Nyaterm {
+        if let Err(error) = prepare_aya_request(&mut request, &session_manager, &settings).await {
+            emit_agent_error(&app, &stream_id, &session_id, &error.to_string());
+            return;
+        }
+        tracing::info!(
+            stream_id = %stream_id,
+            context_target_count = request.targets.len(),
+            file_count = request.context.aya_context.as_ref().map(|context| context.files.len()).unwrap_or(0),
+            execution_target_ids = ?request.context.aya_context.as_ref().map(|context| &context.execution_target_session_ids),
+            "AyaAgent references prepared"
+        );
+    } else if settings.redaction_enabled {
         redact_request(&mut request);
     }
 
@@ -1748,6 +1896,16 @@ pub(super) async fn run_agent_stream(
     );
 
     let mut conversation = build_initial_agent_conversation(&request, &settings, &prior_messages);
+    if request.agent_kind == AiAgentKind::Nyaterm {
+        conversation[0] =
+            ChatMessage::system(build_aya_agent_system_prompt(&request.options.language));
+        if let Some(last) = conversation.pop() {
+            let _ = last;
+        }
+        conversation.push(ChatMessage::user(build_aya_agent_prompt(
+            &request, &settings,
+        )));
+    }
 
     let mut final_answer: Option<String> = None;
     let mut all_steps: Vec<AgentStepPayload> = Vec::new();
@@ -1903,7 +2061,7 @@ pub(super) async fn run_agent_stream(
                 };
 
                 let assessment = assess_agent_command_risk(&parsed, &command);
-                let command_target = match resolve_agent_command_target(
+                let command_target = match resolve_aya_command_target(
                     &request,
                     parsed.target_terminal_session_id.as_deref(),
                 ) {
@@ -1950,6 +2108,10 @@ pub(super) async fn run_agent_stream(
                     local_risk = ?assessment.local_risk,
                     effective_risk = ?assessment.effective_risk,
                     needs_approval = decision == ApprovalDecision::NeedsApproval,
+                    target_session_id = %command_target.terminal_session_id,
+                    target_connection_id = ?command_target.connection_id,
+                    target_endpoint = %command_target.label,
+                    file_source_ids = ?request.context.aya_context.as_ref().map(|context| context.files.iter().map(|file| &file.source_session_id).collect::<Vec<_>>()),
                     command_preview = %safe_command_preview(&command),
                     "AI agent proposed command"
                 );
@@ -2234,6 +2396,8 @@ pub(super) async fn run_agent_stream(
         created_at: now_rfc3339(),
         reasoning_content: None,
         command_cards: vec![],
+        attachments: vec![],
+        references: vec![],
     };
 
     if settings.record_history {
